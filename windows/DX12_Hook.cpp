@@ -29,18 +29,18 @@ bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
+        if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr || ExecuteCommandLists == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook DirectX 12: Rendering functions missing.");
+            return false;
+        }
+
         if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
             return false;
 
         windows_hooked = true;
 
-        if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr || ExecuteCommandLists == nullptr)
-        {
-            //SPDLOG_WARN("Failed to hook DirectX 12: Rendering functions missing.");
-            return false;
-        }
-
-        //SPDLOG_INFO("Hooked DirectX 12");
+        SPDLOG_INFO("Hooked DirectX 12");
         hooked = true;
 
         BeginHook();
@@ -275,12 +275,12 @@ DX12_Hook::DX12_Hook():
 {
     _library = LoadLibraryA(DLL_NAME);
 
-    //SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
+    SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
 
 DX12_Hook::~DX12_Hook()
 {
-    //SPDLOG_INFO("DX12 Hook removed");
+    SPDLOG_INFO("DX12 Hook removed");
 
     if (windows_hooked)
         delete Windows_Hook::Inst();

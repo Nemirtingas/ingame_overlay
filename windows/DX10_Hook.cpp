@@ -29,18 +29,18 @@ bool DX10_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
+        if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook DirectX 11: Rendering functions missing.");
+            return false;
+        }
+
         if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
             return false;
 
         windows_hooked = true;
 
-        if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr)
-        {
-            //SPDLOG_WARN("Failed to hook DirectX 10: Rendering functions missing.");
-            return false;
-        }
-
-        //SPDLOG_INFO("Hooked DirectX 10");
+        SPDLOG_INFO("Hooked DirectX 10");
         hooked = true;
 
         BeginHook();

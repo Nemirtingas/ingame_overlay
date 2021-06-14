@@ -30,18 +30,18 @@ bool DX9_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
+        if (Reset == nullptr || Present == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook DirectX 9: Rendering functions missing.");
+            return false;
+        }
+
         if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
             return false;
 
         windows_hooked = true;
 
-        if (Reset == nullptr || Present == nullptr)
-        {
-            //SPDLOG_WARN("Failed to hook DirectX 9: Rendering functions missing.");
-            return false;
-        }
-
-        //SPDLOG_INFO("Hooked DirectX 9");
+        SPDLOG_INFO("Hooked DirectX 9");
         hooked = true;
 
         BeginHook();
@@ -166,7 +166,7 @@ DX9_Hook::DX9_Hook():
 
 DX9_Hook::~DX9_Hook()
 {
-    //SPDLOG_INFO("DX9 Hook removed");
+    SPDLOG_INFO("DX9 Hook removed");
 
     if (windows_hooked)
         delete Windows_Hook::Inst();

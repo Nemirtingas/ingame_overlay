@@ -31,12 +31,20 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
-        // Not supported until I find out how to hook the event loop
+        if (pfnCGLFlushDrawable == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
+            return false;
+        }
+
+        SPDLOG_ERROR("MacOS OpenGL hook is not supported.");
+
+        // This hook works, but I don't know yet how to hook UI events.
         return false;
         //if (!X11_Hook::Inst()->start_hook(key_combination_callback))
         //    return false;
 
-        //SPDLOG_INFO("Hooked OpenGL");
+        SPDLOG_INFO("Hooked OpenGL");
 
         hooked = true;
 
@@ -112,7 +120,7 @@ OpenGL_Hook::OpenGL_Hook():
 
 OpenGL_Hook::~OpenGL_Hook()
 {
-    //SPDLOG_INFO("OpenGL Hook removed");
+    SPDLOG_INFO("OpenGL Hook removed");
 
     if (initialized)
     {

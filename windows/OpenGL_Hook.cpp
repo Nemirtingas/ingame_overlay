@@ -31,12 +31,18 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
+        if (wglSwapBuffers == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
+            return false;
+        }
+
         if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
             return false;
 
         windows_hooked = true;
 
-        //SPDLOG_INFO("Hooked OpenGL");
+        SPDLOG_INFO("Hooked OpenGL");
 
         hooked = true;
 
@@ -114,12 +120,11 @@ OpenGL_Hook::OpenGL_Hook():
     last_window(nullptr),
     wglSwapBuffers(nullptr)
 {
-    _library = LoadLibraryA(DLL_NAME);
 }
 
 OpenGL_Hook::~OpenGL_Hook()
 {
-    //SPDLOG_INFO("OpenGL Hook removed");
+    SPDLOG_INFO("OpenGL Hook removed");
 
     if (windows_hooked)
         delete Windows_Hook::Inst();
@@ -129,8 +134,6 @@ OpenGL_Hook::~OpenGL_Hook()
         ImGui_ImplOpenGL3_Shutdown();
         ImGui::DestroyContext();
     }
-
-    FreeLibrary(reinterpret_cast<HMODULE>(_library));
 
     _inst = nullptr;
 }
