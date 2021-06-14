@@ -27,7 +27,7 @@ Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
 
 bool Vulkan_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
-    //SPDLOG_WARN("Vulkan overlay is not yet supported.");
+    SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
 }
 
@@ -50,12 +50,11 @@ Vulkan_Hook::Vulkan_Hook():
     windows_hooked(false),
     initialized(false)
 {
-    //_library = LoadLibrary(DLL_NAME);
 }
 
 Vulkan_Hook::~Vulkan_Hook()
 {
-    //SPDLOG_INFO("Vulkan_Hook Hook removed");
+    SPDLOG_INFO("Vulkan_Hook Hook removed");
 
     if (windows_hooked)
         delete Windows_Hook::Inst();
@@ -63,8 +62,6 @@ Vulkan_Hook::~Vulkan_Hook()
     if (initialized)
     {
     }
-
-    //FreeLibrary(reinterpret_cast<HMODULE>(_library));
 
     _inst = nullptr;
 }

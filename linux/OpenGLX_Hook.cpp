@@ -31,6 +31,12 @@ bool OpenGLX_Hook::start_hook(std::function<bool(bool)> key_combination_callback
 {
     if (!hooked)
     {
+        if (glXSwapBuffers == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook OpenGLX: Rendering functions missing.");
+            return false;
+        }
+
         if (!X11_Hook::Inst()->start_hook(key_combination_callback))
             return false;
 

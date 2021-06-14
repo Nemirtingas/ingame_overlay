@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <mini_detour.h>
 #include <vector>
 

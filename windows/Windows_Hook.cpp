@@ -38,7 +38,7 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
         GetCursorPos      = ::GetCursorPos;
         SetCursorPos      = ::SetCursorPos;
 
-        //SPDLOG_INFO("Hooked Windows");
+        SPDLOG_INFO("Hooked Windows");
         key_combination_callback = std::move(_key_combination_callback);
 
         BeginHook();
@@ -323,16 +323,13 @@ Windows_Hook::Windows_Hook() :
     GetAsyncKeyState(nullptr),
     GetKeyboardState(nullptr)
 {
-    //_library = LoadLibrary(DLL_NAME);
 }
 
 Windows_Hook::~Windows_Hook()
 {
-    //SPDLOG_INFO("Windows Hook removed");
+    SPDLOG_INFO("Windows Hook removed");
 
     resetRenderState();
-
-    //FreeLibrary(reinterpret_cast<HMODULE>(_library));
 
     _inst = nullptr;
 }

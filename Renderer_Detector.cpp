@@ -411,7 +411,7 @@ private:
 
             if (pDevice != nullptr)
             {
-                //SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
+                SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
 
                 dx9_hooked = true;
                 HookDX9Present(reinterpret_cast<IDirect3DDevice9*>(pDevice), Direct3DCreate9Ex != nullptr);
@@ -435,7 +435,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to hook D3D9::Present to detect DX Version");
+                SPDLOG_WARN("Failed to hook D3D9::Present to detect DX Version");
             }
 
             if (pDevice) pDevice->Release();
@@ -480,7 +480,7 @@ private:
             }
             if (pSwapChain != nullptr)
             {
-                //SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 dx10_hooked = true;
 
@@ -495,7 +495,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
             if (pDevice)pDevice->Release();
             if (pSwapChain)pSwapChain->Release();
@@ -539,7 +539,7 @@ private:
             }
             if (pSwapChain != nullptr)
             {
-                //SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 dx11_hooked = true;
 
@@ -554,7 +554,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
 
             if (pDevice) pDevice->Release();
@@ -575,8 +575,6 @@ private:
             IDXGISwapChain1* pSwapChain = nullptr;
             ID3D12CommandQueue* pCommandQueue = nullptr;
             ID3D12Device* pDevice = nullptr;
-            //ID3D12CommandAllocator* pCommandAllocator = nullptr;
-            //ID3D12GraphicsCommandList* pCommandList = nullptr;
 
             HMODULE library = LoadLibraryA(DX12_Hook::DLL_NAME);
             if (library != nullptr)
@@ -619,12 +617,6 @@ private:
                                     if (pDXGIFactory != nullptr)
                                     {
                                         pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, dummyWindow, &SwapChainDesc, NULL, NULL, &pSwapChain);
-                        
-                                        //pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCommandAllocator));
-                                        //if (pCommandAllocator != nullptr)
-                                        //{
-                                        //    pDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCommandAllocator, NULL, IID_PPV_ARGS(&pCommandList));
-                                        //}
                                     }
                                 }
                             }
@@ -634,7 +626,7 @@ private:
             }//if (library != nullptr)
             if (pCommandQueue != nullptr && pSwapChain != nullptr)
             {
-                //SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 dx12_hooked = true;
 
@@ -653,11 +645,9 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
 
-            //if (pCommandList) pCommandList->Release();
-            //if (pCommandAllocator) pCommandAllocator->Release();
             if (pSwapChain) pSwapChain->Release();
             if (pDXGIFactory) pDXGIFactory->Release();
             if (pCommandQueue) pCommandQueue->Release();
@@ -682,7 +672,7 @@ private:
             }
             if (wglSwapBuffers != nullptr)
             {
-                //SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
+                SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
 
                 opengl_hooked = true;
 
@@ -693,7 +683,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
+                SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
             }
 
             if (library != nullptr)
@@ -715,7 +705,7 @@ private:
             }
             if (vkQueuePresentKHR != nullptr)
             {
-                //SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
+                SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
 
                 vulkan_hooked = true;
                 
@@ -726,7 +716,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
+                SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
             }
 
             if (library != nullptr)
@@ -882,7 +872,7 @@ private:
             }
             if (glXSwapBuffers != nullptr)
             {
-                //SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
+                SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
 
                 openglx_hooked = true;
 
@@ -893,7 +883,7 @@ private:
             }
             else
             {
-                //SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
+                SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
             }
 
             if (libGLX != nullptr)
@@ -1017,17 +1007,18 @@ private:
    {
        if (!opengl_hooked)
        {
-           void* libOpenGL = Library::open_library(library_path);
+           Library libOpenGL;
+           libOpenGL.load_library(library_path, false);
 
            decltype(::CGLFlushDrawable)* CGLFlushDrawable = nullptr;
 
            if (libOpenGL != nullptr)
            {
-               CGLFlushDrawable = (decltype(CGLFlushDrawable))dlsym(libOpenGL, "CGLFlushDrawable");
+               CGLFlushDrawable = libOpenGL.get_symbol<decltype(CGLFlushDrawable)>("CGLFlushDrawable");
            }
            if (CGLFlushDrawable != nullptr)
            {
-               //SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
+               SPDLOG_INFO("Hooked CGLFlushDrawable to detect OpenGL");
 
                opengl_hooked = true;
 
@@ -1038,7 +1029,7 @@ private:
            }
            else
            {
-               //SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
+               SPDLOG_WARN("Failed to Hook CGLFlushDrawable to detect OpenGL");
            }
 
            if (libOpenGL != nullptr)
@@ -1080,7 +1071,7 @@ public:
        {
            std::lock_guard<std::mutex> lk(renderer_mutex);
            detection_done = true;
-           //delete openglx_hook; openglx_hook = nullptr;
+           delete opengl_hook; opengl_hook = nullptr;
            //delete vulkan_hook; vulkan_hook = nullptr;
        }
 
@@ -1088,7 +1079,7 @@ public:
    }
 };
 
-Renderer_Detector*Renderer_Detector::instance = nullptr;
+Renderer_Detector* Renderer_Detector::instance = nullptr;
 
 #endif
 

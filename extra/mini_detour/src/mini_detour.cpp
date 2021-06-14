@@ -6,6 +6,8 @@
 #include <limits>
 #include <type_traits> // std::move
 
+#include <spdlog/spdlog.h>
+
 #if defined(WIN64) || defined(_WIN64) || defined(__MINGW64__)
     #define MINIDETOUR_OS_WINDOWS
     #define MINIDETOUR_ARCH_X64
@@ -490,7 +492,7 @@ public:
             {
                 if (!mem->used)
                 {
-                    //SPDLOG_DEBUG("Using free memory at {}", (void*)mem);
+                    SPDLOG_DEBUG("Using free memory at {}", (void*)mem);
                     if (!mem_protect(mem, sizeof(memory_t), mem_protect_rights::mem_rwx))
                         return nullptr;
 
@@ -506,14 +508,14 @@ public:
             return nullptr;
 
         mem_region->mem_addr->used = 1;
-        //SPDLOG_DEBUG("Using new memory at {}", (void*)mem_region->mem_addr);
+        SPDLOG_DEBUG("Using new memory at {}", (void*)mem_region->mem_addr);
 
         return mem_region->mem_addr->data;
     }
 
     void FreeMemory(void* memory)
     {
-        //SPDLOG_DEBUG("Freeing memory {}", memory);
+        SPDLOG_DEBUG("Freeing memory {}", memory);
         memory_t* mem = reinterpret_cast<memory_t*>(reinterpret_cast<uint8_t*>(memory)- 1);
 
         if (!mem_protect(mem, sizeof(memory_t), mem_protect_rights::mem_rwx))
@@ -731,8 +733,8 @@ int read_opcode(uint8_t* pCode, uint8_t** relocation)
 
     if (s_1byte_opcodes[*pCode].base_size == 0)
     {
-        //SPDLOG_DEBUG("Unknown opcode {:02x}", pCode[0]);
-        //SPDLOG_DEBUG("Next opcodes: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", pCode[1], pCode[2], pCode[3], pCode[4], pCode[5], pCode[6]);
+        SPDLOG_DEBUG("Unknown opcode {:02x}", pCode[0]);
+        SPDLOG_DEBUG("Next opcodes: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", pCode[1], pCode[2], pCode[3], pCode[4], pCode[5], pCode[6]);
 
         return 0;
     }
@@ -740,16 +742,16 @@ int read_opcode(uint8_t* pCode, uint8_t** relocation)
     if (s_1byte_opcodes[*pCode].has_r_m)
     {
         code_len = read_mod_reg_rm_opcode(pCode, relocation);
-        //SPDLOG_DEBUG("Opcode {}, base_size: {}, has_r_m: {}, opcode_size: {}",
-        //    s_1byte_opcodes[*pCode].desc,
-        //    (int)s_1byte_opcodes[*pCode].base_size,
-        //    (int)s_1byte_opcodes[*pCode].has_r_m,
-        //    code_len);
+        SPDLOG_DEBUG("Opcode {}, base_size: {}, has_r_m: {}, opcode_size: {}",
+            s_1byte_opcodes[*pCode].desc,
+            (int)s_1byte_opcodes[*pCode].base_size,
+            (int)s_1byte_opcodes[*pCode].has_r_m,
+            code_len);
         return code_len;
     }
     else
     {
-        //SPDLOG_DEBUG("Opcode {}, size: {}", s_1byte_opcodes[*pCode].desc, (int)s_1byte_opcodes[*pCode].base_size);
+        SPDLOG_DEBUG("Opcode {}, size: {}", s_1byte_opcodes[*pCode].desc, (int)s_1byte_opcodes[*pCode].base_size);
 
         switch (*pCode)
         {
@@ -790,7 +792,7 @@ int read_opcode(uint8_t* pCode, uint8_t** relocation)
                 // TODO: need to look at this
                 if (pCode[1] == 0x0f)
                 {
-                    //SPDLOG_DEBUG("REP: {:02x} {:02x} {:02x} {:02x}", pCode[0], pCode[1], pCode[2], pCode[3]);
+                    SPDLOG_DEBUG("REP: {:02x} {:02x} {:02x} {:02x}", pCode[0], pCode[1], pCode[2], pCode[3]);
                     return 4;
                 }
                 return 0;
@@ -821,8 +823,8 @@ int read_opcode(uint8_t* pCode, uint8_t** relocation)
     // If we are here, then its a 2bytes opcode
     if (s_2bytes_opcodes[*(pCode+1)].base_size == 0)
     {
-        //SPDLOG_DEBUG("Unknown 2bytes opcode {:02x} {:02x}", pCode[0], pCode[1]);
-        //SPDLOG_DEBUG("Next opcodes: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", pCode[2], pCode[3], pCode[4], pCode[5], pCode[6], pCode[7]);
+        SPDLOG_DEBUG("Unknown 2bytes opcode {:02x} {:02x}", pCode[0], pCode[1]);
+        SPDLOG_DEBUG("Next opcodes: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}", pCode[2], pCode[3], pCode[4], pCode[5], pCode[6], pCode[7]);
 
         return 0;
     }
@@ -831,7 +833,7 @@ int read_opcode(uint8_t* pCode, uint8_t** relocation)
     if (s_2bytes_opcodes[*pCode].has_r_m)
     {
         code_len = read_mod_reg_rm_opcode(pCode, relocation);
-        //SPDLOG_DEBUG("Read {} bytes for 2bytes opcode {:02x} {:02x}", code_len, pCode[0], pCode[1]);
+        SPDLOG_DEBUG("Read {} bytes for 2bytes opcode {:02x} {:02x}", code_len, pCode[0], pCode[1]);
         return code_len;
     }
     else

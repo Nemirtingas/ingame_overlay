@@ -2,3 +2,7 @@
 	path = extra/ImGui
 	url = https://github.com/Nemirtingas/imgui.git
 	branch = my_master
+
+[submodule "extra/spdlog"]
+	path = extra/spdlog
+	url = https://github.com/gabime/spdlog

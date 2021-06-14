@@ -84,6 +84,10 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(Threads REQUIRED)
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/extra/spdlog/)
+
 file(
   GLOB
   minidetour_sources
@@ -123,6 +127,13 @@ target_include_directories(
   extra/library/include
   extra/glad2/include
   extra/vulkan_sdk/include
+)
+
+target_link_libraries(
+  ingame_overlay
+  PRIVATE
+  Threads::Threads
+  spdlog::spdlog
 )
 
 target_compile_definitions(
