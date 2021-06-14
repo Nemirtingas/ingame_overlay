@@ -111,6 +111,8 @@ bool IgnoreEvent(XEvent &event)
         case ButtonPress: case ButtonRelease:
         // Mouse move
         case MotionNotify:
+        // Copy to clipboard request
+        case SelectionRequest:
             return true;
     }
     return false;
@@ -154,6 +156,8 @@ int X11_Hook::check_for_overlay(Display *d, int num_events)
 
             if (!skip_input || !IgnoreEvent(event))
             {
+                if(num_events)
+                    num_events = 1;
                 break;
             }
 
