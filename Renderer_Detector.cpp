@@ -1008,13 +1008,12 @@ private:
        if (!opengl_hooked)
        {
            Library libOpenGL;
-           libOpenGL.load_library(library_path, false);
 
            decltype(::CGLFlushDrawable)* CGLFlushDrawable = nullptr;
 
-           if (libOpenGL != nullptr)
+           if (libOpenGL.load_library(library_path, false))
            {
-               CGLFlushDrawable = libOpenGL.get_symbol<decltype(CGLFlushDrawable)>("CGLFlushDrawable");
+               CGLFlushDrawable = libOpenGL.get_symbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
            }
            if (CGLFlushDrawable != nullptr)
            {
@@ -1030,11 +1029,6 @@ private:
            else
            {
                SPDLOG_WARN("Failed to Hook CGLFlushDrawable to detect OpenGL");
-           }
-
-           if (libOpenGL != nullptr)
-           {
-               dlclose(libOpenGL);
            }
        }
    }
