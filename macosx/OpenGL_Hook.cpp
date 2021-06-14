@@ -31,7 +31,7 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
     {
-        if (pfnCGLFlushDrawable == nullptr)
+        if (CGLFlushDrawable == nullptr)
         {
             SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;
