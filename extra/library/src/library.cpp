@@ -124,51 +124,10 @@
 
         std::string Library::get_module_path(void* handle)
         {
-            std::string res;
+            Dl_info infos;
+            dladdr(*(void**)handle, &infos);
 
-            std::string const self("/proc/self/map_files/");
-            DIR* dir;
-            struct dirent* dir_entry;
-
-            dir = opendir(self.c_str());
-            if (dir != nullptr)
-            {
-                std::string file_path;
-                while ((dir_entry = readdir(dir)) != nullptr)
-                {
-                    file_path = (self + dir_entry->d_name);
-                    if (dir_entry->d_type != DT_LNK)
-                    {// Not a link
-                        continue;
-                    }
-
-                    char* pos = dir_entry->d_name;
-                    uintptr_t start = static_cast<uintptr_t>(strtoull(pos, &pos, 16));
-                    if (start != 0)
-                    {
-                        ++pos;
-                        uintptr_t end = static_cast<uintptr_t>(strtoull(pos, &pos, 16));
-                        uintptr_t p = reinterpret_cast<uintptr_t>(handle);
-                        if (end != 0 && (start <= p && p <= end))
-                        {
-                            size_t name_len = 32;
-                            do
-                            {
-                                name_len *= 2;
-                                res.resize(name_len);
-                                name_len = readlink(file_path.c_str(), &res[0], res.length());
-                            } while (name_len == res.length());
-                            res.resize(name_len);
-                            break;
-                        }
-                    }
-
-                }
-
-                closedir(dir);
-            }
-
-            return res;
+            return std::string(infos.dli_fname == nullptr ? "" : infos.dli_fname);
         }
 
         void* Library::get_module_handle(std::string const& library_name)
