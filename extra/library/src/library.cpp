@@ -82,7 +82,6 @@
 
     std::string Library::get_module_path(void* handle)
     {
-        std::string path;
         std::wstring wpath(1024, L'\0');
 
         DWORD size;
@@ -192,7 +191,7 @@
                         continue;
                     }
 
-                    ssize_t name_len = 32;
+                    ssize_t name_len = 128;
                     do
                     {
                         name_len *= 2;
