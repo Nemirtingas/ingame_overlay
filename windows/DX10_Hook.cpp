@@ -150,7 +150,6 @@ DX10_Hook::DX10_Hook():
     ResizeBuffers(nullptr),
     ResizeTarget(nullptr)
 {
-    _library = LoadLibraryA(DLL_NAME);
 }
 
 DX10_Hook::~DX10_Hook()
@@ -170,8 +169,6 @@ DX10_Hook::~DX10_Hook()
         initialized = false;
     }
 
-    FreeLibrary(reinterpret_cast<HMODULE>(_library));
-
     _inst = nullptr;
 }
 
@@ -185,7 +182,7 @@ DX10_Hook* DX10_Hook::Inst()
 
 const char* DX10_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void DX10_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn)

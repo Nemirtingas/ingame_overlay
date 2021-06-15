@@ -25,7 +25,7 @@
 
 DX11_Hook* DX11_Hook::_inst = nullptr;
 
-HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
+static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
 {
     HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
 
@@ -190,7 +190,6 @@ DX11_Hook::DX11_Hook():
     ResizeBuffers(nullptr),
     ResizeTarget(nullptr)
 {
-    _library = LoadLibraryA(DLL_NAME);
 }
 
 DX11_Hook::~DX11_Hook()
@@ -213,8 +212,6 @@ DX11_Hook::~DX11_Hook()
         initialized = false;
     }
 
-    FreeLibrary(reinterpret_cast<HMODULE>(_library));
-
     _inst = nullptr;
 }
 
@@ -228,7 +225,7 @@ DX11_Hook* DX11_Hook::Inst()
 
 const char* DX11_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void DX11_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn)

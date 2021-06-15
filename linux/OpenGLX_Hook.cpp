@@ -174,7 +174,7 @@ OpenGLX_Hook* OpenGLX_Hook::Inst()
 
 const char* OpenGLX_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void OpenGLX_Hook::loadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)

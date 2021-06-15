@@ -141,7 +141,7 @@ OpenGL_Hook* OpenGL_Hook::Inst()
 
 const char* OpenGL_Hook::get_lib_name() const
 {
-    return OpenGL_HookConsts::dll_name;
+    return library_name.c_str();
 }
 
 void OpenGL_Hook::loadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)

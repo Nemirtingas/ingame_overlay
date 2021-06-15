@@ -161,7 +161,6 @@ DX9_Hook::DX9_Hook():
     PresentEx(nullptr),
     Reset(nullptr)
 {
-    _library = LoadLibraryA(DLL_NAME);
 }
 
 DX9_Hook::~DX9_Hook()
@@ -177,8 +176,6 @@ DX9_Hook::~DX9_Hook()
         ImGui::DestroyContext();
     }
 
-    FreeLibrary(reinterpret_cast<HMODULE>(_library));
-
     _inst = nullptr;
 }
 
@@ -192,7 +189,7 @@ DX9_Hook* DX9_Hook::Inst()
 
 const char* DX9_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void DX9_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(EndScene) EndSceneFcn, decltype(PresentEx) PresentExFcn)

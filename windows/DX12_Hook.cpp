@@ -273,8 +273,6 @@ DX12_Hook::DX12_Hook():
     ResizeTarget(nullptr),
     ExecuteCommandLists(nullptr)
 {
-    _library = LoadLibraryA(DLL_NAME);
-
     SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
 
@@ -303,8 +301,6 @@ DX12_Hook::~DX12_Hook()
         initialized = false;
     }
 
-    FreeLibrary(reinterpret_cast<HMODULE>(_library));
-
     _inst = nullptr;
 }
 
@@ -318,7 +314,7 @@ DX12_Hook* DX12_Hook::Inst()
 
 const char* DX12_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void DX12_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn, decltype(ExecuteCommandLists) ExecuteCommandListsFcn)

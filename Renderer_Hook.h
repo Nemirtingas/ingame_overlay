@@ -42,13 +42,12 @@ public:
         overlay_hook_ready(&default_overlay_hook_ready)
     {}
 
-    using overlay_proc_t = void();
-    using overlay_hook_ready_t = void(bool);
+    std::string library_name;
 
     static void default_overlay_proc() {}
     static void default_overlay_hook_ready(bool) {}
-    std::function<overlay_proc_t> overlay_proc;
-    std::function<overlay_hook_ready_t> overlay_hook_ready;
+    std::function<void()> overlay_proc;
+    std::function<void(bool)> overlay_hook_ready;
 
     virtual bool start_hook(std::function<bool(bool)> key_combination_callback) = 0;
     virtual bool is_started() = 0;

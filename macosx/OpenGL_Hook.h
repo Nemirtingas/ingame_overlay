@@ -24,12 +24,11 @@
 struct CGLDrawable_t;
 extern "C" int64_t CGLFlushDrawable(CGLDrawable_t*);
 
-namespace OpenGL_HookConsts {
-static constexpr const char dll_name[] = "OpenGL";
-}
-
 class OpenGL_Hook : public Renderer_Hook
 {
+public:
+    static constexpr const char *DLL_NAME = "OpenGL";
+
 private:
     static OpenGL_Hook* _inst;
 
