@@ -238,15 +238,16 @@ UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand,
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     auto res = inst->GetRawInputData(hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
-    if (!inst->initialized)
+    if (!inst->initialized || pData == nullptr)
         return res;
 
-    if (pData != nullptr && uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
+    if (uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
     if (!inst->key_combination_callback(false))
         return res;
 
+    memset(pData, 0, *pcbSize);
     *pcbSize = 0;
     return 0;
 }
