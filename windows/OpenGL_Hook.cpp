@@ -148,7 +148,7 @@ OpenGL_Hook* OpenGL_Hook::Inst()
 
 const char* OpenGL_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void OpenGL_Hook::loadFunctions(wglSwapBuffers_t pfnwglSwapBuffers)

@@ -331,9 +331,14 @@ private:
         }
     }
 
-    void HookDX9Present(IDirect3DDevice9* pDevice, bool ex)
+    void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, void*& pfnPresent, void*& pfnReset, void*& pfnEndScene, void*& pfnPresentEx)
     {
         void** vTable = *reinterpret_cast<void***>(pDevice);
+        pfnPresent   = (void*)vTable[(int)IDirect3DDevice9VTable::Present];
+        pfnReset     = (void*)vTable[(int)IDirect3DDevice9VTable::Reset];
+        pfnEndScene  = (void*)vTable[(int)IDirect3DDevice9VTable::EndScene];
+        pfnPresentEx = (ex ? (void*)vTable[(int)IDirect3DDevice9VTable::PresentEx] : nullptr);
+
         (void*&)IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
 
         hooks.BeginHook();
@@ -350,7 +355,7 @@ private:
         }
         else
         {
-            IDirect3DDevice9Present = nullptr;
+            IDirect3DDevice9ExPresentEx = nullptr;
         }
     }
 
@@ -374,38 +379,44 @@ private:
         hooks.EndHook();
     }
 
-    void hook_dx9()
+    void hook_dx9(std::string const& library_path)
     {
         if (!dx9_hooked)
         {
+            Library libD3d9;
+            if (!libD3d9.load_library(library_path, false))
+            {
+                SPDLOG_WARN("Failed to load {} to detect DX9", library_path);
+                return;
+            }
+
             IDirect3D9Ex* pD3D = nullptr;
             IUnknown* pDevice = nullptr;
-            HMODULE library = LoadLibraryA(DX9_Hook::DLL_NAME);
-            decltype(Direct3DCreate9Ex)* Direct3DCreate9Ex = nullptr;
-            if (library != nullptr)
-            {
-                Direct3DCreate9Ex = (decltype(Direct3DCreate9Ex))GetProcAddress(library, "Direct3DCreate9Ex");
-                D3DPRESENT_PARAMETERS params = {};
-                params.BackBufferWidth = 1;
-                params.BackBufferHeight = 1;
-                params.hDeviceWindow = dummyWindow;
-                params.BackBufferCount = 1;
-                params.Windowed = TRUE;
-                params.SwapEffect = D3DSWAPEFFECT_DISCARD;
 
-                if (Direct3DCreate9Ex != nullptr)
+            auto Direct3DCreate9Ex = libD3d9.get_symbol<decltype(::Direct3DCreate9Ex)>("Direct3DCreate9Ex");
+
+            D3DPRESENT_PARAMETERS params = {};
+            params.BackBufferWidth = 1;
+            params.BackBufferHeight = 1;
+            params.hDeviceWindow = dummyWindow;
+            params.BackBufferCount = 1;
+            params.Windowed = TRUE;
+            params.SwapEffect = D3DSWAPEFFECT_DISCARD;
+
+            if (Direct3DCreate9Ex != nullptr)
+            {
+                Direct3DCreate9Ex(D3D_SDK_VERSION, &pD3D);
+                pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
+            }
+            
+            if (pDevice == nullptr)
+            {
+                Direct3DCreate9Ex = nullptr;
+                auto Direct3DCreate9 = libD3d9.get_symbol<decltype(::Direct3DCreate9)>("Direct3DCreate9");
+                if (Direct3DCreate9 != nullptr)
                 {
-                    Direct3DCreate9Ex(D3D_SDK_VERSION, &pD3D);
-                    pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
-                }
-                else
-                {
-                    decltype(Direct3DCreate9)* Direct3DCreate9 = (decltype(Direct3DCreate9))GetProcAddress(library, "Direct3DCreate9");
-                    if (Direct3DCreate9 != nullptr)
-                    {
-                        pD3D = reinterpret_cast<IDirect3D9Ex*>(Direct3DCreate9(D3D_SDK_VERSION));
-                        pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, reinterpret_cast<IDirect3DDevice9**>(&pDevice));
-                    }
+                    pD3D = reinterpret_cast<IDirect3D9Ex*>(Direct3DCreate9(D3D_SDK_VERSION));
+                    pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, reinterpret_cast<IDirect3DDevice9**>(&pDevice));
                 }
             }
 
@@ -414,23 +425,16 @@ private:
                 SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
 
                 dx9_hooked = true;
-                HookDX9Present(reinterpret_cast<IDirect3DDevice9*>(pDevice), Direct3DCreate9Ex != nullptr);
 
-                void** vTable = *reinterpret_cast<void***>(pDevice);
                 decltype(&IDirect3DDevice9::Present) pfnPresent;
                 decltype(&IDirect3DDevice9::Reset) pfnReset;
                 decltype(&IDirect3DDevice9::EndScene) pfnEndScene;
-                decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx = nullptr;
+                decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
 
-                (void*&)pfnPresent   = (void*)vTable[(int)IDirect3DDevice9VTable::Present];
-                (void*&)pfnReset     = (void*)vTable[(int)IDirect3DDevice9VTable::Reset];
-                (void*&)pfnEndScene  = (void*)vTable[(int)IDirect3DDevice9VTable::EndScene];
-                if (Direct3DCreate9Ex != nullptr)
-                {
-                    (void*&)pfnPresentEx = (void*)vTable[(int)IDirect3DDevice9VTable::PresentEx];
-                }
+                HookDX9Present(reinterpret_cast<IDirect3DDevice9*>(pDevice), Direct3DCreate9Ex != nullptr, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnEndScene, (void*&)pfnPresentEx);
 
                 dx9_hook = DX9_Hook::Inst();
+                dx9_hook->library_name = library_path;
                 dx9_hook->loadFunctions(pfnPresent, pfnReset, pfnEndScene, pfnPresentEx);
             }
             else
@@ -440,44 +444,44 @@ private:
 
             if (pDevice) pDevice->Release();
             if (pD3D) pD3D->Release();
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
-    void hook_dx10()
+    void hook_dx10(std::string const& library_path)
     {
         if (!dx10_hooked)
         {
+            Library libD3d10;
+            if (!libD3d10.load_library(library_path, false))
+            {
+                SPDLOG_WARN("Failed to load {} to detect DX10", library_path);
+                return;
+            }
+
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D10Device* pDevice = nullptr;
-            HMODULE library = LoadLibraryA(DX10_Hook::DLL_NAME);
-            if (library != nullptr)
+
+            auto D3D10CreateDeviceAndSwapChain = libD3d10.get_symbol<decltype(::D3D10CreateDeviceAndSwapChain)>("D3D10CreateDeviceAndSwapChain");
+
+            if (D3D10CreateDeviceAndSwapChain != nullptr)
             {
-                decltype(D3D10CreateDeviceAndSwapChain)* D3D10CreateDeviceAndSwapChain =
-                    (decltype(D3D10CreateDeviceAndSwapChain))GetProcAddress(library, "D3D10CreateDeviceAndSwapChain");
-                if (D3D10CreateDeviceAndSwapChain != nullptr)
-                {
-                    DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
+                DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
 
-                    SwapChainDesc.BufferCount = 1;
-                    SwapChainDesc.BufferDesc.Width = 1;
-                    SwapChainDesc.BufferDesc.Height = 1;
-                    SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
-                    SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
-                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = dummyWindow;
-                    SwapChainDesc.SampleDesc.Count = 1;
-                    SwapChainDesc.SampleDesc.Quality = 0;
-                    SwapChainDesc.Windowed = TRUE;
+                SwapChainDesc.BufferCount = 1;
+                SwapChainDesc.BufferDesc.Width = 1;
+                SwapChainDesc.BufferDesc.Height = 1;
+                SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
+                SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
+                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                SwapChainDesc.OutputWindow = dummyWindow;
+                SwapChainDesc.SampleDesc.Count = 1;
+                SwapChainDesc.SampleDesc.Quality = 0;
+                SwapChainDesc.Windowed = TRUE;
 
-                    D3D10CreateDeviceAndSwapChain(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice);
-                }
+                D3D10CreateDeviceAndSwapChain(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice);
             }
+
             if (pSwapChain != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
@@ -491,6 +495,7 @@ private:
                 HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
 
                 dx10_hook = DX10_Hook::Inst();
+                dx10_hook->library_name = library_path;
                 dx10_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget);
             }
             else
@@ -499,44 +504,44 @@ private:
             }
             if (pDevice)pDevice->Release();
             if (pSwapChain)pSwapChain->Release();
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
-    void hook_dx11()
+    void hook_dx11(std::string const& library_path)
     {
         if (!dx11_hooked)
         {
+            Library libD3d11;
+            if (!libD3d11.load_library(library_path, false))
+            {
+                SPDLOG_WARN("Failed to load {} to detect DX11", library_path);
+                return;
+            }
+
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D11Device* pDevice = nullptr;
-            HMODULE library = LoadLibraryA(DX11_Hook::DLL_NAME);
-            if (library != nullptr)
+
+            auto D3D11CreateDeviceAndSwapChain = libD3d11.get_symbol<decltype(::D3D11CreateDeviceAndSwapChain)>("D3D11CreateDeviceAndSwapChain");
+            
+            if (D3D11CreateDeviceAndSwapChain != nullptr)
             {
-                decltype(D3D11CreateDeviceAndSwapChain)* D3D11CreateDeviceAndSwapChain =
-                    (decltype(D3D11CreateDeviceAndSwapChain))GetProcAddress(library, "D3D11CreateDeviceAndSwapChain");
-                if (D3D11CreateDeviceAndSwapChain != nullptr)
-                {
-                    DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
+                DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
 
-                    SwapChainDesc.BufferCount = 1;
-                    SwapChainDesc.BufferDesc.Width = 1;
-                    SwapChainDesc.BufferDesc.Height = 1;
-                    SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
-                    SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
-                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = dummyWindow;
-                    SwapChainDesc.SampleDesc.Count = 1;
-                    SwapChainDesc.SampleDesc.Quality = 0;
-                    SwapChainDesc.Windowed = TRUE;
+                SwapChainDesc.BufferCount = 1;
+                SwapChainDesc.BufferDesc.Width = 1;
+                SwapChainDesc.BufferDesc.Height = 1;
+                SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
+                SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
+                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                SwapChainDesc.OutputWindow = dummyWindow;
+                SwapChainDesc.SampleDesc.Count = 1;
+                SwapChainDesc.SampleDesc.Quality = 0;
+                SwapChainDesc.Windowed = TRUE;
 
-                    D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, NULL, D3D11_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice, NULL, NULL);
-                }
+                D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, NULL, D3D11_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice, NULL, NULL);
             }
+
             if (pSwapChain != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
@@ -550,6 +555,7 @@ private:
                 HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
 
                 dx11_hook = DX11_Hook::Inst();
+                dx11_hook->library_name = library_path;
                 dx11_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget);
             }
             else
@@ -559,71 +565,69 @@ private:
 
             if (pDevice) pDevice->Release();
             if (pSwapChain) pSwapChain->Release();
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
-    void hook_dx12()
+    void hook_dx12(std::string const& library_path)
     {
         if (!dx12_hooked)
         {
+            Library libD3d12;
+            if (!libD3d12.load_library(library_path, false))
+            {
+                SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
+                return;
+            }
+
             IDXGIFactory4* pDXGIFactory = nullptr;
             IDXGISwapChain1* pSwapChain = nullptr;
             ID3D12CommandQueue* pCommandQueue = nullptr;
             ID3D12Device* pDevice = nullptr;
 
-            HMODULE library = LoadLibraryA(DX12_Hook::DLL_NAME);
-            if (library != nullptr)
+            auto D3D12CreateDevice = libD3d12.get_symbol<decltype(::D3D12CreateDevice)>("D3D12CreateDevice");
+
+            if (D3D12CreateDevice != nullptr)
             {
-                decltype(D3D12CreateDevice)* D3D12CreateDevice =
-                    (decltype(D3D12CreateDevice))GetProcAddress(library, "D3D12CreateDevice");
+                D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&pDevice));
 
-                if (D3D12CreateDevice != nullptr)
+                if (pDevice != nullptr)
                 {
-                    D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&pDevice));
+                    DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
+                    SwapChainDesc.BufferCount = 2;
+                    SwapChainDesc.Width = 1;
+                    SwapChainDesc.Height = 1;
+                    SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                    SwapChainDesc.Stereo = FALSE;
+                    SwapChainDesc.SampleDesc = { 1, 0 };
+                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                    SwapChainDesc.Scaling = DXGI_SCALING_NONE;
+                    SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                    SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 
-                    if (pDevice != nullptr)
+                    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+                    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+                    queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+                    pDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&pCommandQueue));
+
+                    if (pCommandQueue != nullptr)
                     {
-                        DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
-                        SwapChainDesc.BufferCount = 2;
-                        SwapChainDesc.Width = 1;
-                        SwapChainDesc.Height = 1;
-                        SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                        SwapChainDesc.Stereo = FALSE;
-                        SwapChainDesc.SampleDesc = { 1, 0 };
-                        SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                        SwapChainDesc.Scaling = DXGI_SCALING_NONE;
-                        SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-                        SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-                        D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-                        queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-                        queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-                        pDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&pCommandQueue));
-
-                        if (pCommandQueue != nullptr)
+                        HMODULE dxgi = GetModuleHandleA("dxgi.dll");
+                        if (dxgi != nullptr)
                         {
-                            HMODULE dxgi = GetModuleHandleA("dxgi.dll");
-                            if (dxgi != nullptr)
+                            decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
+                            if (CreateDXGIFactory1 != nullptr)
                             {
-                                decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
-                                if (CreateDXGIFactory1 != nullptr)
+                                CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
+                                if (pDXGIFactory != nullptr)
                                 {
-                                    CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
-                                    if (pDXGIFactory != nullptr)
-                                    {
-                                        pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, dummyWindow, &SwapChainDesc, NULL, NULL, &pSwapChain);
-                                    }
+                                    pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, dummyWindow, &SwapChainDesc, NULL, NULL, &pSwapChain);
                                 }
                             }
                         }
-                    }//if (pDevice != nullptr)
-                }//if (D3D12CreateDevice != nullptr)
-            }//if (library != nullptr)
+                    }
+                }//if (pDevice != nullptr)
+            }//if (D3D12CreateDevice != nullptr)
+
             if (pCommandQueue != nullptr && pSwapChain != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
@@ -641,6 +645,7 @@ private:
                 (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
 
                 dx12_hook = DX12_Hook::Inst();
+                dx12_hook->library_name = library_path;
                 dx12_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnExecuteCommandLists);
             }
             else
@@ -652,24 +657,21 @@ private:
             if (pDXGIFactory) pDXGIFactory->Release();
             if (pCommandQueue) pCommandQueue->Release();
             if (pDevice) pDevice->Release();
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
-    void hook_opengl()
+    void hook_opengl(std::string const& library_path)
     {
         if (!opengl_hooked)
         {
-            HMODULE library = LoadLibraryA(OpenGL_Hook::DLL_NAME);
-            decltype(::SwapBuffers)* wglSwapBuffers = nullptr;
-            if (library != nullptr)
+            Library libOpenGL;
+            if (!libOpenGL.load_library(library_path, false))
             {
-                wglSwapBuffers = (decltype(wglSwapBuffers))GetProcAddress(library, "wglSwapBuffers");
+                SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
+                return;
             }
+
+            auto wglSwapBuffers = libOpenGL.get_symbol<decltype(::SwapBuffers)>("wglSwapBuffers");
             if (wglSwapBuffers != nullptr)
             {
                 SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
@@ -677,6 +679,7 @@ private:
                 opengl_hooked = true;
 
                 opengl_hook = OpenGL_Hook::Inst();
+                opengl_hook->library_name = library_path;
                 opengl_hook->loadFunctions(wglSwapBuffers);
 
                 HookwglSwapBuffers(wglSwapBuffers);
@@ -685,24 +688,21 @@ private:
             {
                 SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
             }
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
-    void hook_vulkan()
+    void hook_vulkan(std::string const& library_path)
     {
         if (!vulkan_hooked)
         {
-            HMODULE library = LoadLibraryA(Vulkan_Hook::DLL_NAME);
-            decltype(::vkQueuePresentKHR)* vkQueuePresentKHR = nullptr;
-            if (library != nullptr)
+            Library libVulkan;
+            if (!libVulkan.load_library(library_path, false))
             {
-                vkQueuePresentKHR = (decltype(vkQueuePresentKHR))GetProcAddress(library, "vkQueuePresentKHR");
+                SPDLOG_WARN("Failed to load {} to detect Vulkan", library_path);
+                return;
             }
+
+            auto vkQueuePresentKHR = libVulkan.get_symbol<decltype(::vkQueuePresentKHR)>("vkQueuePresentKHR");
             if (vkQueuePresentKHR != nullptr)
             {
                 SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
@@ -710,6 +710,7 @@ private:
                 vulkan_hooked = true;
                 
                 vulkan_hook = Vulkan_Hook::Inst();
+                vulkan_hook->library_name = library_path;
                 vulkan_hook->loadFunctions();
                 
                 HookvkQueuePresentKHR(vkQueuePresentKHR);
@@ -718,24 +719,19 @@ private:
             {
                 SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
             }
-
-            if (library != nullptr)
-            {
-                FreeLibrary(library);
-            }
         }
     }
 
 public:
     Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
-        std::pair<const char*, void(Renderer_Detector::*)()> libraries[]{
-            std::pair<const char*, void(Renderer_Detector::*)()>{  DX12_Hook::DLL_NAME,& Renderer_Detector::hook_dx12},
-            std::pair<const char*, void(Renderer_Detector::*)()>{  DX11_Hook::DLL_NAME,& Renderer_Detector::hook_dx11},
-            std::pair<const char*, void(Renderer_Detector::*)()>{  DX10_Hook::DLL_NAME,& Renderer_Detector::hook_dx10},
-            std::pair<const char*, void(Renderer_Detector::*)()>{   DX9_Hook::DLL_NAME,& Renderer_Detector::hook_dx9},
-            std::pair<const char*, void(Renderer_Detector::*)()>{OpenGL_Hook::DLL_NAME,& Renderer_Detector::hook_opengl},
-            std::pair<const char*, void(Renderer_Detector::*)()>{Vulkan_Hook::DLL_NAME,& Renderer_Detector::hook_vulkan},
+        std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12  },
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11  },
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10  },
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{   DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9   },
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl},
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan},
         };
 
         {
@@ -756,10 +752,12 @@ public:
         {
             for (auto const& library : libraries)
             {
-                if (Library::get_module_handle(library.first) != nullptr)
+                void* lib_handle = Library::get_module_handle(library.first);
+                if (lib_handle != nullptr)
                 {
                     std::lock_guard<std::mutex> lk(renderer_mutex);
-                    (this->*library.second)();
+                    std::string lib_path = Library::get_module_path(lib_handle);
+                    (this->*library.second)(lib_path);
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
@@ -858,18 +856,18 @@ private:
         hooks.EndHook();
     }
 
-    void hook_openglx()
+    void hook_openglx(std::string const& library_path)
     {
         if (!openglx_hooked)
         {
-            void* libGLX = dlopen(OpenGLX_Hook::DLL_NAME, RTLD_NOW);
-
-            decltype(::glXSwapBuffers)* glXSwapBuffers = nullptr;
-
-            if (libGLX != nullptr)
+            Library libGLX;
+            if (!libGLX.load_library(library_path, false))
             {
-                glXSwapBuffers = (decltype(glXSwapBuffers))dlsym(libGLX, "glXSwapBuffers");
+                SPDLOG_WARN("Failed to load {} to detect OpenGLX", library_path);
+                return;
             }
+
+            auto glXSwapBuffers = libGLX.get_symbol<decltype(::glXSwapBuffers)>("glXSwapBuffers");
             if (glXSwapBuffers != nullptr)
             {
                 SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
@@ -877,6 +875,7 @@ private:
                 openglx_hooked = true;
 
                 openglx_hook = OpenGLX_Hook::Inst();
+                openglx_hook->library_name = library_path;
                 openglx_hook->loadFunctions(glXSwapBuffers);
 
                 HookglXSwapBuffers(glXSwapBuffers);
@@ -885,19 +884,14 @@ private:
             {
                 SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
             }
-
-            if (libGLX != nullptr)
-            {
-                dlclose(libGLX);
-            }
         }
     }
 
 public:
     Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
-        std::pair<const char*, void(Renderer_Detector::*)()> libraries[]{
-            std::pair<const char*, void(Renderer_Detector::*)()>{OpenGLX_Hook::DLL_NAME,& Renderer_Detector::hook_openglx},
+        std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGLX_Hook::DLL_NAME,& Renderer_Detector::hook_openglx},
         };
 
         {
@@ -911,10 +905,12 @@ public:
         {
             for (auto const& library : libraries)
             {
-                if (Library::get_module_handle(library.first) != nullptr)
+                void* lib_handle = Library::get_module_handle(library.first);
+                if (lib_handle != nullptr)
                 {
                     std::lock_guard<std::mutex> lk(renderer_mutex);
-                    (this->*library.second)();
+                    std::string lib_path = Library::get_module_path(lib_handle);
+                    (this->*library.second)(lib_path);
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
@@ -1003,18 +999,18 @@ private:
        hooks.EndHook();
    }
 
-   void hook_opengl(const char* library_path)
+   void hook_opengl(std::string const& library_path)
    {
        if (!opengl_hooked)
        {
            Library libOpenGL;
-
-           decltype(::CGLFlushDrawable)* CGLFlushDrawable = nullptr;
-
-           if (libOpenGL.load_library(library_path, false))
+           if (!libOpenGL.load_library(library_path, false))
            {
-               CGLFlushDrawable = libOpenGL.get_symbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
+               SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
+               return;
            }
+
+           auto CGLFlushDrawable = libOpenGL.get_symbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
            if (CGLFlushDrawable != nullptr)
            {
                SPDLOG_INFO("Hooked CGLFlushDrawable to detect OpenGL");
@@ -1022,6 +1018,7 @@ private:
                opengl_hooked = true;
 
                opengl_hook = OpenGL_Hook::Inst();
+               opengl_hook->library_name = library_path;
                opengl_hook->loadFunctions(CGLFlushDrawable);
 
                HookglFlushDrawable(CGLFlushDrawable);
@@ -1036,8 +1033,8 @@ private:
 public:
    Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
    {
-       std::pair<const char*, void(Renderer_Detector::*)(const char*)> libraries[]{
-           std::pair<const char*, void(Renderer_Detector::*)(const char*)>{OpenGL_HookConsts::dll_name, &Renderer_Detector::hook_opengl}
+       std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
+           std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl}
        };
 
        {
@@ -1051,12 +1048,12 @@ public:
        {
            for (auto const& library : libraries)
            {
-               void* libHandle = Library::get_module_handle(library.first);
-               if (libHandle != nullptr)
+               void* lib_handle = Library::get_module_handle(library.first);
+               if (lib_handle != nullptr)
                {
                    std::lock_guard<std::mutex> lk(renderer_mutex);
-                   std::string OpenGLPath = Library::get_module_path(libHandle);
-                   (this->*library.second)(OpenGLPath.c_str());
+                   std::string lib_path = Library::get_module_path(lib_handle);
+                   (this->*library.second)(lib_path);
                }
            }
            std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });

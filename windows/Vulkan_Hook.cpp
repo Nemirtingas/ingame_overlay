@@ -76,7 +76,7 @@ Vulkan_Hook* Vulkan_Hook::Inst()
 
 const char* Vulkan_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
 
 void Vulkan_Hook::loadFunctions()
