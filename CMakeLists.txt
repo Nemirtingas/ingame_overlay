@@ -32,6 +32,7 @@ if(WIN32) # Setup some variables for Windows build
 	extra/ImGui/backends/imgui_impl_opengl3.cpp
 	extra/ImGui/backends/imgui_impl_vulkan.cpp
 	extra/ImGui/backends/imgui_impl_win32.cpp
+	extra/ImGui/backends/imgui_win_shader_blobs.cpp
   )
   
   file(
