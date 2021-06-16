@@ -2,6 +2,10 @@
 	path = extra/ImGui
 	url = https://github.com/Nemirtingas/imgui.git
 	branch = my_master
+	
+[submodule "extra/mini_detour"]
+	path = extra/mini_detour
+	url = https://github.com/Nemirtingas/mini_detour.git
 
 [submodule "extra/spdlog"]
 	path = extra/spdlog
