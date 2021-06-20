@@ -139,12 +139,10 @@ int X11_Hook::check_for_overlay(Display *d, int num_events)
                 if (event.xkey.keycode == XKeysymToKeycode(d, XK_Tab) && event.xkey.state & ShiftMask)
                 {
                     // if key TAB is held, don't make the overlay flicker :p
-                    if( event.xkey.time != prev_time)
+                    if (event.xkey.time != prev_time)
                     {
-                        if (inst->key_combination_callback(true))
-                        {
-                            skip_input = true;
-                        }
+                        skip_input = true;
+                        inst->key_combination_callback(true);
                     }
                 }
             }
