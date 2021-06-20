@@ -38,6 +38,8 @@ private:
     bool initialized;
     Window game_wnd;
 
+    std::string library_name;
+
     // Functions
     X11_Hook();
     int check_for_overlay(Display *d, int num_events);
@@ -62,6 +64,4 @@ public:
     bool start_hook(std::function<bool(bool)>& key_combination_callback);
     static X11_Hook* Inst();
     virtual const char* get_lib_name() const;
-    void loadFunctions(decltype(::XEventsQueued)* pfnXEventsQueued, decltype(::XPending)* pfnXPending);
-
 };

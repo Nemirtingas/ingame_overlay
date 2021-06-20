@@ -153,6 +153,7 @@ file(
   extra/ImGui/*.cpp
   extra/ImGui/backends/imgui_impl_dx11.cpp
   extra/ImGui/backends/imgui_impl_win32.cpp
+  extra/ImGui/backends/imgui_win_shader_blobs.cpp
 )
 
 add_executable(

@@ -21,10 +21,7 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
-
-#include <dlfcn.h>
-#include <unistd.h>
-#include <fstream>
+#include <library/library.h>
 
 extern int ImGui_ImplX11_EventHandler(XEvent &event);
 
@@ -36,11 +33,13 @@ bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
 {
     if (!hooked)
     {
-        void* library = Library::get_module_handle(DLL_NAME);
-
-        if (library == nullptr)
+        void* hX11 = Library::get_module_handle(DLL_NAME);
+        Library libX11;
+        library_name = Library::get_module_path(hX11);
+        
+        if (!libX11.load_library(library_name, false))
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot load %s", DLL_NAME);
+            SPDLOG_WARN("Failed to hook X11: Cannot load {}", library_name);
             return false;
         }
 
@@ -203,7 +202,6 @@ X11_Hook::X11_Hook() :
     XEventsQueued(nullptr),
     XPending(nullptr)
 {
-    //_library = dlopen(DLL_NAME, RTLD_NOW);
 }
 
 X11_Hook::~X11_Hook()
@@ -211,8 +209,6 @@ X11_Hook::~X11_Hook()
     SPDLOG_INFO("X11 Hook removed");
 
     resetRenderState();
-
-    //dlclose(_library);
 
     _inst = nullptr;
 }

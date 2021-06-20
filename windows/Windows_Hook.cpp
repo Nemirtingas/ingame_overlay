@@ -21,6 +21,7 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_win32.h>
+#include <library/library.h>
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -30,13 +31,34 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
 {
     if (!hooked)
     {
-        GetRawInputBuffer = ::GetRawInputBuffer;
-        GetRawInputData   = ::GetRawInputData;
-        GetKeyState       = ::GetKeyState;
-        GetAsyncKeyState  = ::GetAsyncKeyState;
-        GetKeyboardState  = ::GetKeyboardState;
-        GetCursorPos      = ::GetCursorPos;
-        SetCursorPos      = ::SetCursorPos;
+        void* hUser32 = Library::get_module_handle(DLL_NAME);
+        Library libUser32;
+        library_name = Library::get_module_path(hUser32);
+        if (!libUser32.load_library(library_name, false))
+        {
+            SPDLOG_WARN("Failed to hook Windows: Cannot load {}", library_name);
+            return false;
+        }
+
+        GetRawInputBuffer = libUser32.get_symbol<decltype(::GetRawInputBuffer)>("GetRawInputBuffer");
+        GetRawInputData   = libUser32.get_symbol<decltype(::GetRawInputData)>("GetRawInputData");
+        GetKeyState       = libUser32.get_symbol<decltype(::GetKeyState)>("GetKeyState");
+        GetAsyncKeyState  = libUser32.get_symbol<decltype(::GetAsyncKeyState)>("GetAsyncKeyState");
+        GetKeyboardState  = libUser32.get_symbol<decltype(::GetKeyboardState)>("GetKeyboardState");
+        GetCursorPos      = libUser32.get_symbol<decltype(::GetCursorPos)>("GetCursorPos");
+        SetCursorPos      = libUser32.get_symbol<decltype(::SetCursorPos)>("SetCursorPos");
+
+        if(GetRawInputBuffer == nullptr ||
+           GetRawInputData   == nullptr ||
+           GetKeyState       == nullptr ||
+           GetAsyncKeyState  == nullptr ||
+           GetKeyboardState  == nullptr ||
+           GetCursorPos      == nullptr ||
+           SetCursorPos      == nullptr)
+        {
+            SPDLOG_ERROR("Failed to hook Windows: Events functions missing.");
+            return false;
+        }
 
         SPDLOG_INFO("Hooked Windows");
         key_combination_callback = std::move(_key_combination_callback);
@@ -345,5 +367,5 @@ Windows_Hook* Windows_Hook::Inst()
 
 const char* Windows_Hook::get_lib_name() const
 {
-    return DLL_NAME;
+    return library_name.c_str();
 }
