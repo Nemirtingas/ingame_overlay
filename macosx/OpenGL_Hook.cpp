@@ -1,4 +1,4 @@
-/*
+		/*
  * Copyright (C) 2019-2020 Nemirtingas
  * This file is part of the ingame overlay project
  *
@@ -18,7 +18,8 @@
  */
 
 #include "OpenGL_Hook.h"
-//#include "X11_Hook.h"
+#include "NSView_Hook.h"
+#include "objc_wrappers.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
@@ -26,6 +27,8 @@
 #include <glad/gl.h>
 
 OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
+
+decltype(OpenGL_Hook::DLL_NAME) OpenGL_Hook::DLL_NAME;
 
 bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
@@ -37,12 +40,8 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        SPDLOG_ERROR("MacOS OpenGL hook is not supported.");
-
-        // This hook works, but I don't know yet how to hook UI events.
-        return false;
-        //if (!X11_Hook::Inst()->start_hook(key_combination_callback))
-        //    return false;
+        if (!NSView_Hook::Inst()->start_hook(key_combination_callback))
+            return false;
 
         SPDLOG_INFO("Hooked OpenGL");
 
@@ -70,7 +69,7 @@ void OpenGL_Hook::resetRenderState()
         Renderer_Hook::overlay_hook_ready(false);
 
         ImGui_ImplOpenGL2_Shutdown();
-        //X11_Hook::Inst()->resetRenderState();
+        //NSView_Hook::Inst()->resetRenderState();
         ImGui::DestroyContext();
 
         initialized = false;
@@ -85,14 +84,11 @@ void OpenGL_Hook::prepareForOverlay()
         ImGui::CreateContext();
         ImGui_ImplOpenGL2_Init();
 
-        // Set dummy DisplaySize so Dear ImGui doesn't crash.
-        ImGui::GetIO().DisplaySize = ImVec2{800,600};
-        
         initialized = true;
         overlay_hook_ready(true);
     }
 
-    if (ImGui_ImplOpenGL2_NewFrame())
+    if (NSView_Hook::Inst()->prepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
     {
         ImGui::NewFrame();
 

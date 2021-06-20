@@ -2,7 +2,7 @@
 
 #define IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS         // [Win32] Don't implement default IME handler. Won't use and link with ImmGetContext/ImmSetCompositionWindow.
 
-#include <cstdint>
+#include <stdint.h>
 // ImTextureID [configurable type: override in imconfig.h with '#define ImTextureID xxx']
 #define ImTextureID uint64_t
 
