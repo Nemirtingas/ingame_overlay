@@ -25,38 +25,41 @@ if(WIN32) # Setup some variables for Windows build
     GLOB
     DearImGui_sources
     extra/ImGui/*.cpp
-	extra/ImGui/backends/imgui_impl_dx9.cpp
-	extra/ImGui/backends/imgui_impl_dx10.cpp
-	extra/ImGui/backends/imgui_impl_dx11.cpp
-	extra/ImGui/backends/imgui_impl_dx12.cpp
-	extra/ImGui/backends/imgui_impl_opengl3.cpp
-	extra/ImGui/backends/imgui_impl_vulkan.cpp
-	extra/ImGui/backends/imgui_impl_win32.cpp
-	extra/ImGui/backends/imgui_win_shader_blobs.cpp
+    extra/ImGui/backends/imgui_impl_dx9.cpp
+    extra/ImGui/backends/imgui_impl_dx10.cpp
+    extra/ImGui/backends/imgui_impl_dx11.cpp
+    extra/ImGui/backends/imgui_impl_dx12.cpp
+    extra/ImGui/backends/imgui_impl_opengl3.cpp
+    extra/ImGui/backends/imgui_impl_vulkan.cpp
+    extra/ImGui/backends/imgui_impl_win32.cpp
+    extra/ImGui/backends/imgui_win_shader_blobs.cpp
   )
   
   file(
     GLOB
     pfhooks_sources
-	windows/*.cpp
+    windows/*.cpp
   )
 
 elseif(APPLE)
   message(STATUS "Apple build should work but the overlay is not detected/supported.")
-  
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+
+  enable_language(OBJCXX)
+  link_libraries("-framework AppKit")
 
   file(
     GLOB
     DearImGui_sources
     extra/ImGui/*.cpp
     extra/ImGui/backends/imgui_impl_opengl2.cpp
+    extra/ImGui/backends/imgui_impl_osx.mm
   )
 
   file(
     GLOB
     pfhooks_sources
-	macosx/*.cpp
+    macosx/*.cpp
+    macosx/*.mm
   )
 
 elseif(UNIX)
@@ -65,15 +68,15 @@ elseif(UNIX)
     GLOB
     DearImGui_sources
     extra/ImGui/*.cpp
-	extra/ImGui/backends/imgui_impl_opengl3.cpp
-	extra/ImGui/backends/imgui_impl_vulkan.cpp
-	extra/ImGui/backends/imgui_impl_x11.cpp
+    extra/ImGui/backends/imgui_impl_opengl3.cpp
+    extra/ImGui/backends/imgui_impl_vulkan.cpp
+    extra/ImGui/backends/imgui_impl_x11.cpp
   )
   
   file(
     GLOB
     pfhooks_sources
-	linux/*.cpp
+    linux/*.cpp
   )
   
 else()
@@ -153,7 +156,6 @@ file(
   extra/ImGui/*.cpp
   extra/ImGui/backends/imgui_impl_dx11.cpp
   extra/ImGui/backends/imgui_impl_win32.cpp
-  extra/ImGui/backends/imgui_win_shader_blobs.cpp
 )
 
 add_executable(

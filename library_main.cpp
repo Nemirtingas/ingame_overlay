@@ -50,14 +50,16 @@ void LOCAL_API shared_library_load(void* hmodule)
                 float width = io.DisplaySize.x;
                 float height = io.DisplaySize.y;
 
-                ImGui::SetNextWindowPos(ImVec2{ 0,0 });
+                ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
                 ImGui::SetNextWindowSize(ImVec2{ width, height });
 
                 ImGui::SetNextWindowBgAlpha(0.50);
 
                 if (ImGui::Begin("Overlay", &overlay_datas.show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
                 {
-
+                    ImGui::TextUnformatted("Hello from overlay !");
+                    ImGui::Text("%d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
+                    ImGui::Text("Renderer Hooked: %s", overlay_datas.renderer->get_lib_name());
                 }
                 ImGui::End();
             };

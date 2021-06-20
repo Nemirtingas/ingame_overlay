@@ -62,7 +62,7 @@ public:
     template<typename T>
     inline std::function<T> get_func(std::string const& func_name)
     {
-        return get_func(func_name.c_str());
+        return get_func<T>(func_name.c_str());
     }
 
     template<typename T>
