@@ -34,33 +34,36 @@
     #define NOMINMAX
     #include <Windows.h>
 
-    std::string utf16_2_utf8(const std::wstring& wstr)
-    {
-        if (wstr.empty())
-            return std::string();
+namespace library_statics
+{
+std::string utf16_2_utf8(const std::wstring& wstr)
+{
+    if (wstr.empty())
+        return std::string();
 
-        int utf8_size = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), nullptr, 0, nullptr, nullptr);
-        std::string str(utf8_size, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &str[0], utf8_size, nullptr, nullptr);
-        return str;
-    }
+    int utf8_size = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+    std::string str(utf8_size, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &str[0], utf8_size, nullptr, nullptr);
+    return str;
+}
 
-    std::wstring utf8_2_utf16(const std::string& str)
-    {
-        if (str.empty())
-            return std::wstring();
+std::wstring utf8_2_utf16(const std::string& str)
+{
+    if (str.empty())
+        return std::wstring();
 
-        int utf16_size = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), nullptr, 0);
-        std::wstring wstr(utf16_size, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstr[0], utf16_size);
-        return wstr;
-    }
+    int utf16_size = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), nullptr, 0);
+    std::wstring wstr(utf16_size, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstr[0], utf16_size);
+    return wstr;
+}
+}
 
     constexpr char library_suffix[] = ".dll";
 
-    void* Library::open_library(std::string const& library_name)
+    void* Library::open_library(const char* library_name)
     {
-        std::wstring wide(utf8_2_utf16(library_name));
+        std::wstring wide(library_statics::utf8_2_utf16(library_name));
         return LoadLibraryW(wide.c_str());
     }
 
@@ -69,14 +72,14 @@
         FreeLibrary((HMODULE)handle);
     }
 
-    void* Library::get_symbol(void* handle, std::string const& symbol_name)
+    void* Library::get_symbol(void* handle, const char* symbol_name)
     {
-        return GetProcAddress((HMODULE)handle, symbol_name.c_str());
+        return GetProcAddress((HMODULE)handle, symbol_name);
     }
 
-    void* Library::get_module_handle(std::string const& library_name)
+    void* Library::get_module_handle(const char* library_name)
     {
-        std::wstring wide(utf8_2_utf16(library_name));
+        std::wstring wide(library_statics::utf8_2_utf16(library_name));
         return GetModuleHandleW(wide.c_str());
     }
 
@@ -90,7 +93,7 @@
             wpath.resize(wpath.length() * 2);
         }
 
-        return utf16_2_utf8(wpath);
+        return library_statics::utf16_2_utf8(wpath);
     }
 
 #elif defined(LIBRARY_OS_LINUX) || defined(LIBRARY_OS_APPLE)
@@ -103,9 +106,9 @@
         constexpr char library_suffix[] = ".dylib";
     #endif
 
-    void* Library::open_library(std::string const& library_name)
+    void* Library::open_library(const char* library_name)
     {
-        return dlopen(library_name.c_str(), RTLD_NOW);
+        return dlopen(library_name, RTLD_NOW);
     }
 
     void Library::close_library(void* handle)
@@ -113,9 +116,9 @@
         dlclose(handle);
     }
 
-    void* Library::get_symbol(void* handle, std::string const& symbol_name)
+    void* Library::get_symbol(void* handle, const char* symbol_name)
     {
-        return dlsym(handle, symbol_name.c_str());
+        return dlsym(handle, symbol_name);
     }
 
     #if defined(LIBRARY_OS_LINUX)
@@ -130,13 +133,14 @@
             return std::string(infos.dli_fname == nullptr ? "" : infos.dli_fname);
         }
 
-        void* Library::get_module_handle(std::string const& library_name)
+        void* Library::get_module_handle(const char* library_name)
         {
             std::string const self("/proc/self/map_files/");
             DIR* dir;
             struct dirent* dir_entry;
             std::string link_target;
             void* res = nullptr;
+            int library_name_len = strlen(library_name);
 
             dir = opendir(self.c_str());
             if (dir != nullptr)
@@ -163,12 +167,12 @@
                     if (pos != std::string::npos)
                     {
                         ++pos;
-                        if (strncmp(link_target.c_str() + pos, library_name.c_str(), library_name.length()) == 0)
+                        if (strncmp(link_target.c_str() + pos, library_name, library_name_len) == 0)
                         {
-                            res = dlopen(link_target.c_str(), RTLD_NOW);
+                            res = open_library(link_target.c_str());
                             if (res != nullptr)
                             {// Like Windows' GetModuleHandle, we don't want to increment the ref counter
-                                dlclose(res);
+                                close_library(res);
                             }
                             break;
                         }
@@ -209,7 +213,7 @@
             return std::string();
         }
 
-        void* Library::get_module_handle(std::string const& library_name)
+        void* Library::get_module_handle(const char* library_name)
         {
             void* res = nullptr;
 
@@ -218,6 +222,8 @@
             pid_t pid = getpid();
             task_for_pid(mach_task_self(), pid, &t);
             mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+
+            int library_name_length = strlen(library_name);
 
             if (task_info(t, TASK_DYLD_INFO, reinterpret_cast<task_info_t>(&dyld_info), &count) == KERN_SUCCESS)
             {
@@ -229,7 +235,7 @@
                     if (pos != nullptr)
                     {
                         ++pos;
-                        if (strncmp(pos, library_name.c_str(), library_name.length()) == 0)
+                        if (strncmp(pos, library_name, library_name_length) == 0)
                         {
                             res = dlopen(dyld_img_infos->infoArray[i].imageFilePath, RTLD_NOW);
                             if (res != nullptr)
@@ -281,9 +287,9 @@ Library& Library::operator=(Library && other) noexcept
     return *this;
 }
 
-bool Library::load_library(std::string const& library_name, bool append_extension)
+bool Library::load_library(const char* library_name, bool append_extension)
 {
-    std::string lib_name = (append_extension ? library_name + library_suffix : library_name);
+    std::string lib_name = (append_extension ? std::string(library_name) + library_suffix : library_name);
 
     void* lib = open_library(lib_name.c_str());
 

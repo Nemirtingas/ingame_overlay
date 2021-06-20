@@ -36,6 +36,8 @@ private:
     WNDPROC _game_wndproc;
     POINT _saved_cursor_pos;
 
+    std::string library_name;
+
     // Functions
     Windows_Hook();
 
