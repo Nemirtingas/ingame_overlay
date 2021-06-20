@@ -217,9 +217,9 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
                 // If Left Shift is pressed
                 if (inst->GetAsyncKeyState(VK_LSHIFT) & (1 << 15))
                 {
+                    skip_input = true;
                     if (inst->key_combination_callback(true))
                     {
-                        skip_input = true;
                         // Save the last known cursor pos when opening the overlay
                         // so we can spoof the GetCursorPos return value.
                         inst->GetCursorPos(&inst->_saved_cursor_pos);
