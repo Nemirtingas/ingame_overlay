@@ -28,8 +28,6 @@ class Base_Hook
 protected:
     std::vector<mini_detour::hook> _hooked_funcs;
 
-    void* _library;
-
     Base_Hook(const Base_Hook&) = delete;
     Base_Hook(Base_Hook&&) = delete;
     Base_Hook& operator =(const Base_Hook&) = delete;

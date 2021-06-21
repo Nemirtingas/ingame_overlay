@@ -22,8 +22,7 @@
 #include <algorithm>
 #include <mini_detour.h>
 
-Base_Hook::Base_Hook():
-    _library(nullptr)
+Base_Hook::Base_Hook()
 {}
 
 Base_Hook::~Base_Hook()
