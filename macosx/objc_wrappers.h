@@ -1,16 +1,15 @@
+#pragma once
 
 #include "cppNSEvent.h"
 #include "cppNSView.h"
 
-struct WrapperNSView;
-
 // Use a new struct, so we can access the private field
-typedef struct _WrapperNSOpenGLContext
-{
-    /*NSObject*/void* _super;
-    WrapperNSView* view;
-    /*CGLContextObject*/void* _CGLContextObject;
-} WrapperNSOpenGLContext;
+//typedef struct _WrapperNSOpenGLContext
+//{
+//    objcNSObject* _super;
+//    objcNSView* view;
+//    /*CGLContextObject*/void* _CGLContextObject;
+//} WrapperNSOpenGLContext;
 
 class ObjCHookWrapper
 {
@@ -30,9 +29,9 @@ public:
 extern "C" {
 #endif
 
-void __cdecl NSOpenGLContext_flushBuffer(WrapperNSOpenGLContext* self, const char* sel);
+//void __cdecl NSOpenGLContext_flushBuffer(WrapperNSOpenGLContext* self, const char* sel);
 
-void get_window_size_from_NSOpenGLContext(WrapperNSOpenGLContext*, double* width, double* height);
+//void get_window_size_from_NSOpenGLContext(WrapperNSOpenGLContext*, double* width, double* height);
 void get_window_size_from_sharedApplication(double* width, double* height);
 
 #ifdef __cplusplus

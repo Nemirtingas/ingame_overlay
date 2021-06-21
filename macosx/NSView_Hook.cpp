@@ -75,6 +75,8 @@ bool NSView_Hook::prepareForOverlay()
             return false;
         }
         nsview_hook->SetEventHandler(&handleNSEvent);
+
+        ImGui_ImplOSX_Init();
     }
     
     ImGui_ImplOSX_NewFrame(nsview_hook->GetNSView().NSView());

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cppObjcTypes.h"
+#include "cppNSObject.h"
 
 struct objcNSEvent;
 
@@ -178,32 +178,26 @@ enum cppKeyCodes : unsigned short {
     cppkVK_UpArrow                   = 0x7E
 };
 
-class cppNSEventMouse
+class cppNSEventMouse : public cppNSObject
 {
-    objcNSEvent* nsevent;
+    cppNSEventMouse();
+    virtual ~cppNSEventMouse();
 public:
-    cppNSEventMouse(objcNSEvent* nsevent);
-    cppNSEventMouse(cppNSEventMouse const& r);
-    cppNSEventMouse(cppNSEventMouse&& r);
-    ~cppNSEventMouse();
     // This can be casted to NSEvent*
-    inline objcNSEvent* NSEvent(){ return nsevent; }
+    inline objcNSEvent* NSEvent(){ return (objcNSEvent*)nsobject; }
     
     // Objective-C members
     cppCGFloat X();
     cppCGFloat Y();
 };
 
-class cppNSEventKey
+class cppNSEventKey : public cppNSObject
 {
-    objcNSEvent* nsevent;
+    cppNSEventKey();
+    virtual ~cppNSEventKey();
 public:
-    cppNSEventKey(objcNSEvent* nsevent);
-    cppNSEventKey(cppNSEventKey const& r);
-    cppNSEventKey(cppNSEventKey&& r);
-    ~cppNSEventKey();
     // This can be casted to NSEvent*
-    inline objcNSEvent* NSEvent(){ return nsevent; }
+    inline objcNSEvent* NSEvent(){ return (objcNSEvent*)nsobject; }
     
     // Objective-C members
     unsigned short KeyCode();
@@ -211,16 +205,14 @@ public:
     bool IsARepeat();
 };
 
-class cppNSEvent
+class cppNSEvent : public cppNSObject
 {
-    objcNSEvent* nsevent;
 public:
     cppNSEvent(objcNSEvent* nsevent);
     cppNSEvent(cppNSEvent const& r);
     cppNSEvent(cppNSEvent&& r);
-    ~cppNSEvent();
     // This can be casted to NSEvent*
-    inline objcNSEvent* NSEvent(){ return nsevent; }
+    inline objcNSEvent* NSEvent(){ return (objcNSEvent*)nsobject; }
     
     // Objective-C members
     cppNSEventType Type();
