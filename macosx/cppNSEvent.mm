@@ -6,105 +6,48 @@
 
 /////////////////////
 // cppNSEventMouse
-cppNSEventMouse::cppNSEventMouse(objcNSEvent* nsevent):
-    nsevent(nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
-
-cppNSEventMouse::cppNSEventMouse(cppNSEventMouse const& r):
-    nsevent(r.nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
-
-cppNSEventMouse::cppNSEventMouse(cppNSEventMouse&& r):
-    nsevent(r.nsevent)
-{
-    r.nsevent = nil;
-}
-
-cppNSEventMouse::~cppNSEventMouse()
-{
-    [(::NSEvent*)nsevent release];
-}
-
 cppCGFloat cppNSEventMouse::X()
 {
-    return [(::NSEvent*)nsevent locationInWindow].x;
+    return [(::NSEvent*)nsobject locationInWindow].x;
 }
 
 cppCGFloat cppNSEventMouse::Y()
 {
-    return [(::NSEvent*)nsevent locationInWindow].y;
+    return [(::NSEvent*)nsobject locationInWindow].y;
 }
 
 /////////////////////
 // cppNSEventKey
-cppNSEventKey::cppNSEventKey(objcNSEvent* nsevent):
-    nsevent(nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
-
-cppNSEventKey::cppNSEventKey(cppNSEventKey const& r):
-    nsevent(r.nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
-
-cppNSEventKey::cppNSEventKey(cppNSEventKey&& r):
-    nsevent(r.nsevent)
-{
-    r.nsevent = nil;
-}
-
-cppNSEventKey::~cppNSEventKey()
-{
-    [(::NSEvent*)nsevent release];
-}
-
 unsigned short cppNSEventKey::KeyCode()
 {
-    return [(::NSEvent*)nsevent keyCode];
+    return [(::NSEvent*)nsobject keyCode];
 }
 
 unsigned int cppNSEventKey::Modifier()
 {
-    return [(::NSEvent*)nsevent modifierFlags];
+    return [(::NSEvent*)nsobject modifierFlags];
 }
 
 bool cppNSEventKey::IsARepeat()
 {
-    return ([(::NSEvent*)nsevent isARepeat] == YES ? true : false);
+    return ([(::NSEvent*)nsobject isARepeat] == YES ? true : false);
 }
 
 /////////////////////
 // cppNSEventKey
 cppNSEvent::cppNSEvent(objcNSEvent* nsevent):
-    nsevent(nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
+    cppNSObject((objcNSObject*)nsevent)
+{}
 
 cppNSEvent::cppNSEvent(cppNSEvent const& r):
-    nsevent(r.nsevent)
-{
-    [(::NSEvent*)nsevent retain];
-}
+    cppNSObject(r)
+{}
 
-cppNSEvent::cppNSEvent(cppNSEvent&& r):
-    nsevent(r.nsevent)
-{
-    r.nsevent = nil;
-}
-
-cppNSEvent::~cppNSEvent()
-{
-    [(::NSEvent*)nsevent release];
-}
+cppNSEvent::cppNSEvent(cppNSEvent && r):
+    cppNSObject(std::move(r))
+{}
 
 cppNSEventType cppNSEvent::Type()
 {
-    return (cppNSEventType)[(::NSEvent*)nsevent type];
+    return (cppNSEventType)[(::NSEvent*)nsobject type];
 }

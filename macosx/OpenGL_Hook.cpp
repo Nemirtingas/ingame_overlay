@@ -1,4 +1,4 @@
-		/*
+/*
  * Copyright (C) 2019-2020 Nemirtingas
  * This file is part of the ingame overlay project
  *
@@ -96,7 +96,11 @@ void OpenGL_Hook::prepareForOverlay()
 
         ImGui::Render();
 
+        GLint last_program;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
+        glUseProgram(0);
         ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
+        glUseProgram(last_program);
     }
 }
 
@@ -147,9 +151,50 @@ void OpenGL_Hook::loadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawabl
 
 std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(std::shared_ptr<Image> source)
 {
-    return std::shared_ptr<uint64_t>(nullptr);
+    GLuint* texture = new GLuint(0);
+    glGenTextures(1, texture);
+    if (glGetError() != GL_NO_ERROR)
+    {
+        delete texture;
+        return std::shared_ptr<uint64_t>(nullptr);
+    }
+    
+    // Save old texture id
+    GLint oldTex;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
+
+    glBindTexture(GL_TEXTURE_2D, *texture);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Upload pixels into texture
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, source->width(), source->height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, source->get_raw_pointer());
+
+    glBindTexture(GL_TEXTURE_2D, oldTex);
+
+    auto ptr = std::shared_ptr<uint64_t>((uint64_t*)texture, [](uint64_t* handle)
+    {
+        if (handle != nullptr)
+        {
+            GLuint* texture = (GLuint*)handle;
+            glDeleteTextures(1, texture);
+            delete texture;
+        }
+    });
+
+    image_resources.emplace(ptr);
+    return ptr;
 }
 
 void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
+    auto ptr = resource.lock();
+    if (ptr)
+    {
+        auto it = image_resources.find(ptr);
+        if (it != image_resources.end())
+            image_resources.erase(it);
+    }
 }

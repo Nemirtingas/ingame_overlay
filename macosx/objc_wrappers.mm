@@ -56,13 +56,13 @@
 
 @end
 
-void get_window_size_from_NSOpenGLContext(WrapperNSOpenGLContext* context, double* width, double* height)
-{
-    NSView* view = (NSView*)context->view;
-    NSSize size = [view frame].size;
-    *width = size.width;
-    *height = size.height;
-}
+//void get_window_size_from_NSOpenGLContext(WrapperNSOpenGLContext* context, double* width, double* height)
+//{
+//    NSView* view = (NSView*)context->view;
+//    NSSize size = [view frame].size;
+//    *width = size.width;
+//    *height = size.height;
+//}
 
 void get_window_size_from_sharedApplication(double* width, double* height)
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cppObjcTypes.h"
+#include "cppNSObject.h"
 
 struct objcNSView;
 
@@ -22,17 +22,15 @@ struct cppNSRect
     cppCGSize size;
 };
 
-class cppNSView
+class cppNSView : public cppNSObject
 {
-    objcNSView* nsview;
 public:
     cppNSView(objcNSView* nsview);
     cppNSView(cppNSView const& r);
     cppNSView(cppNSView && r);
-    ~cppNSView();
     
     // This can be casted to NSView*
-    inline objcNSView* NSView(){ return nsview; }
+    inline objcNSView* NSView(){ return (objcNSView*)nsobject; }
     
     // Objective-C members
     cppNSRect Bounds();

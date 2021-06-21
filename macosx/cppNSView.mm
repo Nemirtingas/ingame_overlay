@@ -3,39 +3,25 @@
 #include <AppKit/AppKit.h>
 
 cppNSView::cppNSView(objcNSView* nsview):
-    nsview(nsview)
-{
-    // Increment ref counter
-    [(::NSView*)nsview retain];
-}
+    cppNSObject((objcNSObject*)nsview)
+{}
 
 cppNSView::cppNSView(cppNSView const& r):
-    nsview(r.nsview)
-{
-    // Increment ref counter
-    [(::NSView*)nsview retain];
-}
+    cppNSObject(r)
+{}
 
 cppNSView::cppNSView(cppNSView&& r):
-    nsview(r.nsview)
-{
-    r.nsview = nil;
-}
-
-cppNSView::~cppNSView()
-{
-    // Decrement ref counter
-    [(::NSView*)nsview release];
-}
+    cppNSObject(std::move(r))
+{}
 
 cppNSRect cppNSView::Bounds()
 {
-    NSRect r = [(::NSView*)nsview bounds];
+    NSRect r = [(::NSView*)nsobject bounds];
     return cppNSRect{{r.origin.x, r.origin.y}, {r.size.width, r.size.height}};
 }
 
 cppNSRect cppNSView::Frame()
 {
-    NSRect r = [(::NSView*)nsview frame];
+    NSRect r = [(::NSView*)nsobject frame];
     return cppNSRect{{r.origin.x, r.origin.y}, {r.size.width, r.size.height}};
 }
