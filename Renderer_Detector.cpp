@@ -747,6 +747,8 @@ public:
             }
         }
 
+        SPDLOG_TRACE("Started renderer detection.");
+
         auto start_time = std::chrono::steady_clock::now();
         do
         {
@@ -775,6 +777,8 @@ public:
             delete opengl_hook; opengl_hook = nullptr;
             delete vulkan_hook; vulkan_hook = nullptr;
         }
+
+        SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
         return renderer_hook;
     }
@@ -900,6 +904,8 @@ public:
                 return renderer_hook;
         }
 
+        SPDLOG_TRACE("Started renderer detection.");
+
         auto start_time = std::chrono::steady_clock::now();
         do
         {
@@ -922,6 +928,8 @@ public:
             delete openglx_hook; openglx_hook = nullptr;
             //delete vulkan_hook; vulkan_hook = nullptr;
         }
+
+        SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
         return renderer_hook;
     }
@@ -1043,6 +1051,8 @@ public:
                return renderer_hook;
        }
 
+       SPDLOG_TRACE("Started renderer detection.");
+
        auto start_time = std::chrono::steady_clock::now();
        do
        {
@@ -1065,6 +1075,8 @@ public:
            delete opengl_hook; opengl_hook = nullptr;
            //delete vulkan_hook; vulkan_hook = nullptr;
        }
+
+       SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
        return renderer_hook;
    }
