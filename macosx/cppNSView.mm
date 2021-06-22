@@ -11,7 +11,7 @@ cppNSView::cppNSView(cppNSView const& r):
 {}
 
 cppNSView::cppNSView(cppNSView&& r):
-    cppNSObject(std::move(r))
+    cppNSObject(reinterpret_cast<cppNSView&&>(r))
 {}
 
 cppNSRect cppNSView::Bounds()
