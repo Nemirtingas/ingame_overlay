@@ -36,15 +36,15 @@ bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
         void* hX11 = Library::get_module_handle(DLL_NAME);
         Library libX11;
         library_name = Library::get_module_path(hX11);
-        
+
         if (!libX11.load_library(library_name, false))
         {
             SPDLOG_WARN("Failed to hook X11: Cannot load {}", library_name);
             return false;
         }
 
-        XEventsQueued = (decltype(XEventsQueued))dlsym(library, "XEventsQueued");
-        XPending = (decltype(XPending))dlsym(library, "XPending");
+        XEventsQueued = libX11.get_symbol<decltype(::XEventsQueued)>("XEventsQueued");
+        XPending = libX11.get_symbol<decltype(::XPending)>("XPending");
 
         if (XPending == nullptr || XEventsQueued == nullptr)
         {

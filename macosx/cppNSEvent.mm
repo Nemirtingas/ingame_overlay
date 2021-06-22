@@ -44,7 +44,7 @@ cppNSEvent::cppNSEvent(cppNSEvent const& r):
 {}
 
 cppNSEvent::cppNSEvent(cppNSEvent && r):
-    cppNSObject(std::move(r))
+    cppNSObject(reinterpret_cast<cppNSEvent&&>(r))
 {}
 
 cppNSEventType cppNSEvent::Type()
