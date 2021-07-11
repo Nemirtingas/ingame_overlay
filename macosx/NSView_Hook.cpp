@@ -34,6 +34,12 @@ bool NSView_Hook::start_hook(std::function<bool(bool)>& _key_combination_callbac
     if (!hooked)
     {
         void* hAppKit = Library::get_module_handle(DLL_NAME);
+        if (hAppKit == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook NSView: Cannot find {}", DLL_NAME);
+            return false;
+        }
+
         Library libAppKit;
         library_name = Library::get_module_path(hAppKit);
         if (!libAppKit.load_library(library_name, false))

@@ -25,6 +25,16 @@
 
 DX10_Hook* DX10_Hook::_inst = nullptr;
 
+template<typename T>
+inline void SafeRelease(T*& pUnk)
+{
+    if (pUnk != nullptr)
+    {
+        pUnk->Release();
+        pUnk = nullptr;
+    }
+}
+
 bool DX10_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
@@ -69,8 +79,8 @@ void DX10_Hook::resetRenderState()
         Windows_Hook::Inst()->resetRenderState();
         ImGui::DestroyContext();
 
-        mainRenderTargetView->Release();
-        pDevice->Release();
+        SafeRelease(mainRenderTargetView);
+        SafeRelease(pDevice);
 
         initialized = false;
     }
