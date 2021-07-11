@@ -26,6 +26,16 @@
 
 DX9_Hook* DX9_Hook::_inst = nullptr;
 
+template<typename T>
+inline void SafeRelease(T*& pUnk)
+{
+    if (pUnk != nullptr)
+    {
+        pUnk->Release();
+        pUnk = nullptr;
+    }
+}
+
 bool DX9_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
@@ -76,8 +86,8 @@ void DX9_Hook::resetRenderState()
         Windows_Hook::Inst()->resetRenderState();
         ImGui::DestroyContext();
 
-        pDevice->Release();
-        pDevice = nullptr;
+        SafeRelease(pDevice);
+        
         last_window = nullptr;
         initialized = false;
     }

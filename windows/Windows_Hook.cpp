@@ -32,6 +32,12 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
     if (!hooked)
     {
         void* hUser32 = Library::get_module_handle(DLL_NAME);
+        if (hUser32 == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
+            return false;
+        }
+
         Library libUser32;
         library_name = Library::get_module_path(hUser32);
         if (!libUser32.load_library(library_name, false))
@@ -204,10 +210,9 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     bool skip_input = inst->key_combination_callback(false);
+    bool clean_keys = false;
     if (inst->initialized)
     {
-        ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-
         // Is the event is a key press
         if (uMsg == WM_KEYDOWN)
         {
@@ -217,12 +222,16 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
                 // If Left Shift is pressed
                 if (inst->GetAsyncKeyState(VK_LSHIFT) & (1 << 15))
                 {
-                    skip_input = true;
                     if (inst->key_combination_callback(true))
                     {
+                        skip_input = true;
                         // Save the last known cursor pos when opening the overlay
                         // so we can spoof the GetCursorPos return value.
                         inst->GetCursorPos(&inst->_saved_cursor_pos);
+                    }
+                    else
+                    {
+                        clean_keys = true;
                     }
                 }
             }
@@ -230,6 +239,12 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
 
         if (skip_input && IgnoreMsg(uMsg))
         {
+            ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
+            if (clean_keys)
+            {
+                auto& io = ImGui::GetIO();
+                memset(io.KeysDown, 0, sizeof(io.KeysDown));
+            }
             return 0;
         }
     }

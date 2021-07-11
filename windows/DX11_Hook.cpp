@@ -25,6 +25,16 @@
 
 DX11_Hook* DX11_Hook::_inst = nullptr;
 
+template<typename T>
+inline void SafeRelease(T*& pUnk)
+{
+    if (pUnk != nullptr)
+    {
+        pUnk->Release();
+        pUnk = nullptr;
+    }
+}
+
 static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
 {
     HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
@@ -79,14 +89,9 @@ void DX11_Hook::resetRenderState()
         Windows_Hook::Inst()->resetRenderState();
         //ImGui::DestroyContext();
 
-        if (mainRenderTargetView)
-        {
-            mainRenderTargetView->Release();
-            mainRenderTargetView = nullptr;
-        }
-
-        pContext->Release();
-        pDevice->Release();
+        SafeRelease(mainRenderTargetView);
+        SafeRelease(pContext);
+        SafeRelease(pDevice);
 
         initialized = false;
     }
@@ -129,17 +134,17 @@ void DX11_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         //
         //    targets[i]->Release();
         //}
-
-        pBackBuffer->Release();
-
+        
+        SafeRelease(pBackBuffer);
+        
         if (mainRenderTargetView == nullptr)
             return;
-
+        
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext();
-
+        
         ImGui_ImplDX11_Init(pDevice, pContext);
-
+        
         initialized = true;
         overlay_hook_ready(true);
     }
@@ -147,14 +152,16 @@ void DX11_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
     if (ImGui_ImplDX11_NewFrame() && Windows_Hook::Inst()->prepareForOverlay(desc.OutputWindow))
     {
         ImGui::NewFrame();
-
+    
         overlay_proc();
-
+    
         ImGui::Render();
 
         if (mainRenderTargetView)
+        {
             pContext->OMSetRenderTargets(1, &mainRenderTargetView, NULL);
-
+        }
+    
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
 }
@@ -201,10 +208,8 @@ DX11_Hook::~DX11_Hook()
 
     if (initialized)
     {
-        if (mainRenderTargetView)
-            mainRenderTargetView->Release();
-
-        pContext->Release();
+        SafeRelease(mainRenderTargetView);
+        SafeRelease(pContext);
 
         ImGui_ImplDX11_InvalidateDeviceObjects();
         ImGui::DestroyContext();

@@ -25,6 +25,16 @@
 
 DX12_Hook* DX12_Hook::_inst = nullptr;
 
+template<typename T>
+inline void SafeRelease(T*& pUnk)
+{
+    if (pUnk != nullptr)
+    {
+        pUnk->Release();
+        pUnk = nullptr;
+    }
+}
+
 bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     if (!hooked)
@@ -70,14 +80,15 @@ void DX12_Hook::resetRenderState()
         Windows_Hook::Inst()->resetRenderState();
         ImGui::DestroyContext();
 
-        pSrvDescHeap->Release();
         for (UINT i = 0; i < bufferCount; ++i)
         {
             pCmdAlloc[i]->Release();
             pBackBuffer[i]->Release();
         }
-        pRtvDescHeap->Release();
-        pDevice->Release();
+
+        SafeRelease(pSrvDescHeap);
+        SafeRelease(pRtvDescHeap);
+        SafeRelease(pDevice);
 
         delete[]pCmdAlloc;
         delete[]pBackBuffer;
