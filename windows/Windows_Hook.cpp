@@ -25,6 +25,8 @@
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+constexpr decltype(Windows_Hook::DLL_NAME) Windows_Hook::DLL_NAME;
+
 Windows_Hook* Windows_Hook::_inst = nullptr;
 
 bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
