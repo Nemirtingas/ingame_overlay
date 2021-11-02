@@ -1,3 +1,2 @@
-/extra/ImGui
-/extra/spdlog
-/extra/mini_detour
+/deps/ImGui
+/OUT

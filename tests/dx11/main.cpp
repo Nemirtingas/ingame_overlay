@@ -78,7 +78,7 @@ int main(int, char**)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA("ingame_overlay.dll");
+    HMODULE overlay_hook = LoadLibraryA("overlay_example.dll");
 
     // Main loop
     bool done = false;
