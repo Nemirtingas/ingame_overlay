@@ -123,9 +123,10 @@ add_library(ingame_overlay
   ${IMGUI_SOURCES}
 )
 
-set_property(TARGET ingame_overlay PROPERTY
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set_property(TARGET ingame_overlay PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_target_properties(ingame_overlay PROPERTIES
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+  POSITION_INDEPENDENT_CODE ON
+)
 
 target_link_libraries(ingame_overlay
   PUBLIC
@@ -136,6 +137,7 @@ target_link_libraries(ingame_overlay
   $<$<BOOL:${WIN32}>:opengl32>
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:X11>
 )
 
 target_compile_options(ingame_overlay
