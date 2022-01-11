@@ -46,6 +46,7 @@ private:
     std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> mainRenderTargets;
     ID3D12Device* pDevice;
     ID3D12CommandAllocator** pCmdAlloc;
+	//std::vector<bool> srvDescHeapBitmap;
     ID3D12DescriptorHeap* pSrvDescHeap;
     ID3D12GraphicsCommandList* pCmdList;
     ID3D12DescriptorHeap* pRtvDescHeap;
@@ -53,6 +54,17 @@ private:
 
     // Functions
     DX12_Hook();
+
+    //struct heap_t
+    //{
+    //    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
+    //    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
+    //    int64_t id;
+    //};
+	//
+    //heap_t get_free_texture_heap();
+    //bool release_texture_heap(int64_t heap_id);
+
 
     void resetRenderState();
     void prepareForOverlay(IDXGISwapChain* pSwapChain);
