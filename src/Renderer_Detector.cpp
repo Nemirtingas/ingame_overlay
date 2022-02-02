@@ -93,6 +93,7 @@ private:
         detection_done(false)
     {}
 
+    std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
 
     Base_Hook hooks;
@@ -738,6 +739,11 @@ public:
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan},
         };
 
+        std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
+        
+        if (!detection_lock.try_lock_for(timeout))
+            return nullptr;
+
         {
             std::lock_guard<std::mutex> lk(renderer_mutex);
             if (detection_done)
@@ -824,6 +830,7 @@ private:
         detection_done(false)
     {}
 
+    std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
 
     Base_Hook hooks;
@@ -902,6 +909,11 @@ public:
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGLX_Hook::DLL_NAME,& Renderer_Detector::hook_openglx},
         };
 
+        std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
+
+        if (!detection_lock.try_lock_for(timeout))
+            return nullptr;
+
         {
             std::lock_guard<std::mutex> lk(renderer_mutex);
             if (detection_done)
@@ -972,6 +984,7 @@ private:
        detection_done(false)
    {}
 
+   std::timed_mutex detector_mutex;
    std::mutex renderer_mutex;
 
    Base_Hook hooks;
@@ -1048,6 +1061,11 @@ public:
        std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl}
        };
+
+       std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
+
+       if (!detection_lock.try_lock_for(timeout))
+           return nullptr;
 
        {
            std::lock_guard<std::mutex> lk(renderer_mutex);
