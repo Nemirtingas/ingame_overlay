@@ -32,8 +32,16 @@
 
 #endif
 
+#ifdef USE_SPDLOG
+#define SPDLOG_ACTIVE_LEVEL 0
+#include <spdlog/spdlog.h>
+#endif
+
 #ifndef SPDLOG_TRACE
 #define SPDLOG_TRACE(...)
+#endif
+#ifndef SPDLOG_DEBUG
+#define SPDLOG_DEBUG(...)
 #endif
 #ifndef SPDLOG_INFO
 #define SPDLOG_INFO(...)

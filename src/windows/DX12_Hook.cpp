@@ -111,31 +111,19 @@ void DX12_Hook::resetRenderState()
         Windows_Hook::Inst()->resetRenderState();
         ImGui::DestroyContext();
 
-        for (UINT i = 0; i < bufferCount; ++i)
-        {
-            pCmdAlloc[i]->Release();
-            pBackBuffer[i]->Release();
-        }
+        OverlayFrames.clear();
 
         SafeRelease(pSrvDescHeap);
         SafeRelease(pRtvDescHeap);
         SafeRelease(pDevice);
-
-        delete[]pCmdAlloc;
-        delete[]pBackBuffer;
 
         initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
+void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue)
 {
-    if (pCmdQueue == nullptr)
-        return;
-
-    ID3D12CommandQueue* pCmdQueue = this->pCmdQueue;
-
     IDXGISwapChain3* pSwapChain3 = nullptr;
     DXGI_SWAP_CHAIN_DESC sc_desc;
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
@@ -151,9 +139,8 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         if (pSwapChain3->GetDevice(IID_PPV_ARGS(&pDevice)) != S_OK)
             return;
 
-        bufferCount = sc_desc.BufferCount;
+        UINT bufferCount = sc_desc.BufferCount;
 
-        mainRenderTargets.clear();
 		//srvDescHeapBitmap.clear();
 
         //constexpr UINT descriptor_count = 1024;
@@ -190,49 +177,57 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         
             SIZE_T rtvDescriptorSize = pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = pRtvDescHeap->GetCPUDescriptorHandleForHeapStart();
-            pCmdAlloc = new ID3D12CommandAllocator * [bufferCount];
+            ID3D12CommandAllocator* pCmdAlloc;
+            ID3D12Resource* pBackBuffer;
+
             for (UINT i = 0; i < bufferCount; ++i)
             {
-                mainRenderTargets.push_back(rtvHandle);
+                pCmdAlloc = nullptr;
+                pBackBuffer = nullptr;
+
+                if (pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCmdAlloc)) != S_OK || pCmdAlloc == nullptr)
+                {
+                    OverlayFrames.clear();
+                    pSrvDescHeap->Release();
+                    pRtvDescHeap->Release();
+                    pDevice->Release();
+                    pSwapChain3->Release();
+                    return;
+                }
+
+                if (i == 0)
+                {
+                    if (pDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCmdAlloc, NULL, IID_PPV_ARGS(&pCmdList)) != S_OK ||
+                        pCmdList == nullptr || pCmdList->Close() != S_OK)
+                    {
+                        OverlayFrames.clear();
+                        SafeRelease(pCmdList);
+                        pCmdAlloc->Release();
+                        pSrvDescHeap->Release();
+                        pRtvDescHeap->Release();
+                        pDevice->Release();
+                        pSwapChain3->Release();
+                        return;
+                    }
+                }
+
+                if (pSwapChain3->GetBuffer(i, IID_PPV_ARGS(&pBackBuffer)) != S_OK || pBackBuffer == nullptr)
+                {
+                    OverlayFrames.clear();
+                    pCmdList->Release();
+                    pCmdAlloc->Release();
+                    pSrvDescHeap->Release();
+                    pRtvDescHeap->Release();
+                    pDevice->Release();
+                    pSwapChain3->Release();
+                    return;
+                }
+
+                pDevice->CreateRenderTargetView(pBackBuffer, NULL, rtvHandle);
+
+                OverlayFrames.emplace_back(rtvHandle, pCmdAlloc, pBackBuffer);
                 rtvHandle.ptr += rtvDescriptorSize;
             }
-        }
-        
-        for (UINT i = 0; i < sc_desc.BufferCount; ++i)
-        {
-            if (pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCmdAlloc[i])) != S_OK)
-            {
-                pDevice->Release();
-                pSwapChain3->Release();
-                pSrvDescHeap->Release();
-                for (UINT j = 0; j < i; ++j)
-                {
-                    pCmdAlloc[j]->Release();
-                }
-                pRtvDescHeap->Release();
-                delete[]pCmdAlloc;
-                return;
-            }
-        }
-
-        if (pDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCmdAlloc[0], NULL, IID_PPV_ARGS(&pCmdList)) != S_OK ||
-            pCmdList->Close() != S_OK)
-        {
-            pDevice->Release();
-            pSwapChain3->Release();
-            pSrvDescHeap->Release();
-            for (UINT i = 0; i < bufferCount; ++i)
-                pCmdAlloc[i]->Release();
-            pRtvDescHeap->Release();
-            delete[]pCmdAlloc;
-            return;
-        }
-
-        pBackBuffer = new ID3D12Resource * [bufferCount];
-        for (UINT i = 0; i < bufferCount; i++)
-        {
-            pSwapChain3->GetBuffer(i, IID_PPV_ARGS(&pBackBuffer[i]));
-            pDevice->CreateRenderTargetView(pBackBuffer[i], NULL, mainRenderTargets[i]);
         }
 
         //auto heaps = std::move(get_free_texture_heap());
@@ -259,15 +254,15 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource = pBackBuffer[bufferIndex];
+        barrier.Transition.pResource = OverlayFrames[bufferIndex].pBackBuffer;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
-        pCmdAlloc[bufferIndex]->Reset();
-        pCmdList->Reset(pCmdAlloc[bufferIndex], NULL);
+        OverlayFrames[bufferIndex].pCmdAlloc->Reset();
+        pCmdList->Reset(OverlayFrames[bufferIndex].pCmdAlloc, NULL);
         pCmdList->ResourceBarrier(1, &barrier);
-        pCmdList->OMSetRenderTargets(1, &mainRenderTargets[bufferIndex], FALSE, NULL);
+        pCmdList->OMSetRenderTargets(1, &OverlayFrames[bufferIndex].RenderTarget, FALSE, NULL);
         pCmdList->SetDescriptorHeaps(1, &pSrvDescHeap);
 
         ImGui::Render();
@@ -278,16 +273,40 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         pCmdList->ResourceBarrier(1, &barrier);
         pCmdList->Close();
 
-        pCmdQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&pCmdList);
+        pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&pCmdList);
     }
+
     pSwapChain3->Release();
 }
 
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
     auto inst = DX12_Hook::Inst();
-    inst->prepareForOverlay(_this);
-    return (_this->*inst->Present)(SyncInterval, Flags);
+
+    if (inst->CommandQueueOffset == 0)
+    {
+        for (size_t i = 0; i < 1024; ++i)
+        {
+            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + i) == inst->pCmdQueue)
+            {
+                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
+                inst->CommandQueueOffset = i;
+                
+                break;
+            }
+        }
+    }
+
+    if (inst->CommandQueueOffset != 0)
+    {
+        ID3D12CommandQueue* pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + inst->CommandQueueOffset);
+
+        inst->prepareForOverlay(_this, pCommandQueue);
+    }
+
+    auto res = (_this->*inst->Present)(SyncInterval, Flags);
+
+    return res;
 }
 
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
@@ -313,9 +332,9 @@ void STDMETHODCALLTYPE DX12_Hook::MyExecuteCommandLists(ID3D12CommandQueue *_thi
 
 DX12_Hook::DX12_Hook():
     initialized(false),
+    CommandQueueOffset(0),
+    pDevice(nullptr),
     pCmdQueue(nullptr),
-    bufferCount(0),
-    pCmdAlloc(nullptr),
     pSrvDescHeap(nullptr),
     pCmdList(nullptr),
     pRtvDescHeap(nullptr),
@@ -338,15 +357,10 @@ DX12_Hook::~DX12_Hook()
 
     if (initialized)
     {
+        OverlayFrames.clear();
+
         pSrvDescHeap->Release();
-        for (UINT i = 0; i < bufferCount; ++i)
-        {
-            pCmdAlloc[i]->Release();
-            pBackBuffer[i]->Release();
-        }
         pRtvDescHeap->Release();
-        delete[]pCmdAlloc;
-        delete[]pBackBuffer;
 
         ImGui_ImplDX12_InvalidateDeviceObjects();
         ImGui::DestroyContext();

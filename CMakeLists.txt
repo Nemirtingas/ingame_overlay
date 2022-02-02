@@ -15,6 +15,17 @@ if(WIN32) # Setup some variables for Windows build
     src/windows/Vulkan_Hook.cpp
     src/windows/Windows_Hook.cpp
   )
+  
+  set(PRIVATE_INGAMEOVERLAY_HEADERS
+    src/Base_Hook.h
+    src/windows/DX9_Hook.h
+    src/windows/DX10_Hook.h
+    src/windows/DX11_Hook.h
+    src/windows/DX12_Hook.h
+    src/windows/OpenGL_Hook.h
+    src/windows/Vulkan_Hook.h
+    src/windows/Windows_Hook.h
+  )
 
   set(IMGUI_SOURCES
     deps/ImGui/imgui.cpp
@@ -48,6 +59,16 @@ elseif(APPLE)
     src/macosx/OpenGL_Hook.cpp
   )
   
+  set(PRIVATE_INGAMEOVERLAY_HEADERS
+    src/Base_Hook.h
+    src/macosx/cppNSEvent.h
+    src/macosx/cppNSObject.h
+    src/macosx/cppNSView.h
+    src/macosx/objc_wrappers.h
+    src/macosx/NSView_Hook.h
+    src/macosx/OpenGL_Hook.h
+  )
+  
   set(IMGUI_SOURCES
     deps/ImGui/imgui.cpp
     deps/ImGui/imgui_draw.cpp
@@ -64,6 +85,12 @@ elseif(UNIX)
     src/Renderer_Detector.cpp
     src/linux/OpenGLX_Hook.cpp
     src/linux/X11_Hook.cpp
+  )
+
+  set(PRIVATE_INGAMEOVERLAY_HEADERS
+    src/Base_Hook.h
+	src/linux/OpenGLX_Hook.h
+    src/linux/X11_Hook.h
   )
 
   set(IMGUI_SOURCES
@@ -89,6 +116,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_TESTS "Build tests." OFF)
+option(USE_SPDLOG "Enable logs with SPDLOG." OFF)
 
 if(NOT ${IMGUI_USER_CONFIG} STREQUAL "")
   set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}")
@@ -121,6 +149,8 @@ add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
 add_library(ingame_overlay
   ${INGAMEOVERLAY_SOURCES}
   ${IMGUI_SOURCES}
+  ${INGAMEOVERLAY_HEADERS}
+  ${PRIVATE_INGAMEOVERLAY_HEADERS}
 )
 
 set_target_properties(ingame_overlay PROPERTIES
@@ -136,6 +166,8 @@ target_link_libraries(ingame_overlay
   
   System::System
   MiniDetour::MiniDetour
+  
+  $<$<BOOL:${USE_SPDLOG}>:spdlog::spdlog>
   
   $<$<BOOL:${WIN32}>:opengl32>
   $<$<BOOL:${UNIX}>:dl>
@@ -160,6 +192,7 @@ target_include_directories(ingame_overlay
 
 target_compile_definitions(ingame_overlay 
   PRIVATE
+  $<$<BOOL:${USE_SPDLOG}>:USE_SPDLOG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
   PUBLIC
   $<INSTALL_INTERFACE:${IMGUI_USER_CONFIG_NAME_VALUE}>
@@ -193,11 +226,48 @@ target_link_libraries(dx11_app
   d3d11
 )
 
+target_compile_definitions(dx11_app
+  PRIVATE
+  IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx11/ingameoverlay_imconfig.h"
+)
+
 set_property(TARGET dx11_app PROPERTY
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+add_executable(dx12_app
+  tests/dx12/main.cpp
+  deps/ImGui/imgui.cpp
+  deps/ImGui/imgui_demo.cpp
+  deps/ImGui/imgui_draw.cpp
+  deps/ImGui/imgui_tables.cpp
+  deps/ImGui/imgui_widgets.cpp
+  deps/ImGui/backends/imgui_impl_dx12.cpp
+  deps/ImGui/backends/imgui_impl_win32.cpp
+  deps/ImGui/backends/imgui_win_shader_blobs.cpp
+)
+
+target_include_directories(dx12_app
+  PRIVATE
+  deps/ImGui
+)
+
+target_link_libraries(dx12_app
+  PRIVATE
+  user32
+  d3d12
+  dxgi
+)
+
+target_compile_definitions(dx12_app
+  PRIVATE
+  IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx12/ingameoverlay_imconfig.h"
+)
+
+set_property(TARGET dx12_app PROPERTY
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 add_library(overlay_example SHARED
-  tests/dx11/library_main.cpp
+  tests/overlay_example/library_main.cpp
 )
 
 set_property(TARGET overlay_example PROPERTY

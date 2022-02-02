@@ -44,7 +44,7 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
         LibraryName = System::Library::GetModulePath(hUser32);
         if (!libUser32.OpenLibrary(LibraryName, false))
         {
-            SPDLOG_WARN("Failed to hook Windows: Cannot load {}", library_name);
+            SPDLOG_WARN("Failed to hook Windows: Cannot load {}", LibraryName);
             return false;
         }
 
