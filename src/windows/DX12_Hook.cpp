@@ -124,6 +124,9 @@ void DX12_Hook::resetRenderState()
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue)
 {
+    if (pCommandQueue == nullptr)
+        return;
+
     IDXGISwapChain3* pSwapChain3 = nullptr;
     DXGI_SWAP_CHAIN_DESC sc_desc;
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
@@ -283,7 +286,7 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncI
 {
     auto inst = DX12_Hook::Inst();
 
-    if (inst->CommandQueueOffset == 0)
+    if (inst->CommandQueueOffset == 0 && inst->pCmdQueue != nullptr)
     {
         for (size_t i = 0; i < 1024; ++i)
         {
