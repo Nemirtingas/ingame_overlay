@@ -89,7 +89,6 @@ private:
         dx12_hook(nullptr),
         opengl_hook(nullptr),
         vulkan_hook(nullptr),
-        vulkan_ogl_swap(false),
         detection_done(false)
     {}
 
@@ -120,7 +119,6 @@ private:
     OpenGL_Hook* opengl_hook;
     Vulkan_Hook* vulkan_hook;
     
-    bool vulkan_ogl_swap;
     bool detection_done;
 
     HWND dummyWindow = nullptr;
@@ -191,15 +189,15 @@ private:
     static HRESULT STDMETHODCALLTYPE MyIDXGISwapChain_Present(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags)
     {
         auto inst = Inst();
-        std::unique_ptr<std::lock_guard<std::mutex>> lk;
-        if (!inst->vulkan_ogl_swap)
-        {// It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
-         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-            lk = std::make_unique<std::lock_guard<std::mutex>>(inst->renderer_mutex);
-        }
+        HRESULT res;
+        bool locked;
+        std::unique_lock<std::mutex> lk(inst->renderer_mutex, std::defer_lock);
 
-        auto res = (_this->*inst->IDXGISwapChainPresent)(SyncInterval, Flags);
-        if (inst->detection_done || inst->vulkan_ogl_swap)
+        // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
+        // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
+        locked = lk.try_lock();
+        res = (_this->*inst->IDXGISwapChainPresent)(SyncInterval, Flags);
+        if (!locked || inst->detection_done)
             return res;
 
         IUnknown* pDevice = nullptr;
@@ -288,7 +286,6 @@ private:
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
-        inst->vulkan_ogl_swap = true;
 
         auto res = inst->wglSwapBuffers(hDC);
         if (inst->detection_done)
@@ -302,19 +299,23 @@ private:
             inst->detection_done = true;
         }
 
-        inst->vulkan_ogl_swap = false;
         return res;
     }
 
     static VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue Queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+
         auto res = inst->vkQueuePresentKHR(Queue, pPresentInfo);
+        if (inst->detection_done)
+            return res;
+
         inst->hooks.UnhookAll();
         inst->renderer_hook = static_cast<Renderer_Hook*>(inst->vulkan_hook);
         inst->vulkan_hook = nullptr;
         inst->detection_done = true;
-
+        
         return res;
     }
 
@@ -698,6 +699,8 @@ private:
 
     void hook_vulkan(std::string const& library_path)
     {
+        // Vulkan hook disabled until proper implementation.
+        return;
         if (!vulkan_hooked)
         {
             System::Library libVulkan;
