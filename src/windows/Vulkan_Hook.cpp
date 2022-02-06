@@ -29,6 +29,29 @@ bool Vulkan_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
+    if (!hooked)
+    {
+        if (vkQueuePresentKHR == nullptr)
+        {
+            SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
+            return false;
+        }
+
+        if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
+            return false;
+
+        windows_hooked = true;
+
+        SPDLOG_INFO("Hooked Vulkan");
+        hooked = true;
+
+        BeginHook();
+        HookFuncs(
+            std::make_pair<void**, void*>(&(PVOID&)vkQueuePresentKHR, &Vulkan_Hook::MyvkQueuePresentKHR)
+        );
+        EndHook();
+    }
+    return true;
 }
 
 bool Vulkan_Hook::is_started()
@@ -43,12 +66,22 @@ void Vulkan_Hook::resetRenderState()
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void Vulkan_Hook::prepareForOverlay()
 {
+    
+    
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+{
+    auto inst = Vulkan_Hook::Inst();
+    inst->prepareForOverlay();
+    return inst->vkQueuePresentKHR(queue, pPresentInfo);
 }
 
 Vulkan_Hook::Vulkan_Hook():
     hooked(false),
     windows_hooked(false),
-    initialized(false)
+    initialized(false),
+    vkQueuePresentKHR(nullptr)
 {
 }
 
@@ -79,8 +112,9 @@ std::string Vulkan_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void Vulkan_Hook::loadFunctions()
+void Vulkan_Hook::loadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
 {
+    vkQueuePresentKHR = _vkQueuePresentKHR;
 }
 
 std::weak_ptr<uint64_t> Vulkan_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

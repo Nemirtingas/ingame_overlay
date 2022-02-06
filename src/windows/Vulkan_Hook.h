@@ -47,6 +47,9 @@ private:
     void prepareForOverlay();
 
     // Hook to render functions
+    static VKAPI_ATTR VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
+
+    decltype(::vkQueuePresentKHR)* vkQueuePresentKHR;
 
 public:
     std::string LibraryName;
@@ -57,7 +60,7 @@ public:
     virtual bool is_started();
     static Vulkan_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void loadFunctions();
+    void loadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

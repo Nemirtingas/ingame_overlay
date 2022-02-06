@@ -45,11 +45,12 @@
 #include "windows/OpenGL_Hook.h"
 #include "windows/Vulkan_Hook.h"
 
+#include <random>
+
 #ifdef GetModuleHandle
 #undef GetModuleHandle
 #endif
 
-static constexpr auto windowClassName = L"___overlay_window_class___";
 class Renderer_Detector
 {
     static Renderer_Detector* instance;
@@ -95,8 +96,6 @@ private:
     std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
 
-    Base_Hook hooks;
-
     decltype(&IDXGISwapChain::Present)       IDXGISwapChainPresent;
     decltype(&IDirect3DDevice9::Present)     IDirect3DDevice9Present;
     decltype(&IDirect3DDevice9Ex::PresentEx) IDirect3DDevice9ExPresentEx;
@@ -111,6 +110,7 @@ private:
     bool opengl_hooked;
     bool vulkan_hooked;
 
+    Base_Hook detection_hooks;
     Renderer_Hook* renderer_hook;
     DX12_Hook*   dx12_hook;
     DX11_Hook*   dx11_hook;
@@ -122,6 +122,7 @@ private:
     bool detection_done;
 
     HWND dummyWindow = nullptr;
+    std::wstring _WindowClassName;
     ATOM atom = 0;
 
     HWND create_hwnd()
@@ -131,6 +132,17 @@ private:
             HINSTANCE hInst = GetModuleHandleW(nullptr);
             if (atom == 0)
             {
+                if (_WindowClassName.empty())
+                {
+                    static wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+                    std::random_device rd;
+                    std::mt19937_64 gen(rd());
+
+                    std::uniform_int_distribution<uint64_t> dis(0, 61);
+                    _WindowClassName.resize(64);
+                    for (int i = 0; i < 64; ++i)
+                        _WindowClassName[i] = random_str[dis(gen)];
+                }
                 // Register a window class for creating our render window with.
                 WNDCLASSEXW windowClass = {};
 
@@ -144,7 +156,7 @@ private:
                 windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
                 windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
                 windowClass.lpszMenuName = NULL;
-                windowClass.lpszClassName = windowClassName;
+                windowClass.lpszClassName = _WindowClassName.c_str();
                 windowClass.hIconSm = NULL;
 
                 atom = ::RegisterClassExW(&windowClass);
@@ -154,7 +166,7 @@ private:
             {
                 dummyWindow = ::CreateWindowExW(
                     NULL,
-                    windowClassName,
+                    _WindowClassName.c_str(),
                     L"",
                     WS_OVERLAPPEDWINDOW,
                     0,
@@ -179,7 +191,7 @@ private:
         if (dummyWindow != nullptr)
         {
             DestroyWindow(dummyWindow);
-            UnregisterClassW(windowClassName, GetModuleHandleW(nullptr));
+            UnregisterClassW(_WindowClassName.c_str(), GetModuleHandleW(nullptr));
 
             dummyWindow = nullptr;
             atom = 0;
@@ -207,7 +219,7 @@ private:
         }
         if (pDevice != nullptr)
         {
-            inst->hooks.UnhookAll();
+            inst->detection_hooks.UnhookAll();
             inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx12_hook);
             inst->dx12_hook = nullptr;
             inst->detection_done = true;
@@ -220,7 +232,7 @@ private:
             }
             if (pDevice != nullptr)
             {
-                inst->hooks.UnhookAll();
+                inst->detection_hooks.UnhookAll();
                 inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx11_hook);
                 inst->dx11_hook = nullptr;
                 inst->detection_done = true;
@@ -233,7 +245,7 @@ private:
                 }
                 if (pDevice != nullptr)
                 {
-                    inst->hooks.UnhookAll();
+                    inst->detection_hooks.UnhookAll();
                     inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx10_hook);
                     inst->dx10_hook = nullptr;
                     inst->detection_done = true;
@@ -257,7 +269,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->hooks.UnhookAll();
+        inst->detection_hooks.UnhookAll();
         inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx9_hook);
         inst->dx9_hook = nullptr;
         inst->detection_done = true;
@@ -274,7 +286,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->hooks.UnhookAll();
+        inst->detection_hooks.UnhookAll();
         inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx9_hook);
         inst->dx9_hook = nullptr;
         inst->detection_done = true;
@@ -293,7 +305,7 @@ private:
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
         {
-            inst->hooks.UnhookAll();
+            inst->detection_hooks.UnhookAll();
             inst->renderer_hook = static_cast<Renderer_Hook*>(inst->opengl_hook);
             inst->opengl_hook = nullptr;
             inst->detection_done = true;
@@ -311,7 +323,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->hooks.UnhookAll();
+        inst->detection_hooks.UnhookAll();
         inst->renderer_hook = static_cast<Renderer_Hook*>(inst->vulkan_hook);
         inst->vulkan_hook = nullptr;
         inst->detection_done = true;
@@ -331,9 +343,9 @@ private:
             dxgi_hooked = true;
 
             (void*&)IDXGISwapChainPresent = vTable[(int)IDXGISwapChainVTable::Present];
-            hooks.BeginHook();
-            hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDXGISwapChainPresent, (void*)&MyIDXGISwapChain_Present});
-            hooks.EndHook();
+            detection_hooks.BeginHook();
+            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDXGISwapChainPresent, (void*)&MyIDXGISwapChain_Present});
+            detection_hooks.EndHook();
         }
     }
 
@@ -347,17 +359,17 @@ private:
 
         (void*&)IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
 
-        hooks.BeginHook();
-        hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9Present, (void*)&MyDX9Present });
-        hooks.EndHook();
+        detection_hooks.BeginHook();
+        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9Present, (void*)&MyDX9Present });
+        detection_hooks.EndHook();
 
         if (ex)
         {
             (void*&)IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
 
-            hooks.BeginHook();
-            hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9ExPresentEx, (void*)&MyDX9PresentEx });
-            hooks.EndHook();
+            detection_hooks.BeginHook();
+            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9ExPresentEx, (void*)&MyDX9PresentEx });
+            detection_hooks.EndHook();
         }
         else
         {
@@ -369,20 +381,20 @@ private:
     {
         wglSwapBuffers = _wglSwapBuffers;
 
-        hooks.BeginHook();
-        hooks.HookFunc(std::pair<void**, void*>{ (void**)&wglSwapBuffers, (void*)&MywglSwapBuffers });
-        hooks.EndHook();
+        detection_hooks.BeginHook();
+        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&wglSwapBuffers, (void*)&MywglSwapBuffers });
+        detection_hooks.EndHook();
     }
 
     void HookvkQueuePresentKHR(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
     {
         vkQueuePresentKHR = _vkQueuePresentKHR;
 
-        hooks.BeginHook();
-        hooks.HookFuncs(
+        detection_hooks.BeginHook();
+        detection_hooks.HookFuncs(
             std::pair<void**, void*>{ (void**)&vkQueuePresentKHR, (void*)&MyvkQueuePresentKHR }
         );
-        hooks.EndHook();
+        detection_hooks.EndHook();
     }
 
     void hook_dx9(std::string const& library_path)
@@ -710,8 +722,76 @@ private:
                 return;
             }
 
-            auto vkQueuePresentKHR = libVulkan.GetSymbol<decltype(::vkQueuePresentKHR)>("vkQueuePresentKHR");
-            if (vkQueuePresentKHR != nullptr)
+            auto vkCreateInstance = libVulkan.GetSymbol<decltype(::vkCreateInstance)>("vkCreateInstance");
+            auto vkDestroyInstance = libVulkan.GetSymbol<decltype(::vkDestroyInstance)>("vkDestroyInstance");
+            auto vkGetInstanceProcAddr = libVulkan.GetSymbol<decltype(::vkGetInstanceProcAddr)>("vkGetInstanceProcAddr");
+
+            decltype(::vkQueuePresentKHR)* vkQueuePresentKHR = nullptr;
+            decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR = nullptr;
+            decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR = nullptr;
+
+            VkInstanceCreateInfo instance_infos{};
+            VkInstance instance{};
+            std::vector<VkPhysicalDevice> phyDevices;
+            VkDeviceCreateInfo create_info{};
+            VkDevice pDevice{};
+            uint32_t count = 0;
+
+            instance_infos.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+            vkCreateInstance(&instance_infos, nullptr, &instance);
+
+            auto vkCreateDevice = (decltype(::vkCreateDevice)*)vkGetInstanceProcAddr(instance, "vkCreateDevice");
+            auto vkDestroyDevice = (decltype(::vkDestroyDevice)*)vkGetInstanceProcAddr(instance, "vkDestroyDevice");
+            auto vkGetDeviceProcAddr = (decltype(::vkGetDeviceProcAddr)*)vkGetInstanceProcAddr(instance, "vkGetDeviceProcAddr");
+            auto vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices");
+            auto vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)vkGetInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties");
+            auto vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties");
+
+            vkEnumeratePhysicalDevices(instance, &count, nullptr);
+            phyDevices.resize(count);
+            vkEnumeratePhysicalDevices(instance, &count, phyDevices.data());
+
+            [&]() {
+                VkPhysicalDeviceProperties props{};
+                std::vector<VkExtensionProperties> ext_props;
+
+                for (auto& device : phyDevices)
+                {
+                    vkGetPhysicalDeviceProperties(device, &props);
+                    if (props.deviceType == VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || props.deviceType == VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+                    {
+                        count = 0;
+                        vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+                        ext_props.resize(count);
+                        vkEnumerateDeviceExtensionProperties(device, nullptr, &count, ext_props.data());
+
+                        for (auto& ext : ext_props)
+                        {
+                            if (strcmp(ext.extensionName, "VK_KHR_swapchain") == 0)
+                            {
+                                create_info.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+                                create_info.enabledExtensionCount = 1;
+                                const char* str = "VK_KHR_swapchain";
+                                create_info.ppEnabledExtensionNames = &str;
+                                vkCreateDevice(device, &create_info, nullptr, &pDevice);
+                                if(pDevice != nullptr)
+                                    return;
+                            }
+                        }
+                    }
+                }
+            }();
+
+            if (pDevice != nullptr)
+            {
+                vkQueuePresentKHR = (decltype(::vkQueuePresentKHR)*)vkGetDeviceProcAddr(pDevice, "vkQueuePresentKHR");
+                vkAcquireNextImageKHR = (decltype(::vkAcquireNextImageKHR)*)vkGetDeviceProcAddr(pDevice, "vkAcquireNextImageKHR");
+                vkAcquireNextImage2KHR = (decltype(::vkAcquireNextImage2KHR)*)vkGetDeviceProcAddr(pDevice, "vkAcquireNextImage2KHR");
+                vkDestroyDevice(pDevice, nullptr);
+            }
+            vkDestroyInstance(instance, nullptr);
+
+            if (vkQueuePresentKHR != nullptr /* && (vkAcquireNextImageKHR != nullptr || vkAcquireNextImage2KHR != nullptr)*/)
             {
                 SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
 
@@ -719,7 +799,7 @@ private:
                 
                 vulkan_hook = Vulkan_Hook::Inst();
                 vulkan_hook->LibraryName = library_path;
-                vulkan_hook->loadFunctions();
+                vulkan_hook->loadFunctions(vkQueuePresentKHR);
                 
                 HookvkQueuePresentKHR(vkQueuePresentKHR);
             }
@@ -734,12 +814,12 @@ public:
     Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
         std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME,& Renderer_Detector::hook_opengl},
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{Vulkan_Hook::DLL_NAME,& Renderer_Detector::hook_vulkan},
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12  },
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11  },
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10  },
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{   DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9   },
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl},
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan},
         };
 
         std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
@@ -789,6 +869,7 @@ public:
             delete dx12_hook  ; dx12_hook   = nullptr;
             delete opengl_hook; opengl_hook = nullptr;
             delete vulkan_hook; vulkan_hook = nullptr;
+            detection_hooks.UnhookAll();
         }
 
         SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
@@ -836,7 +917,7 @@ private:
     std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
 
-    Base_Hook hooks;
+    Base_Hook detection_hooks;
 
     decltype(::glXSwapBuffers)* glXSwapBuffers;
 
@@ -858,7 +939,7 @@ private:
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
         {
-            inst->hooks.UnhookAll();
+            inst->detection_hooks.UnhookAll();
             inst->renderer_hook = static_cast<Renderer_Hook*>(Inst()->openglx_hook);
             inst->openglx_hook = nullptr;
             inst->detection_done = true;
@@ -869,9 +950,9 @@ private:
     {
         glXSwapBuffers = _glXSwapBuffers;
 
-        hooks.BeginHook();
-        hooks.HookFunc(std::pair<void**, void*>{ (void**)&glXSwapBuffers, (void*)&MyglXSwapBuffers });
-        hooks.EndHook();
+        detection_hooks.BeginHook();
+        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&glXSwapBuffers, (void*)&MyglXSwapBuffers });
+        detection_hooks.EndHook();
     }
 
     void hook_openglx(std::string const& library_path)
@@ -990,7 +1071,7 @@ private:
    std::timed_mutex detector_mutex;
    std::mutex renderer_mutex;
 
-   Base_Hook hooks;
+   Base_Hook detection_hooks;
 
    decltype(::CGLFlushDrawable)* CGLFlushDrawable;
 
@@ -1009,7 +1090,7 @@ private:
 
        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(2, 0))
        {
-           inst->hooks.UnhookAll();
+           inst->detection_hooks.UnhookAll();
            inst->renderer_hook = static_cast<Renderer_Hook*>(Inst()->opengl_hook);
            inst->opengl_hook = nullptr;
            inst->detection_done = true;
@@ -1022,9 +1103,9 @@ private:
    {
        CGLFlushDrawable = _CGLFlushDrawable;
 
-       hooks.BeginHook();
-       hooks.HookFunc(std::pair<void**, void*>{ (void**)&CGLFlushDrawable, (void*)&MyCGLFlushDrawable });
-       hooks.EndHook();
+       detection_hooks.BeginHook();
+       detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&CGLFlushDrawable, (void*)&MyCGLFlushDrawable });
+       detection_hooks.EndHook();
    }
 
    void hook_opengl(std::string const& library_path)
