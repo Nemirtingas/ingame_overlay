@@ -35,6 +35,7 @@ private:
     // Variables
     bool hooked;
     bool initialized;
+    bool in_proc;
     HWND _game_hwnd;
     WNDPROC _game_wndproc;
     POINT _saved_cursor_pos;

@@ -110,6 +110,7 @@ bool Windows_Hook::prepareForOverlay(HWND hWnd)
         _game_hwnd = hWnd;
         ImGui_ImplWin32_Init(_game_hwnd);
 
+        _game_wndproc = (WNDPROC)SetWindowLongPtr(_game_hwnd, GWLP_WNDPROC, (LONG_PTR)&Windows_Hook::HookWndProc);
         initialized = true;
     }
 
@@ -118,11 +119,6 @@ bool Windows_Hook::prepareForOverlay(HWND hWnd)
         void* current_proc = (void*)GetWindowLongPtr(_game_hwnd, GWLP_WNDPROC);
         if (current_proc == nullptr)
             return false;
-
-        if (current_proc != &Windows_Hook::HookWndProc)
-        {
-            _game_wndproc = (WNDPROC)SetWindowLongPtr(_game_hwnd, GWLP_WNDPROC, (LONG_PTR)&Windows_Hook::HookWndProc);
-        }
 
         ImGui_ImplWin32_NewFrame();
         // Read keyboard modifiers inputs
@@ -250,8 +246,16 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
             return 0;
         }
     }
+
+    // Protect against recursive call of the WindowProc...
+    if (inst->in_proc)
+        return 0;
+
+    inst->in_proc = true;
     // Call the overlay window procedure
-    return CallWindowProc(Windows_Hook::Inst()->_game_wndproc, hWnd, uMsg, wParam, lParam);
+    auto res = CallWindowProc(Windows_Hook::Inst()->_game_wndproc, hWnd, uMsg, wParam, lParam);
+    inst->in_proc = false;
+    return res;
 }
 
 UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
@@ -355,6 +359,7 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
 Windows_Hook::Windows_Hook() :
     initialized(false),
     hooked(false),
+    in_proc(false),
     _game_hwnd(nullptr),
     _game_wndproc(nullptr),
     GetRawInputBuffer(nullptr),
