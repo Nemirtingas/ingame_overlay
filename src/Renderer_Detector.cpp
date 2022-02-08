@@ -21,6 +21,8 @@
 
 #include <ingame_overlay/Renderer_Detector.h>
 
+#include <System/StringUtils.hpp>
+#include <System/System.h>
 #include <System/Library.h>
 #include <mini_detour/mini_detour.h>
 
@@ -50,6 +52,27 @@
 #ifdef GetModuleHandle
 #undef GetModuleHandle
 #endif
+
+std::string FindPreferedModulePath(std::string const& name)
+{
+    std::string res;
+    std::string tmp;
+    auto modules = System::GetModules();
+    for (auto& item : modules)
+    {
+        tmp = System::CopyToLower(item);
+        if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
+        {
+            if (strncmp(tmp.c_str(), "c:\\windows\\system32\\", 20) == 0)
+                return item;
+
+            // I don't care which one is picked if we can't find a library in the system32 folder...
+            res = std::move(item);
+        }
+    }
+
+    return res;
+}
 
 class Renderer_Detector
 {
@@ -596,6 +619,12 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
                 return;
             }
+            std::string dxgi_path = FindPreferedModulePath("dxgi.dll");
+            if (dxgi_path.empty())
+            {
+                SPDLOG_WARN("Failed to load dxgi.dll to detect DX12");
+                return;
+            }
 
             IDXGIFactory4* pDXGIFactory = nullptr;
             IDXGISwapChain1* pSwapChain = nullptr;
@@ -629,7 +658,7 @@ private:
 
                     if (pCommandQueue != nullptr)
                     {
-                        HMODULE dxgi = GetModuleHandleA("dxgi.dll");
+                        HMODULE dxgi = GetModuleHandleA(dxgi_path.c_str());
                         if (dxgi != nullptr)
                         {
                             decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
@@ -813,15 +842,6 @@ private:
 public:
     Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
-        std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME,& Renderer_Detector::hook_opengl},
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{Vulkan_Hook::DLL_NAME,& Renderer_Detector::hook_vulkan},
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12  },
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11  },
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{  DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10  },
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{   DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9   },
-        };
-
         std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
         
         if (!detection_lock.try_lock_for(timeout))
@@ -842,6 +862,16 @@ public:
 
         SPDLOG_TRACE("Started renderer detection.");
 
+        std::pair<std::string, void(Renderer_Detector::*)(std::string const&)> libraries[]{
+            {OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl},
+            {Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan},
+            {  DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12  },
+            {  DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11  },
+            {  DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10  },
+            {   DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9   },
+        };
+        std::string name;
+
         auto start_time = std::chrono::steady_clock::now();
         do
         {
@@ -851,8 +881,8 @@ public:
                 if (lib_handle != nullptr)
                 {
                     std::lock_guard<std::mutex> lk(renderer_mutex);
-                    std::string lib_path = System::Library::GetModulePath(lib_handle);
-                    (this->*library.second)(lib_path);
+                    name = FindPreferedModulePath(library.first);
+                    (this->*library.second)(name);
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
