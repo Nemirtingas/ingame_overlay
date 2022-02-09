@@ -51,9 +51,6 @@ elseif(APPLE)
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
     src/Renderer_Detector.cpp
-    src/macosx/cppNSEvent.mm
-    src/macosx/cppNSObject.mm
-    src/macosx/cppNSView.mm
     src/macosx/objc_wrappers.mm
     src/macosx/NSView_Hook.cpp
     src/macosx/OpenGL_Hook.cpp
@@ -61,9 +58,6 @@ elseif(APPLE)
   
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
-    src/macosx/cppNSEvent.h
-    src/macosx/cppNSObject.h
-    src/macosx/cppNSView.h
     src/macosx/objc_wrappers.h
     src/macosx/NSView_Hook.h
     src/macosx/OpenGL_Hook.h

@@ -48,10 +48,9 @@ bool NSView_Hook::start_hook(std::function<bool(bool)>& _key_combination_callbac
             return false;
         }
 
-        SPDLOG_INFO("Hooked NSView");
-
         nsview_hook = new ObjCHookWrapper();
         
+        SPDLOG_INFO("Hooked NSView");
         key_combination_callback = std::move(_key_combination_callback);
         hooked = true;
     }
@@ -80,56 +79,25 @@ bool NSView_Hook::prepareForOverlay()
             SPDLOG_WARN("Failed to start NSView hook.");
             return false;
         }
-        nsview_hook->SetEventHandler(&handleNSEvent);
 
         ImGui_ImplOSX_Init();
     }
     
-    ImGui_ImplOSX_NewFrame(nsview_hook->GetNSView().NSView());
+    ImGui_ImplOSX_NewFrame(nsview_hook->GetNSView());
     return true;
 }
 
-bool NSView_Hook::handleNSEvent(cppNSEvent* cppevent, cppNSView* cppview)
+bool NSView_Hook::IgnoreInputs()
 {
-    NSView_Hook* inst = Inst();
-    bool ignore_event = inst->key_combination_callback(false);
-    
-    switch(cppevent->Type())
-    {
-        case cppNSEventTypeKeyDown:
-        {
-            auto* eventKey = cppevent->Key();
-            
-            if(!eventKey->IsARepeat() &&
-               eventKey->KeyCode() == cppkVK_Tab &&
-               eventKey->Modifier() & cppNSEventModifierFlagShift)
-            {
-                ignore_event = true;
-                inst->key_combination_callback(true);
-            }
-        }
-        break;
-            
-        case cppNSEventTypeLeftMouseDragged:
-        case cppNSEventTypeLeftMouseDown:
-        case cppNSEventTypeMouseMoved:
-        {
-            auto* eventMouse = cppevent->Mouse();
-            auto bounds = cppview->Bounds();
-            // 3 pixels outside the window and 2 pixels inside.
-            if((eventMouse->X() >= -4.0f && eventMouse->X() <= 3.0f) ||
-               (eventMouse->X() >= (bounds.size.width - 2) && eventMouse->X() <= (bounds.size.width + 3.0f)) ||
-               (eventMouse->Y() >= -4.0f && eventMouse->Y() <= 3.0f) ||
-               (eventMouse->Y() >= (bounds.size.height - 2) && eventMouse->Y() <= (bounds.size.height + 3.0f)))
-            {// Allow window resize
-                ignore_event = false;
-            }
-        }
-        break;
-    }
-    
-    ImGui_ImplOSX_HandleEvent(cppevent->NSEvent(), cppview->NSView());
-    return ignore_event;
+    if(key_combination_callback == nullptr)
+        return false;
+
+    return key_combination_callback(false);
+}
+
+void NSView_Hook::HandleNSEvent(void* _NSEvent, void* _NSView)
+{
+    ImGui_ImplOSX_HandleEvent(_NSEvent, _NSView);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////

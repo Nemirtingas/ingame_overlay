@@ -23,10 +23,7 @@
 
 #include "../internal_includes.h"
 
-#include "cppNSEvent.h"
-#include "cppNSView.h"
-
-typedef struct _WrapperNSEvent WrapperNSEvent;
+#include "objc_wrappers.h"
 
 class NSView_Hook :
     public Base_Hook
@@ -45,10 +42,6 @@ private:
     // Functions
     NSView_Hook();
 
-    std::function<bool(bool)> key_combination_callback;
-
-    static bool handleNSEvent(cppNSEvent* cppevent, cppNSView* cppview);
-    
 public:
     std::string LibraryName;
 
@@ -56,6 +49,10 @@ public:
 
     void resetRenderState();
     bool prepareForOverlay();
+
+    std::function<bool(bool)> key_combination_callback;
+    bool IgnoreInputs();
+    void HandleNSEvent(void* _NSEvent, void* _NSView);
 
     bool start_hook(std::function<bool(bool)>& key_combination_callback);
     static NSView_Hook* Inst();
