@@ -53,27 +53,6 @@
 #undef GetModuleHandle
 #endif
 
-std::string FindPreferedModulePath(std::string const& name)
-{
-    std::string res;
-    std::string tmp;
-    auto modules = System::GetModules();
-    for (auto& item : modules)
-    {
-        tmp = System::CopyToLower(item);
-        if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
-        {
-            if (strncmp(tmp.c_str(), "c:\\windows\\system32\\", 20) == 0)
-                return item;
-
-            // I don't care which one is picked if we can't find a library in the system32 folder...
-            res = std::move(item);
-        }
-    }
-
-    return res;
-}
-
 class Renderer_Detector
 {
     static Renderer_Detector* instance;
@@ -114,7 +93,25 @@ private:
         opengl_hook(nullptr),
         vulkan_hook(nullptr),
         detection_done(false)
-    {}
+    {
+        std::wstring tmp(4096, L'\0');
+        tmp.resize(GetSystemDirectoryW(&tmp[0], tmp.size()));
+        int utf8_size = WideCharToMultiByte(CP_UTF8, 0, &tmp[0], (int)tmp.size(), nullptr, 0, nullptr, nullptr);
+
+        _SystemDir.resize(utf8_size);
+        WideCharToMultiByte(CP_UTF8, 0, &tmp[0], (int)tmp.size(), &_SystemDir[0], utf8_size, nullptr, nullptr);
+
+        System::ToLower(_SystemDir);
+
+        wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+
+        std::uniform_int_distribution<uint64_t> dis(0, 61);
+        _WindowClassName.resize(64);
+        for (int i = 0; i < 64; ++i)
+            _WindowClassName[i] = random_str[dis(gen)];
+    }
 
     std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
@@ -146,7 +143,29 @@ private:
 
     HWND dummyWindow = nullptr;
     std::wstring _WindowClassName;
+    std::string _SystemDir;
     ATOM atom = 0;
+
+    std::string FindPreferedModulePath(std::string const& name)
+    {
+        std::string res;
+        std::string tmp;
+        auto modules = System::GetModules();
+        for (auto& item : modules)
+        {
+            tmp = System::CopyToLower(item);
+            if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
+            {
+                if (strncmp(tmp.c_str(), _SystemDir.c_str(), _SystemDir.length()) == 0)
+                    return item;
+
+                // I don't care which one is picked if we can't find a library in the system32 folder...
+                res = std::move(item);
+            }
+        }
+
+        return res;
+    }
 
     HWND create_hwnd()
     {
@@ -155,17 +174,6 @@ private:
             HINSTANCE hInst = GetModuleHandleW(nullptr);
             if (atom == 0)
             {
-                if (_WindowClassName.empty())
-                {
-                    static wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-                    std::random_device rd;
-                    std::mt19937_64 gen(rd());
-
-                    std::uniform_int_distribution<uint64_t> dis(0, 61);
-                    _WindowClassName.resize(64);
-                    for (int i = 0; i < 64; ++i)
-                        _WindowClassName[i] = random_str[dis(gen)];
-                }
                 // Register a window class for creating our render window with.
                 WNDCLASSEXW windowClass = {};
 
