@@ -4,11 +4,13 @@
 
 #include <backends/imgui_impl_osx.h>
 
-#include "NSView_Hook.h"
-
 #include <objc/runtime.h>
 
-#include <iostream>
+#include "objc_wrappers.h"
+
+bool NSView_Hook_IgnoreInputs();
+void NSView_Hook_HandleNSEvent(void* _NSEvent, void* _NSView);
+bool NSView_Hook_KeyCallback(bool v);
 
 enum KeyCodes {
     VK_ANSI_A                    = 0x00,
@@ -170,9 +172,8 @@ NSPoint (*_mouseLocation)(id self, SEL sel);
     _mouseLocation = (decltype(_mouseLocation))method_setImplementation(ns_method, (IMP)MymouseLocation);
     
     eventsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^ NSEvent*(NSEvent* event){
-        NSView_Hook* inst = NSView_Hook::Inst();
         NSView* view = [[event window] contentView];
-        bool ignore_event = inst->IgnoreInputs();
+        bool ignore_event = NSView_Hook_IgnoreInputs();
 
         switch([event type])
         {
@@ -184,8 +185,7 @@ NSPoint (*_mouseLocation)(id self, SEL sel);
                 {
                     ignore_event = true;
                     savedLocation = [NSEvent mouseLocation];
-                    if(inst->key_combination_callback != nullptr)
-                        inst->key_combination_callback(true);
+                    NSView_Hook_KeyCallback(true);
                 }
             }
             break;
@@ -212,8 +212,7 @@ NSPoint (*_mouseLocation)(id self, SEL sel);
 
         if(ignore_event)
         {
-            std::cerr << "Event ignored" << std::endl;
-            inst->HandleNSEvent(event, view);
+            NSView_Hook_HandleNSEvent(event, view);
         }
         
         return (ignore_event ? nil : event);
@@ -236,8 +235,7 @@ NSPoint (*_mouseLocation)(id self, SEL sel);
 
 NSPoint MymouseLocation(id self, SEL sel)
 {
-    NSView_Hook* inst = NSView_Hook::Inst();
-    if(inst->IgnoreInputs())
+    if(NSView_Hook_IgnoreInputs())
         return savedLocation;
 
     return _mouseLocation(self, sel);
@@ -245,8 +243,7 @@ NSPoint MymouseLocation(id self, SEL sel)
 
 NSInteger MypressedMouseButtons(id self, SEL sel)
 {
-    NSView_Hook* inst = NSView_Hook::Inst();
-    if(inst->IgnoreInputs())
+    if(NSView_Hook_IgnoreInputs())
         return 0;
 
     return _pressedMouseButtons(self, sel);

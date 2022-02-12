@@ -130,3 +130,22 @@ std::string NSView_Hook::GetLibraryName() const
 {
     return LibraryName;
 }
+
+bool NSView_Hook_IgnoreInputs()
+{
+	return NSView_Hook::Inst()->IgnoreInputs();
+}
+
+void NSView_Hook_HandleNSEvent(void* _NSEvent, void* _NSView)
+{
+	NSView_Hook::Inst()->HandleNSEvent(_NSEvent, _NSView);
+}
+
+bool NSView_Hook_KeyCallback(bool v)
+{
+	auto* inst = NSView_Hook::Inst();
+	if(inst->key_combination_callback == nullptr)
+		return false;
+	
+	return inst->key_combination_callback(v);
+}
