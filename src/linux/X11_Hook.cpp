@@ -33,15 +33,15 @@ bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
 {
     if (!hooked)
     {
-        void* hX11 = System::Library::GetModuleHandle(DLL_NAME);
+        void* hX11 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hX11 == nullptr)
         {
             SPDLOG_WARN("Failed to hook X11: Cannot find {}", DLL_NAME);
             return false;
         }
 
-        System::Library libX11;
-        LibraryName = System::Library::GetModulePath(hX11);
+        System::Library::Library libX11;
+        LibraryName = System::Library::GetLibraryPath(hX11);
 
         if (!libX11.OpenLibrary(LibraryName, false))
         {

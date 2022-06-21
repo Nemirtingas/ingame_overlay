@@ -33,15 +33,15 @@ bool NSView_Hook::start_hook(std::function<bool(bool)>& _key_combination_callbac
 {
     if (!hooked)
     {
-        void* hAppKit = System::Library::GetModuleHandle(DLL_NAME);
+        void* hAppKit = System::Library::GetLibraryHandle(DLL_NAME);
         if (hAppKit == nullptr)
         {
             SPDLOG_WARN("Failed to hook NSView: Cannot find {}", DLL_NAME);
             return false;
         }
 
-        System::Library libAppKit;
-        LibraryName = System::Library::GetModulePath(hAppKit);
+        System::Library::Library libAppKit;
+        LibraryName = System::Library::GetLibraryPath(hAppKit);
         if (!libAppKit.OpenLibrary(LibraryName, false))
         {
             SPDLOG_WARN("Failed to hook NSView: Cannot load {}", LibraryName);

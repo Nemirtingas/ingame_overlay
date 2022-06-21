@@ -33,15 +33,15 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
 {
     if (!hooked)
     {
-        void* hUser32 = System::Library::GetModuleHandle(DLL_NAME);
+        void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
         {
             SPDLOG_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
             return false;
         }
 
-        System::Library libUser32;
-        LibraryName = System::Library::GetModulePath(hUser32);
+        System::Library::Library libUser32;
+        LibraryName = System::Library::GetLibraryPath(hUser32);
         if (!libUser32.OpenLibrary(LibraryName, false))
         {
             SPDLOG_WARN("Failed to hook Windows: Cannot load {}", LibraryName);

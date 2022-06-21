@@ -21,7 +21,8 @@
 
 #include <ingame_overlay/Renderer_Detector.h>
 
-#include <System/StringUtils.hpp>
+#include <System/Encoding.hpp>
+#include <System/String.hpp>
 #include <System/System.h>
 #include <System/Library.h>
 #include <mini_detour/mini_detour.h>
@@ -96,12 +97,9 @@ private:
     {
         std::wstring tmp(4096, L'\0');
         tmp.resize(GetSystemDirectoryW(&tmp[0], tmp.size()));
-        int utf8_size = WideCharToMultiByte(CP_UTF8, 0, &tmp[0], (int)tmp.size(), nullptr, 0, nullptr, nullptr);
+        _SystemDir = System::Encoding::WCharToUtf8(tmp);
 
-        _SystemDir.resize(utf8_size);
-        WideCharToMultiByte(CP_UTF8, 0, &tmp[0], (int)tmp.size(), &_SystemDir[0], utf8_size, nullptr, nullptr);
-
-        System::ToLower(_SystemDir);
+        System::String::ToLower(_SystemDir);
 
         wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
@@ -153,7 +151,7 @@ private:
         auto modules = System::GetModules();
         for (auto& item : modules)
         {
-            tmp = System::CopyToLower(item);
+            tmp = System::String::CopyLower(item);
             if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
             {
                 if (strncmp(tmp.c_str(), _SystemDir.c_str(), _SystemDir.length()) == 0)
@@ -432,7 +430,7 @@ private:
     {
         if (!dx9_hooked)
         {
-            System::Library libD3d9;
+            System::Library::Library libD3d9;
             if (!libD3d9.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect DX9", library_path);
@@ -500,7 +498,7 @@ private:
     {
         if (!dx10_hooked)
         {
-            System::Library libD3d10;
+            System::Library::Library libD3d10;
             if (!libD3d10.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect DX10", library_path);
@@ -560,7 +558,7 @@ private:
     {
         if (!dx11_hooked)
         {
-            System::Library libD3d11;
+            System::Library::Library libD3d11;
             if (!libD3d11.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect DX11", library_path);
@@ -621,7 +619,7 @@ private:
     {
         if (!dx12_hooked)
         {
-            System::Library libD3d12;
+            System::Library::Library libD3d12;
             if (!libD3d12.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
@@ -719,7 +717,7 @@ private:
     {
         if (!opengl_hooked)
         {
-            System::Library libOpenGL;
+            System::Library::Library libOpenGL;
             if (!libOpenGL.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
@@ -752,7 +750,7 @@ private:
         return;
         if (!vulkan_hooked)
         {
-            System::Library libVulkan;
+            System::Library::Library libVulkan;
             if (!libVulkan.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect Vulkan", library_path);
@@ -885,7 +883,7 @@ public:
         {
             for (auto const& library : libraries)
             {
-                void* lib_handle = System::Library::GetModuleHandle(library.first);
+                void* lib_handle = System::Library::GetLibraryHandle(library.first.c_str());
                 if (lib_handle != nullptr)
                 {
                     std::lock_guard<std::mutex> lk(renderer_mutex);
@@ -997,7 +995,7 @@ private:
     {
         if (!openglx_hooked)
         {
-            System::Library libGLX;
+            System::Library::Library libGLX;
             if (!libGLX.OpenLibrary(library_path, false))
             {
                 SPDLOG_WARN("Failed to load {} to detect OpenGLX", library_path);
@@ -1049,11 +1047,11 @@ public:
         {
             for (auto const& library : libraries)
             {
-                void* lib_handle = System::Library::GetModuleHandle(library.first);
+                void* lib_handle = System::Library::GetLibraryHandle(library.first);
                 if (lib_handle != nullptr)
                 {
                     std::lock_guard<std::mutex> lk(renderer_mutex);
-                    std::string lib_path = System::Library::GetModulePath(lib_handle);
+                    std::string lib_path = System::Library::GetLibraryPath(lib_handle);
                     (this->*library.second)(lib_path);
                 }
             }
@@ -1150,7 +1148,7 @@ private:
    {
        if (!opengl_hooked)
        {
-           System::Library libOpenGL;
+           System::Library::Library libOpenGL;
            if (!libOpenGL.OpenLibrary(library_path, false))
            {
                SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
@@ -1202,11 +1200,11 @@ public:
        {
            for (auto const& library : libraries)
            {
-               void* lib_handle = System::Library::GetModuleHandle(library.first);
+               void* lib_handle = System::Library::GetLibraryHandle(library.first);
                if (lib_handle != nullptr)
                {
                    std::lock_guard<std::mutex> lk(renderer_mutex);
-                   std::string lib_path = System::Library::GetModulePath(lib_handle);
+                   std::string lib_path = System::Library::GetLibraryPath(lib_handle);
                    (this->*library.second)(lib_path);
                }
            }
