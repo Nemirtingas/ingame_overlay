@@ -45,15 +45,12 @@ using namespace gl;
 #include <GL/gl.h>
 #include <GL/glx.h>
 
-// [Win32] Our example includes a copy of glfw3.lib pre-compiled with VS2010 to maximize ease of testing and compatibility with old VS compilers.
-// To link with VS2010-era libraries, VS2015+ requires linking with legacy_stdio_definitions.lib, which we do using this pragma.
+extern int ImGui_ImplX11_EventHandler(XEvent &event);
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB       0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB       0x2092
 typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 
-// Helper to check for extension string presence.  Adapted from:
-//   http://www.opengl.org/resources/features/OGLextensions/
 static bool isExtensionSupported(const char *extList, const char *extension)
 {
   const char *start;
@@ -188,9 +185,10 @@ int main(int argc, char* argv[])
 
   printf( "Creating window\n" );
   Window win = XCreateWindow( display, RootWindow( display, vi->screen ), 
-                              0, 0, 100, 100, 0, vi->depth, InputOutput, 
+                              0, 0, 1280, 720, 0, vi->depth, InputOutput, 
                               vi->visual, 
                               CWBorderPixel|CWColormap|CWEventMask, &swa );
+
   if ( !win )
   {
     printf( "Failed to create window.\n" );
@@ -364,71 +362,90 @@ int main(int argc, char* argv[])
     Atom wmDeleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, win, &wmDeleteMessage, 1);
 
+    XSelectInput(display,
+                 win,
+                 SubstructureRedirectMask | SubstructureNotifyMask |
+                 KeyPressMask | KeyReleaseMask |
+                 ButtonPressMask | ButtonReleaseMask);
+
     while (running)
     {
-        XNextEvent(display, &event);
-
-        switch (event.type)
+        //if (XEventsQueued(display, QueuedAlready) > 0)
+        //if (XQLength() > 0)
+        if (XPending(display) > 0)
         {
-            case Expose:
-                printf("Expose\n");
-                break;
+            XNextEvent(display, &event);
+            ImGui_ImplX11_EventHandler(event);
 
-            case ClientMessage:
-                if (event.xclient.data.l[0] == wmDeleteMessage)
-                    running = false;
-                break;
+            switch (event.type)
+            {
+                case Expose:
+                    printf("Expose\n");
+                    break;
 
-            default:
-		// Start the Dear ImGui frame
-                ImGui_ImplOpenGL3_NewFrame();
-                ImGui_ImplX11_NewFrame();
-                ImGui::NewFrame();
+                case ClientMessage:
+                    if (event.xclient.data.l[0] == wmDeleteMessage)
+                        running = false;
+                    break;
 
-		// 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-                if (show_demo_window)
-                    ImGui::ShowDemoWindow(&show_demo_window);
+                default:
+                    break;
+            }
+        }
+        else
+        {
+            glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-                // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
-                {
-                    static float f = 0.0f;
-                    static int counter = 0;
+            // Start the Dear ImGui frame
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplX11_NewFrame();
+            ImGui::NewFrame();
 
-                    ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
+            // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+            if (show_demo_window)
+                ImGui::ShowDemoWindow(&show_demo_window);
 
-                    ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-                    ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-                    ImGui::Checkbox("Another Window", &show_another_window);
+            // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
+            {
+                static float f = 0.0f;
+                static int counter = 0;
 
-                    ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-                    ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+                ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
 
-                    if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                        counter++;
-                    ImGui::SameLine();
-                    ImGui::Text("counter = %d", counter);
+                ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+                ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
+                ImGui::Checkbox("Another Window", &show_another_window);
 
-                    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-                    ImGui::End();
-                }
+                ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
+                ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
 
-                // 3. Show another simple window.
-                if (show_another_window)
-                {
-                    ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-                    ImGui::Text("Hello from another window!");
-                    if (ImGui::Button("Close Me"))
-                        show_another_window = false;
-                    ImGui::End();
-                }
+                if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
+                    counter++;
+                ImGui::SameLine();
+                ImGui::Text("counter = %d", counter);
 
-                // Rendering
-                ImGui::Render();
-                ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-		
-		glXSwapBuffers(display, win);
+                ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+                ImGui::End();
+            }
 
-                break;
+            // 3. Show another simple window.
+            if (show_another_window)
+            {
+                ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
+                ImGui::Text("Hello from another window!");
+                if (ImGui::Button("Close Me"))
+                    show_another_window = false;
+                ImGui::End();
+            }
+
+            // Rendering
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    
+            glXSwapBuffers(display, win);
+
+            usleep(7000);
         }
     }
 
