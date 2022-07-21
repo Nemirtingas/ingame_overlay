@@ -293,6 +293,39 @@ if(${BUILD_TESTS})
     set_property(TARGET dx12_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+  elseif(APPLE)
+
+  elseif(UNIX)
+
+    add_executable(linux_opengl_app
+      tests/linux_opengl/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl3.cpp
+      deps/ImGui/backends/imgui_impl_x11.cpp
+    )
+
+    target_include_directories(linux_opengl_app
+      PRIVATE
+      deps/ImGui
+      tests/linux_opengl/glad2/include/
+    )
+
+    target_link_libraries(linux_opengl_app
+      PRIVATE
+      dl
+      GL
+      X11
+    )
+
+    target_compile_definitions(linux_opengl_app
+      PRIVATE
+      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/linux_opengl/ingameoverlay_imconfig.h"
+    )
+
   endif()
 
   add_library(overlay_example SHARED

@@ -168,7 +168,7 @@ private:
         return res;
     }
 
-    HWND create_hwnd()
+    HWND CreateHWND()
     {
         if (dummyWindow == nullptr)
         {
@@ -218,7 +218,7 @@ private:
         return dummyWindow;
     }
 
-    void destroy_hwnd()
+    void DestroyHWND()
     {
         if (dummyWindow != nullptr)
         {
@@ -1015,7 +1015,7 @@ public:
                 return renderer_hook;
             }
 
-            if (create_hwnd() == nullptr)
+            if (CreateHWND() == nullptr)
             {
                 return nullptr;
             }
@@ -1051,7 +1051,7 @@ public:
 
         {
             std::lock_guard<std::mutex> lk(renderer_mutex);
-            destroy_hwnd();
+            DestroyHWND();
 
             detection_done = true;
             delete dx9_hook   ; dx9_hook    = nullptr;
