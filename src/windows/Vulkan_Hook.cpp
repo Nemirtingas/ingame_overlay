@@ -25,11 +25,11 @@
 
 Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
 
-bool Vulkan_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
-    if (!hooked)
+    if (!_Hooked)
     {
         if (vkQueuePresentKHR == nullptr)
         {
@@ -37,13 +37,13 @@ bool Vulkan_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
+        if (!Windows_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
-        windows_hooked = true;
+        _WindowsHooked = true;
 
         SPDLOG_INFO("Hooked Vulkan");
-        hooked = true;
+        _Hooked = true;
 
         BeginHook();
         HookFuncs(
@@ -54,17 +54,17 @@ bool Vulkan_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
     return true;
 }
 
-bool Vulkan_Hook::is_started()
+bool Vulkan_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
-void Vulkan_Hook::resetRenderState()
+void Vulkan_Hook::_ResetRenderState()
 {
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void Vulkan_Hook::prepareForOverlay()
+void Vulkan_Hook::_PrepareForOverlay()
 {
     
     
@@ -73,14 +73,14 @@ void Vulkan_Hook::prepareForOverlay()
 VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
     auto inst = Vulkan_Hook::Inst();
-    inst->prepareForOverlay();
+    inst->_PrepareForOverlay();
     return inst->vkQueuePresentKHR(queue, pPresentInfo);
 }
 
 Vulkan_Hook::Vulkan_Hook():
-    hooked(false),
-    windows_hooked(false),
-    initialized(false),
+    _Hooked(false),
+    _WindowsHooked(false),
+    _Initialized(false),
     vkQueuePresentKHR(nullptr)
 {
 }
@@ -89,10 +89,10 @@ Vulkan_Hook::~Vulkan_Hook()
 {
     SPDLOG_INFO("Vulkan_Hook Hook removed");
 
-    if (windows_hooked)
+    if (_WindowsHooked)
         delete Windows_Hook::Inst();
 
-    if (initialized)
+    if (_Initialized)
     {
     }
 
@@ -112,7 +112,7 @@ std::string Vulkan_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void Vulkan_Hook::loadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
+void Vulkan_Hook::LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
 {
     vkQueuePresentKHR = _vkQueuePresentKHR;
 }

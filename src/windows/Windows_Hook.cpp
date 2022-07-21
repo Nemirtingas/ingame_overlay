@@ -29,9 +29,9 @@ constexpr decltype(Windows_Hook::DLL_NAME) Windows_Hook::DLL_NAME;
 
 Windows_Hook* Windows_Hook::_inst = nullptr;
 
-bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
+bool Windows_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
@@ -69,7 +69,7 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
         }
 
         SPDLOG_INFO("Hooked Windows");
-        key_combination_callback = std::move(_key_combination_callback);
+        _KeyCombinationCallback = std::move(_key_combination_callback);
 
         BeginHook();
         HookFuncs(
@@ -83,40 +83,40 @@ bool Windows_Hook::start_hook(std::function<bool(bool)>& _key_combination_callba
         );
         EndHook();
 
-        hooked = true;
+        _Hooked = true;
     }
     return true;
 }
 
-void Windows_Hook::resetRenderState()
+void Windows_Hook::_ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        initialized = false;
-        SetWindowLongPtr(_game_hwnd, GWLP_WNDPROC, (LONG_PTR)_game_wndproc);
-        _game_hwnd = nullptr;
-        _game_wndproc = nullptr;
+        _Initialized = false;
+        SetWindowLongPtr(_GameHwnd, GWLP_WNDPROC, (LONG_PTR)_GameWndProc);
+        _GameHwnd = nullptr;
+        _GameWndProc = nullptr;
         ImGui_ImplWin32_Shutdown();
     }
 }
 
-bool Windows_Hook::prepareForOverlay(HWND hWnd)
+bool Windows_Hook::_PrepareForOverlay(HWND hWnd)
 {
-    if (_game_hwnd != hWnd)
-        resetRenderState();
+    if (_GameHwnd != hWnd)
+        _ResetRenderState();
 
-    if (!initialized)
+    if (!_Initialized)
     {
-        _game_hwnd = hWnd;
-        ImGui_ImplWin32_Init(_game_hwnd);
+        _GameHwnd = hWnd;
+        ImGui_ImplWin32_Init(_GameHwnd);
 
-        _game_wndproc = (WNDPROC)SetWindowLongPtr(_game_hwnd, GWLP_WNDPROC, (LONG_PTR)&Windows_Hook::HookWndProc);
-        initialized = true;
+        _GameWndProc = (WNDPROC)SetWindowLongPtr(_GameHwnd, GWLP_WNDPROC, (LONG_PTR)&Windows_Hook::HookWndProc);
+        _Initialized = true;
     }
 
-    if (initialized)
+    if (_Initialized)
     {
-        void* current_proc = (void*)GetWindowLongPtr(_game_hwnd, GWLP_WNDPROC);
+        void* current_proc = (void*)GetWindowLongPtr(_GameHwnd, GWLP_WNDPROC);
         if (current_proc == nullptr)
             return false;
 
@@ -141,12 +141,12 @@ bool Windows_Hook::prepareForOverlay(HWND hWnd)
 
 HWND Windows_Hook::GetGameHwnd() const
 {
-    return _game_hwnd;
+    return _GameHwnd;
 }
 
 WNDPROC Windows_Hook::GetGameWndProc() const
 {
-    return _game_wndproc;
+    return _GameWndProc;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -207,9 +207,9 @@ void RawEvent(RAWINPUT& raw)
 LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
-    bool skip_input = inst->key_combination_callback(false);
+    bool skip_input = inst->_KeyCombinationCallback(false);
     bool clean_keys = false;
-    if (inst->initialized)
+    if (inst->_Initialized)
     {
         // Is the event is a key press
         if (uMsg == WM_KEYDOWN)
@@ -220,12 +220,12 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
                 // If Left Shift is pressed
                 if (inst->GetAsyncKeyState(VK_LSHIFT) & (1 << 15))
                 {
-                    if (inst->key_combination_callback(true))
+                    if (inst->_KeyCombinationCallback(true))
                     {
                         skip_input = true;
                         // Save the last known cursor pos when opening the overlay
                         // so we can spoof the GetCursorPos return value.
-                        inst->GetCursorPos(&inst->_saved_cursor_pos);
+                        inst->GetCursorPos(&inst->_SavedCursorPos);
                     }
                     else
                     {
@@ -248,13 +248,13 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
     }
 
     // Protect against recursive call of the WindowProc...
-    if (inst->in_proc)
+    if (inst->_RecurseCallCount > 16)
         return 0;
 
-    inst->in_proc = true;
+    ++inst->_RecurseCallCount;
     // Call the overlay window procedure
-    auto res = CallWindowProc(Windows_Hook::Inst()->_game_wndproc, hWnd, uMsg, wParam, lParam);
-    inst->in_proc = false;
+    auto res = CallWindowProc(Windows_Hook::Inst()->_GameWndProc, hWnd, uMsg, wParam, lParam);
+    --inst->_RecurseCallCount;
     return res;
 }
 
@@ -262,7 +262,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     int res = inst->GetRawInputBuffer(pData, pcbSize, cbSizeHeader);
-    if (!inst->initialized)
+    if (!inst->_Initialized)
         return res;
 
     if (pData != nullptr)
@@ -271,7 +271,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
             RawEvent(pData[i]);
     }
 
-    if (!inst->key_combination_callback(false))
+    if (!inst->_KeyCombinationCallback(false))
         return res;
 
     return 0;
@@ -281,13 +281,13 @@ UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand,
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     auto res = inst->GetRawInputData(hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
-    if (!inst->initialized || pData == nullptr)
+    if (!inst->_Initialized || pData == nullptr)
         return res;
 
     if (uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
-    if (!inst->key_combination_callback(false))
+    if (!inst->_KeyCombinationCallback(false))
         return res;
 
     memset(pData, 0, *pcbSize);
@@ -299,7 +299,7 @@ SHORT WINAPI Windows_Hook::MyGetKeyState(int nVirtKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->initialized && inst->key_combination_callback(false))
+    if (inst->_Initialized && inst->_KeyCombinationCallback(false))
         return 0;
 
     return inst->GetKeyState(nVirtKey);
@@ -309,7 +309,7 @@ SHORT WINAPI Windows_Hook::MyGetAsyncKeyState(int vKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->initialized && inst->key_combination_callback(false))
+    if (inst->_Initialized && inst->_KeyCombinationCallback(false))
         return 0;
 
     return inst->GetAsyncKeyState(vKey);
@@ -319,7 +319,7 @@ BOOL WINAPI Windows_Hook::MyGetKeyboardState(PBYTE lpKeyState)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->initialized && inst->key_combination_callback(false))
+    if (inst->_Initialized && inst->_KeyCombinationCallback(false))
         return FALSE;
 
     return inst->GetKeyboardState(lpKeyState);
@@ -330,9 +330,9 @@ BOOL  WINAPI Windows_Hook::MyGetCursorPos(LPPOINT lpPoint)
     Windows_Hook* inst = Windows_Hook::Inst();
     
     BOOL res = inst->GetCursorPos(lpPoint);
-    if (inst->initialized && inst->key_combination_callback(false) && lpPoint != nullptr)
+    if (inst->_Initialized && inst->_KeyCombinationCallback(false) && lpPoint != nullptr)
     {
-        *lpPoint = inst->_saved_cursor_pos;
+        *lpPoint = inst->_SavedCursorPos;
     }
 
     return res;
@@ -342,7 +342,7 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->initialized && inst->key_combination_callback(false))
+    if (inst->_Initialized && inst->_KeyCombinationCallback(false))
     {// That way, it will fail only if the real API fails.
      // Hides error messages on some Unity debug builds.
         POINT pos;
@@ -357,11 +357,11 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
 /////////////////////////////////////////////////////////////////////////////////////
 
 Windows_Hook::Windows_Hook() :
-    initialized(false),
-    hooked(false),
-    in_proc(false),
-    _game_hwnd(nullptr),
-    _game_wndproc(nullptr),
+    _Initialized(false),
+    _Hooked(false),
+    _RecurseCallCount(0),
+    _GameHwnd(nullptr),
+    _GameWndProc(nullptr),
     GetRawInputBuffer(nullptr),
     GetRawInputData(nullptr),
     GetKeyState(nullptr),
@@ -374,7 +374,7 @@ Windows_Hook::~Windows_Hook()
 {
     SPDLOG_INFO("Windows Hook removed");
 
-    resetRenderState();
+    _ResetRenderState();
 
     _inst = nullptr;
 }

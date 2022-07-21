@@ -36,15 +36,15 @@ private:
     static Vulkan_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool windows_hooked;
-    bool initialized;
+    bool _Hooked;
+    bool _WindowsHooked;
+    bool _Initialized;
 
     // Functions
     Vulkan_Hook();
 
-    void resetRenderState();
-    void prepareForOverlay();
+    void _ResetRenderState();
+    void _PrepareForOverlay();
 
     // Hook to render functions
     static VKAPI_ATTR VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
@@ -56,11 +56,11 @@ public:
 
     virtual ~Vulkan_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static Vulkan_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void loadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR);
+    void LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

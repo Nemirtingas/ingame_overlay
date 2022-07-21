@@ -35,9 +35,9 @@ private:
     static NSView_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool initialized;
-    class ObjCHookWrapper* nsview_hook;
+    bool _Hooked;
+    bool _Initialized;
+    class ObjCHookWrapper* _NSViewHook;
 
     // Functions
     NSView_Hook();
@@ -47,14 +47,14 @@ public:
 
     virtual ~NSView_Hook();
 
-    void resetRenderState();
-    bool prepareForOverlay();
+    void ResetRenderState();
+    bool PrepareForOverlay();
 
-    std::function<bool(bool)> key_combination_callback;
+    std::function<bool(bool)> KeyCombinationCallback;
     bool IgnoreInputs();
     void HandleNSEvent(void* _NSEvent, void* _NSView);
 
-    bool start_hook(std::function<bool(bool)>& key_combination_callback);
+    bool StartHook(std::function<bool(bool)>& key_combination_callback);
     static NSView_Hook* Inst();
     virtual std::string GetLibraryName() const;
 

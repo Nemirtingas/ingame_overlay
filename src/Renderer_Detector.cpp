@@ -525,7 +525,7 @@ private:
 
                 dx9_hook = DX9_Hook::Inst();
                 dx9_hook->LibraryName = library_path;
-                dx9_hook->loadFunctions(pfnPresent, pfnReset, pfnEndScene, pfnPresentEx);
+                dx9_hook->LoadFunctions(pfnPresent, pfnReset, pfnEndScene, pfnPresentEx);
             }
             else
             {
@@ -641,7 +641,7 @@ private:
 
                 dx10_hook = DX10_Hook::Inst();
                 dx10_hook->LibraryName = library_path;
-                dx10_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                dx10_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -756,7 +756,7 @@ private:
 
                 dx11_hook = DX11_Hook::Inst();
                 dx11_hook->LibraryName = library_path;
-                dx11_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                dx11_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -854,7 +854,7 @@ private:
 
                 dx12_hook = DX12_Hook::Inst();
                 dx12_hook->LibraryName = library_path;
-                dx12_hook->loadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnExecuteCommandLists, pfnPresent1);
+                dx12_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnExecuteCommandLists, pfnPresent1);
             }
             else
             {
@@ -888,7 +888,7 @@ private:
 
                 opengl_hook = OpenGL_Hook::Inst();
                 opengl_hook->LibraryName = library_path;
-                opengl_hook->loadFunctions(wglSwapBuffers);
+                opengl_hook->LoadFunctions(wglSwapBuffers);
 
                 HookwglSwapBuffers(wglSwapBuffers);
             }
@@ -989,7 +989,7 @@ private:
                 
                 vulkan_hook = Vulkan_Hook::Inst();
                 vulkan_hook->LibraryName = library_path;
-                vulkan_hook->loadFunctions(vkQueuePresentKHR);
+                vulkan_hook->LoadFunctions(vkQueuePresentKHR);
                 
                 HookvkQueuePresentKHR(vkQueuePresentKHR);
             }
@@ -1166,7 +1166,7 @@ private:
 
                 openglx_hook = OpenGLX_Hook::Inst();
                 openglx_hook->LibraryName = library_path;
-                openglx_hook->loadFunctions(glXSwapBuffers);
+                openglx_hook->LoadFunctions(glXSwapBuffers);
 
                 HookglXSwapBuffers(glXSwapBuffers);
             }
@@ -1319,7 +1319,7 @@ private:
 
                opengl_hook = OpenGL_Hook::Inst();
                opengl_hook->LibraryName = library_path;
-               opengl_hook->loadFunctions(CGLFlushDrawable);
+               opengl_hook->LoadFunctions(CGLFlushDrawable);
 
                HookglFlushDrawable(CGLFlushDrawable);
            }

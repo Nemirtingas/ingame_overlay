@@ -37,19 +37,19 @@ private:
     static DX11_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool windows_hooked;
-    bool initialized;
+    bool _Hooked;
+    bool _WindowsHooked;
+    bool _Initialized;
     ID3D11Device* pDevice;
     ID3D11DeviceContext* pContext;
     ID3D11RenderTargetView* mainRenderTargetView;
-    std::set<std::shared_ptr<uint64_t>> image_resources;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     DX11_Hook();
 
-    void resetRenderState();
-    void prepareForOverlay(IDXGISwapChain* pSwapChain);
+    void _ResetRenderState();
+    void _PrepareForOverlay(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions
     static HRESULT STDMETHODCALLTYPE MyPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
@@ -67,12 +67,12 @@ public:
 
     virtual ~DX11_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static DX11_Hook* Inst();
     virtual std::string GetLibraryName() const;
 
-    void loadFunctions(
+    void LoadFunctions(
         decltype(Present) PresentFcn,
         decltype(ResizeBuffers) ResizeBuffersFcn,
         decltype(ResizeTarget) ResizeTargetFcn,

@@ -37,15 +37,15 @@ private:
     static OpenGL_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool initialized;
-    std::set<std::shared_ptr<uint64_t>> image_resources;
+    bool _Hooked;
+    bool _Initialized;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     OpenGL_Hook();
 
-    void resetRenderState();
-    void prepareForOverlay();
+    void _ResetRenderState();
+    void _PrepareForOverlay();
 
     // Hook to render functions
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
@@ -57,11 +57,11 @@ public:
 
     virtual ~OpenGL_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static OpenGL_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void loadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
+    void LoadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

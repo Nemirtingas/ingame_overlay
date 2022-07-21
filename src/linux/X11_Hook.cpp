@@ -29,9 +29,9 @@ constexpr decltype(X11_Hook::DLL_NAME) X11_Hook::DLL_NAME;
 
 X11_Hook* X11_Hook::_inst = nullptr;
 
-bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
+bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         void* hX11 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hX11 == nullptr)
@@ -59,8 +59,8 @@ bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
         }
         SPDLOG_INFO("Hooked X11");
 
-        key_combination_callback = std::move(_key_combination_callback);
-        hooked = true;
+        _KeyCombinationCallback = std::move(_key_combination_callback);
+        _Hooked = true;
 
         UnhookAll();
         BeginHook();
@@ -73,30 +73,30 @@ bool X11_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
     return true;
 }
 
-void X11_Hook::resetRenderState()
+void X11_Hook::ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        game_wnd = 0;
-        initialized = false;
+        _GameWnd = 0;
+        _Initialized = false;
         ImGui_ImplX11_Shutdown();
     }
 }
 
-bool X11_Hook::prepareForOverlay(Display *display, Window wnd)
+bool X11_Hook::PrepareForOverlay(Display *display, Window wnd)
 {
-    if(!hooked)
+    if(!_Hooked)
         return false;
 
-    if (game_wnd != wnd)
-        resetRenderState();
+    if (_GameWnd != wnd)
+        ResetRenderState();
 
-    if (!initialized)
+    if (!_Initialized)
     {
         ImGui_ImplX11_Init(display, (void*)wnd);
-        game_wnd = wnd;
+        _GameWnd = wnd;
 
-        initialized = true;
+        _Initialized = true;
     }
 
     ImGui_ImplX11_NewFrame();
@@ -123,17 +123,17 @@ bool IgnoreEvent(XEvent &event)
     return false;
 }
 
-int X11_Hook::check_for_overlay(Display *d, int num_events)
+int X11_Hook::_CheckForOverlay(Display *d, int num_events)
 {
     static Time prev_time = {};
     X11_Hook* inst = Inst();
 
-    if( inst->initialized )
+    if( inst->_Initialized )
     {
         XEvent event;
         while(num_events)
         {
-            bool skip_input = inst->key_combination_callback(false);
+            bool skip_input = inst->_KeyCombinationCallback(false);
 
             XPeekEvent(d, &event);
             ImGui_ImplX11_EventHandler(event);
@@ -148,7 +148,7 @@ int X11_Hook::check_for_overlay(Display *d, int num_events)
                     if (event.xkey.time != prev_time)
                     {
                         skip_input = true;
-                        inst->key_combination_callback(true);
+                        inst->_KeyCombinationCallback(true);
                     }
                 }
             }
@@ -179,7 +179,7 @@ int X11_Hook::MyXEventsQueued(Display *display, int mode)
 
     if( res )
     {
-        res = inst->check_for_overlay(display, res);
+        res = inst->_CheckForOverlay(display, res);
     }
 
     return res;
@@ -191,7 +191,7 @@ int X11_Hook::MyXPending(Display* display)
 
     if( res )
     {
-        res = Inst()->check_for_overlay(display, res);
+        res = Inst()->_CheckForOverlay(display, res);
     }
 
     return res;
@@ -200,9 +200,9 @@ int X11_Hook::MyXPending(Display* display)
 /////////////////////////////////////////////////////////////////////////////////////
 
 X11_Hook::X11_Hook() :
-    initialized(false),
-    hooked(false),
-    game_wnd(0),
+    _Initialized(false),
+    _Hooked(false),
+    _GameWnd(0),
     XEventsQueued(nullptr),
     XPending(nullptr)
 {
@@ -212,7 +212,7 @@ X11_Hook::~X11_Hook()
 {
     SPDLOG_INFO("X11 Hook removed");
 
-    resetRenderState();
+    ResetRenderState();
 
     _inst = nullptr;
 }

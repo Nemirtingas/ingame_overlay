@@ -80,9 +80,9 @@ private:
     };
 
     // Variables
-    bool hooked;
-    bool windows_hooked;
-    bool initialized;
+    bool _Hooked;
+    bool _WindowsHooked;
+    bool _Initialized;
 
     size_t CommandQueueOffset;
     ID3D12CommandQueue* pCmdQueue;
@@ -106,10 +106,10 @@ private:
     //heap_t get_free_texture_heap();
     //bool release_texture_heap(int64_t heap_id);
 
-    ID3D12CommandQueue* findCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
+    ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
-    void resetRenderState();
-    void prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
+    void _ResetRenderState();
+    void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
 
     // Hook to render functions
     static HRESULT STDMETHODCALLTYPE MyPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
@@ -129,12 +129,12 @@ public:
 
     virtual ~DX12_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static DX12_Hook* Inst();
     virtual std::string GetLibraryName() const;
 
-    void loadFunctions(
+    void LoadFunctions(
         decltype(Present) PresentFcn,
         decltype(ResizeBuffers) ResizeBuffersFcn,
         decltype(ResizeTarget) ResizeTargetFcn,

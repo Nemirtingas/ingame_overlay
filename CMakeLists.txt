@@ -44,6 +44,7 @@ if(WIN32) # Setup some variables for Windows build
 
 elseif(APPLE)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+  set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -stdlib=libc++")
 
   enable_language(OBJCXX)
   link_libraries("-framework AppKit")
