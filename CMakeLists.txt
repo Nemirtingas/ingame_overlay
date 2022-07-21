@@ -197,81 +197,115 @@ set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
 if(${BUILD_TESTS})
 
-add_executable(dx11_app
-  tests/dx11/main.cpp
-  deps/ImGui/imgui.cpp
-  deps/ImGui/imgui_demo.cpp
-  deps/ImGui/imgui_draw.cpp
-  deps/ImGui/imgui_tables.cpp
-  deps/ImGui/imgui_widgets.cpp
-  deps/ImGui/backends/imgui_impl_dx11.cpp
-  deps/ImGui/backends/imgui_impl_win32.cpp
-  deps/ImGui/backends/imgui_win_shader_blobs.cpp
-)
+  if(WIN32)
+    add_executable(dx10_app
+      tests/dx10/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx10.cpp
+      deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.cpp
+    )
+    
+    target_include_directories(dx10_app
+      PRIVATE
+      deps/ImGui
+    )
+    
+    target_link_libraries(dx10_app
+      PRIVATE
+      user32
+      d3d10
+    )
+    
+    target_compile_definitions(dx10_app
+      PRIVATE
+      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx10/ingameoverlay_imconfig.h"
+    )
+    
+    set_property(TARGET dx10_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  
+    add_executable(dx11_app
+      tests/dx11/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx11.cpp
+      deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.cpp
+    )
+    
+    target_include_directories(dx11_app
+      PRIVATE
+      deps/ImGui
+    )
+    
+    target_link_libraries(dx11_app
+      PRIVATE
+      user32
+      d3d11
+    )
+    
+    target_compile_definitions(dx11_app
+      PRIVATE
+      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx11/ingameoverlay_imconfig.h"
+    )
+    
+    set_property(TARGET dx11_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    
+    add_executable(dx12_app
+      tests/dx12/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx12.cpp
+      deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.cpp
+    )
+    
+    target_include_directories(dx12_app
+      PRIVATE
+      deps/ImGui
+    )
+    
+    target_link_libraries(dx12_app
+      PRIVATE
+      user32
+      d3d12
+      dxgi
+    )
+    
+    target_compile_definitions(dx12_app
+      PRIVATE
+      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx12/ingameoverlay_imconfig.h"
+    )
+    
+    set_property(TARGET dx12_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-target_include_directories(dx11_app
-  PRIVATE
-  deps/ImGui
-)
+  endif()
 
-target_link_libraries(dx11_app
-  PRIVATE
-  user32
-  d3d11
-)
-
-target_compile_definitions(dx11_app
-  PRIVATE
-  IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx11/ingameoverlay_imconfig.h"
-)
-
-set_property(TARGET dx11_app PROPERTY
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-add_executable(dx12_app
-  tests/dx12/main.cpp
-  deps/ImGui/imgui.cpp
-  deps/ImGui/imgui_demo.cpp
-  deps/ImGui/imgui_draw.cpp
-  deps/ImGui/imgui_tables.cpp
-  deps/ImGui/imgui_widgets.cpp
-  deps/ImGui/backends/imgui_impl_dx12.cpp
-  deps/ImGui/backends/imgui_impl_win32.cpp
-  deps/ImGui/backends/imgui_win_shader_blobs.cpp
-)
-
-target_include_directories(dx12_app
-  PRIVATE
-  deps/ImGui
-)
-
-target_link_libraries(dx12_app
-  PRIVATE
-  user32
-  d3d12
-  dxgi
-)
-
-target_compile_definitions(dx12_app
-  PRIVATE
-  IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx12/ingameoverlay_imconfig.h"
-)
-
-set_property(TARGET dx12_app PROPERTY
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-add_library(overlay_example SHARED
-  tests/overlay_example/library_main.cpp
-)
-
-set_property(TARGET overlay_example PROPERTY
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set_property(TARGET overlay_example PROPERTY POSITION_INDEPENDENT_CODE ON)
-
-target_link_libraries(overlay_example
-  PRIVATE
-  InGameOverlay::InGameOverlay
-)
+  add_library(overlay_example SHARED
+    tests/overlay_example/library_main.cpp
+  )
+  
+  set_property(TARGET overlay_example PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  set_property(TARGET overlay_example PROPERTY POSITION_INDEPENDENT_CODE ON)
+  
+  target_link_libraries(overlay_example
+    PRIVATE
+    InGameOverlay::InGameOverlay
+  )
 
 endif()
 

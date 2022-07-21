@@ -47,6 +47,8 @@ static HANDLE                       g_hSwapChainWaitableObject = NULL;
 static ID3D12Resource*              g_mainRenderTargetResource[NUM_BACK_BUFFERS] = {};
 static D3D12_CPU_DESCRIPTOR_HANDLE  g_mainRenderTargetDescriptor[NUM_BACK_BUFFERS] = {};
 
+static bool                         g_usePresent1 = true;
+
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
@@ -210,8 +212,16 @@ int main(int, char**)
 
         g_pd3dCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&g_pd3dCommandList);
 
-        g_pSwapChain->Present(1, 0); // Present with vsync
-        //g_pSwapChain->Present(0, 0); // Present without vsync
+        if (g_usePresent1)
+        {
+            DXGI_PRESENT_PARAMETERS present_parameters{};
+            g_pSwapChain->Present1(1, 0, &present_parameters);
+        }
+        else
+        {
+            g_pSwapChain->Present(1, 0); // Present with vsync
+            //g_pSwapChain->Present(0, 0); // Present without vsync
+        }
 
         UINT64 fenceValue = g_fenceLastSignaledValue + 1;
         g_pd3dCommandQueue->Signal(g_fence, fenceValue);

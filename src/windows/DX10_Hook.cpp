@@ -59,6 +59,12 @@ bool DX10_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             std::make_pair<void**, void*>(&(PVOID&)ResizeTarget , &DX10_Hook::MyResizeTarget),
             std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers, &DX10_Hook::MyResizeBuffers)
         );
+        if (Present1 != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX10_Hook::MyPresent1)
+            );
+        }
         EndHook();
     }
     return true;
@@ -150,6 +156,13 @@ HRESULT STDMETHODCALLTYPE DX10_Hook::MyResizeBuffers(IDXGISwapChain* _this, UINT
     return (_this->*inst->ResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 
+HRESULT STDMETHODCALLTYPE DX10_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+{
+    auto inst = DX10_Hook::Inst();
+    inst->prepareForOverlay(_this);
+    return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+}
+
 DX10_Hook::DX10_Hook():
     initialized(false),
     hooked(false),
@@ -158,7 +171,8 @@ DX10_Hook::DX10_Hook():
     mainRenderTargetView(nullptr),
     Present(nullptr),
     ResizeBuffers(nullptr),
-    ResizeTarget(nullptr)
+    ResizeTarget(nullptr),
+    Present1(nullptr)
 {
 }
 
@@ -195,11 +209,16 @@ std::string DX10_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX10_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn)
+void DX10_Hook::loadFunctions(
+    decltype(Present) PresentFcn,
+    decltype(ResizeBuffers) ResizeBuffersFcn,
+    decltype(ResizeTarget) ResizeTargetFcn,
+    decltype(Present1) Present1Fcn)
 {
     Present = PresentFcn;
     ResizeBuffers = ResizeBuffersFcn;
     ResizeTarget = ResizeTargetFcn;
+    Present1 = Present1Fcn;
 }
 
 std::weak_ptr<uint64_t> DX10_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

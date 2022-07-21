@@ -60,6 +60,12 @@ bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers      , &DX12_Hook::MyResizeBuffers),
             std::make_pair<void**, void*>(&(PVOID&)ExecuteCommandLists, &DX12_Hook::MyExecuteCommandLists)
         );
+        if (Present1 != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX12_Hook::MyPresent1)
+            );
+        }
         EndHook();
     }
     return true;
@@ -100,6 +106,29 @@ bool DX12_Hook::is_started()
 //    srvDescHeapBitmap[heap_id] = false;
 //    return true;
 //}
+
+ID3D12CommandQueue* DX12_Hook::findCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
+{
+    ID3D12CommandQueue* pCommandQueue = nullptr;
+
+    if (CommandQueueOffset == 0 && pCmdQueue != nullptr)
+    {
+        for (size_t i = 0; i < 1024; ++i)
+        {
+            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == pCmdQueue)
+            {
+                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
+                CommandQueueOffset = i;
+                break;
+            }
+        }
+    }
+
+    if (CommandQueueOffset != 0)
+        pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + CommandQueueOffset);
+
+    return pCommandQueue;
+}
 
 void DX12_Hook::resetRenderState()
 {
@@ -286,30 +315,13 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncI
 {
     auto inst = DX12_Hook::Inst();
 
-    if (inst->CommandQueueOffset == 0 && inst->pCmdQueue != nullptr)
+    ID3D12CommandQueue* pCommandQueue = inst->findCommandQueueFromSwapChain(_this);
+    if (pCommandQueue != nullptr)
     {
-        for (size_t i = 0; i < 1024; ++i)
-        {
-            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + i) == inst->pCmdQueue)
-            {
-                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
-                inst->CommandQueueOffset = i;
-                
-                break;
-            }
-        }
-    }
-
-    if (inst->CommandQueueOffset != 0)
-    {
-        ID3D12CommandQueue* pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + inst->CommandQueueOffset);
-
         inst->prepareForOverlay(_this, pCommandQueue);
     }
 
-    auto res = (_this->*inst->Present)(SyncInterval, Flags);
-
-    return res;
+    return (_this->*inst->Present)(SyncInterval, Flags);
 }
 
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
@@ -333,6 +345,19 @@ void STDMETHODCALLTYPE DX12_Hook::MyExecuteCommandLists(ID3D12CommandQueue *_thi
     (_this->*inst->ExecuteCommandLists)(NumCommandLists, ppCommandLists);
 }
 
+HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+{
+    auto inst = DX12_Hook::Inst();
+    
+    ID3D12CommandQueue* pCommandQueue = inst->findCommandQueueFromSwapChain(_this);
+    if (pCommandQueue != nullptr)
+    {
+        inst->prepareForOverlay(_this, pCommandQueue);
+    }
+
+    return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+}
+
 DX12_Hook::DX12_Hook():
     initialized(false),
     CommandQueueOffset(0),
@@ -346,7 +371,8 @@ DX12_Hook::DX12_Hook():
     Present(nullptr),
     ResizeBuffers(nullptr),
     ResizeTarget(nullptr),
-    ExecuteCommandLists(nullptr)
+    ExecuteCommandLists(nullptr),
+    Present1(nullptr)
 {
     SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
@@ -387,13 +413,20 @@ std::string DX12_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX12_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn, decltype(ExecuteCommandLists) ExecuteCommandListsFcn)
+void DX12_Hook::loadFunctions(
+    decltype(Present) PresentFcn,
+    decltype(ResizeBuffers) ResizeBuffersFcn,
+    decltype(ResizeTarget) ResizeTargetFcn,
+    decltype(ExecuteCommandLists) ExecuteCommandListsFcn,
+    decltype(Present1) Present1Fcn)
 {
     Present = PresentFcn;
     ResizeBuffers = ResizeBuffersFcn;
     ResizeTarget = ResizeTargetFcn;
 
     ExecuteCommandLists = ExecuteCommandListsFcn;
+
+    Present1 = Present1Fcn;
 }
 
 std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
