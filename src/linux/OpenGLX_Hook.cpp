@@ -27,9 +27,9 @@
 
 OpenGLX_Hook* OpenGLX_Hook::_inst = nullptr;
 
-bool OpenGLX_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         if (glXSwapBuffers == nullptr)
         {
@@ -37,14 +37,14 @@ bool OpenGLX_Hook::start_hook(std::function<bool(bool)> key_combination_callback
             return false;
         }
 
-        if (!X11_Hook::Inst()->start_hook(key_combination_callback))
+        if (!X11_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
-        x11_hooked = true;
+        _X11Hooked = true;
 
         SPDLOG_INFO("Hooked OpenGLX");
 
-        hooked = true;
+        _Hooked = true;
 
         UnhookAll();
         BeginHook();
@@ -56,31 +56,31 @@ bool OpenGLX_Hook::start_hook(std::function<bool(bool)> key_combination_callback
     return true;
 }
 
-bool OpenGLX_Hook::is_started()
+bool OpenGLX_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
-void OpenGLX_Hook::resetRenderState()
+void OpenGLX_Hook::_ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        Renderer_Hook::overlay_hook_ready(false);
+        OverlayHookReady(false);
 
         ImGui_ImplOpenGL3_Shutdown();
-        X11_Hook::Inst()->resetRenderState();
+        X11_Hook::Inst()->ResetRenderState();
         ImGui::DestroyContext();
 
-        glXDestroyContext(display, context);
-        display = nullptr;
-        initialized = false;
+        glXDestroyContext(_Display, _Context);
+        _Display = nullptr;
+        _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGLX_Hook::prepareForOverlay(Display* display, GLXDrawable drawable)
+void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 {
-    if( !initialized )
+    if( !_Initialized )
     {
         ImGui::CreateContext();
         ImGui_ImplOpenGL3_Init();
@@ -98,48 +98,48 @@ void OpenGLX_Hook::prepareForOverlay(Display* display, GLXDrawable drawable)
         //    None
         //};
         //
-        //XVisualInfo* visual_info = glXChooseVisual(display, DefaultScreen(display), attributes);
+        //XVisualInfo* visual_info = glXChooseVisual(_Display, DefaultScreen(_Display), attributes);
         //if (visual_info == nullptr)
         //    return;
         //
-        //context = glXCreateContext(display, visual_info, nullptr, True);
-        //if (context == nullptr)
+        //_Context = glXCreateContext(_Display, visual_info, nullptr, True);
+        //if (_Context == nullptr)
         //    return;
 
-        this->display = display;
+        _Display = display;
 
-        initialized = true;
-        overlay_hook_ready(true);
+        _Initialized = true;
+        OverlayHookReady(true);
     }
 
     //auto oldContext = glXGetCurrentContext();
 
-    //glXMakeCurrent(display, drawable, context);
+    //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11_Hook::Inst()->prepareForOverlay(display, (Window)drawable))
+    if (ImGui_ImplOpenGL3_NewFrame() && X11_Hook::Inst()->PrepareForOverlay(_Display, (Window)drawable))
     {
         ImGui::NewFrame();
 
-        overlay_proc();
+        OverlayProc();
 
         ImGui::Render();
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     }
 
-    //glXMakeCurrent(display, drawable, oldContext);
+    //glXMakeCurrent(_Display, drawable, oldContext);
 }
 
 void OpenGLX_Hook::MyglXSwapBuffers(Display* display, GLXDrawable drawable)
 {
-    OpenGLX_Hook::Inst()->prepareForOverlay(display, drawable);
+    OpenGLX_Hook::Inst()->_PrepareForOverlay(display, drawable);
     OpenGLX_Hook::Inst()->glXSwapBuffers(display, drawable);
 }
 
 OpenGLX_Hook::OpenGLX_Hook():
-    initialized(false),
-    hooked(false),
-    x11_hooked(false),
+    _Initialized(false),
+    _Hooked(false),
+    _X11Hooked(false),
     glXSwapBuffers(nullptr)
 {
     //_library = dlopen(DLL_NAME);
@@ -149,14 +149,14 @@ OpenGLX_Hook::~OpenGLX_Hook()
 {
     SPDLOG_INFO("OpenGLX Hook removed");
 
-    if (x11_hooked)
+    if (_X11Hooked)
         delete X11_Hook::Inst();
 
-    if (initialized)
+    if (_Initialized)
     {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui::DestroyContext();
-        glXDestroyContext(display, context);
+        glXDestroyContext(_Display, _Context);
     }
 
     //dlclose(_library);
@@ -177,7 +177,7 @@ std::string OpenGLX_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void OpenGLX_Hook::loadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
+void OpenGLX_Hook::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
 {
     glXSwapBuffers = pfnglXSwapBuffers;
 }
@@ -217,7 +217,7 @@ std::weak_ptr<uint64_t> OpenGLX_Hook::CreateImageResource(const void* image_data
         }
     });
 
-    image_resources.emplace(ptr);
+    _ImageResources.emplace(ptr);
     return ptr;
 }
 
@@ -226,8 +226,8 @@ void OpenGLX_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     auto ptr = resource.lock();
     if (ptr)
     {
-        auto it = image_resources.find(ptr);
-        if (it != image_resources.end())
-            image_resources.erase(it);
+        auto it = _ImageResources.find(ptr);
+        if (it != _ImageResources.end())
+            _ImageResources.erase(it);
     }
 }

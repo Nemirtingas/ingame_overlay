@@ -45,9 +45,9 @@ static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11De
     return ret;
 }
 
-bool DX11_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr)
         {
@@ -55,13 +55,13 @@ bool DX11_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
+        if (!Windows_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
-        windows_hooked = true;
+        _WindowsHooked = true;
 
         SPDLOG_INFO("Hooked DirectX 11");
-        hooked = true;
+        _Hooked = true;
 
         BeginHook();
         HookFuncs(
@@ -69,41 +69,47 @@ bool DX11_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             std::make_pair<void**, void*>(&(PVOID&)ResizeTarget , &DX11_Hook::MyResizeTarget),
             std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers, &DX11_Hook::MyResizeBuffers)
         );
+        if (Present1 != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX11_Hook::MyPresent1)
+            );
+        }
         EndHook();
     }
     return true;
 }
 
-bool DX11_Hook::is_started()
+bool DX11_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
-void DX11_Hook::resetRenderState()
+void DX11_Hook::_ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        overlay_hook_ready(false);
+        OverlayHookReady(false);
 
         ImGui_ImplDX11_Shutdown();
-        Windows_Hook::Inst()->resetRenderState();
+        Windows_Hook::Inst()->_ResetRenderState();
         //ImGui::DestroyContext();
 
         SafeRelease(mainRenderTargetView);
         SafeRelease(pContext);
         SafeRelease(pDevice);
 
-        initialized = false;
+        _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX11_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
+void DX11_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
 {
     DXGI_SWAP_CHAIN_DESC desc;
     pSwapChain->GetDesc(&desc);
 
-    if (!initialized)
+    if (!_Initialized)
     {
         pDevice = nullptr;
         if (FAILED(GetDeviceAndCtxFromSwapchain(pSwapChain, &pDevice, &pContext)))
@@ -145,15 +151,15 @@ void DX11_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
         
         ImGui_ImplDX11_Init(pDevice, pContext);
         
-        initialized = true;
-        overlay_hook_ready(true);
+        _Initialized = true;
+        OverlayHookReady(true);
     }
 
-    if (ImGui_ImplDX11_NewFrame() && Windows_Hook::Inst()->prepareForOverlay(desc.OutputWindow))
+    if (ImGui_ImplDX11_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(desc.OutputWindow))
     {
         ImGui::NewFrame();
     
-        overlay_proc();
+        OverlayProc();
     
         ImGui::Render();
 
@@ -169,33 +175,41 @@ void DX11_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain)
 HRESULT STDMETHODCALLTYPE DX11_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
     auto inst = DX11_Hook::Inst();
-    inst->prepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this);
     return (_this->*inst->Present)(SyncInterval, Flags);
 }
 
 HRESULT STDMETHODCALLTYPE DX11_Hook::MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
     auto inst = DX11_Hook::Inst();
-    inst->resetRenderState();
+    inst->_ResetRenderState();
     return (_this->*inst->ResizeTarget)(pNewTargetParameters);
 }
 
 HRESULT STDMETHODCALLTYPE DX11_Hook::MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
     auto inst = DX11_Hook::Inst();
-    inst->resetRenderState();
+    inst->_ResetRenderState();
     return (_this->*inst->ResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 
+HRESULT STDMETHODCALLTYPE DX11_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+{
+    auto inst = DX11_Hook::Inst();
+    inst->_PrepareForOverlay(_this);
+    return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+}
+
 DX11_Hook::DX11_Hook():
-    initialized(false),
-    hooked(false),
-    windows_hooked(false),
+    _Initialized(false),
+    _Hooked(false),
+    _WindowsHooked(false),
     pContext(nullptr),
     mainRenderTargetView(nullptr),
     Present(nullptr),
     ResizeBuffers(nullptr),
-    ResizeTarget(nullptr)
+    ResizeTarget(nullptr),
+    Present1(nullptr)
 {
 }
 
@@ -203,10 +217,10 @@ DX11_Hook::~DX11_Hook()
 {
     SPDLOG_INFO("DX11 Hook removed");
 
-    if (windows_hooked)
+    if (_WindowsHooked)
         delete Windows_Hook::Inst();
 
-    if (initialized)
+    if (_Initialized)
     {
         SafeRelease(mainRenderTargetView);
         SafeRelease(pContext);
@@ -214,7 +228,7 @@ DX11_Hook::~DX11_Hook()
         ImGui_ImplDX11_InvalidateDeviceObjects();
         ImGui::DestroyContext();
 
-        initialized = false;
+        _Initialized = false;
     }
 
     _inst = nullptr;
@@ -233,11 +247,16 @@ std::string DX11_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX11_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn)
+void DX11_Hook::LoadFunctions(
+    decltype(Present) PresentFcn,
+    decltype(ResizeBuffers) ResizeBuffersFcn,
+    decltype(ResizeTarget) ResizeTargetFcn,
+    decltype(Present1) Present1Fcn)
 {
     Present = PresentFcn;
     ResizeBuffers = ResizeBuffersFcn;
     ResizeTarget = ResizeTargetFcn;
+    Present1 = Present1Fcn;
 }
 
 std::weak_ptr<uint64_t> DX11_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
@@ -290,7 +309,7 @@ std::weak_ptr<uint64_t> DX11_Hook::CreateImageResource(const void* image_data, u
         }
     });
 
-    image_resources.emplace(ptr);
+    _ImageResources.emplace(ptr);
 
     return ptr;
 }
@@ -300,8 +319,8 @@ void DX11_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     auto ptr = resource.lock();
     if (ptr)
     {
-        auto it = image_resources.find(ptr);
-        if (it != image_resources.end())
-            image_resources.erase(it);
+        auto it = _ImageResources.find(ptr);
+        if (it != _ImageResources.end())
+            _ImageResources.erase(it);
     }
 }

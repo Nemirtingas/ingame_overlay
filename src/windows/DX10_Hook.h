@@ -24,6 +24,7 @@
 #include "../internal_includes.h"
 
 #include <d3d10.h>
+#include <dxgi1_2.h>
 
 class DX10_Hook :
     public Renderer_Hook,
@@ -36,39 +37,45 @@ private:
     static DX10_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool windows_hooked;
-    bool initialized;
+    bool _Hooked;
+    bool _WindowsHooked;
+    bool _Initialized;
     ID3D10Device* pDevice;
     ID3D10RenderTargetView* mainRenderTargetView;
-    std::set<std::shared_ptr<uint64_t>> image_resources;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     DX10_Hook();
 
-    void resetRenderState();
-    void prepareForOverlay(IDXGISwapChain *pSwapChain);
+    void _ResetRenderState();
+    void _PrepareForOverlay(IDXGISwapChain *pSwapChain);
 
     // Hook to render functions
     static HRESULT STDMETHODCALLTYPE MyPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
     static HRESULT STDMETHODCALLTYPE MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    static HRESULT STDMETHODCALLTYPE MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
 
     decltype(&IDXGISwapChain::Present)       Present;
     decltype(&IDXGISwapChain::ResizeBuffers) ResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)  ResizeTarget;
+    decltype(&IDXGISwapChain1::Present1)     Present1;
 
 public:
     std::string LibraryName;
 
     virtual ~DX10_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static DX10_Hook* Inst();
     virtual std::string GetLibraryName() const;
 
-    void loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn);
+    void LoadFunctions(
+        decltype(Present) PresentFcn,
+        decltype(ResizeBuffers) ResizeBuffersFcn,
+        decltype(ResizeTarget) ResizeTargetFcn,
+        decltype(Present1) Present1Fcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

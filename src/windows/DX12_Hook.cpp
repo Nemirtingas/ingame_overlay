@@ -35,9 +35,9 @@ inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool DX12_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr || ExecuteCommandLists == nullptr)
         {
@@ -45,13 +45,13 @@ bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
+        if (!Windows_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
-        windows_hooked = true;
+        _WindowsHooked = true;
 
         SPDLOG_INFO("Hooked DirectX 12");
-        hooked = true;
+        _Hooked = true;
 
         BeginHook();
         HookFuncs(
@@ -60,14 +60,20 @@ bool DX12_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers      , &DX12_Hook::MyResizeBuffers),
             std::make_pair<void**, void*>(&(PVOID&)ExecuteCommandLists, &DX12_Hook::MyExecuteCommandLists)
         );
+        if (Present1 != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX12_Hook::MyPresent1)
+            );
+        }
         EndHook();
     }
     return true;
 }
 
-bool DX12_Hook::is_started()
+bool DX12_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
 //DX12_Hook::heap_t DX12_Hook::get_free_texture_heap()
@@ -101,14 +107,37 @@ bool DX12_Hook::is_started()
 //    return true;
 //}
 
-void DX12_Hook::resetRenderState()
+ID3D12CommandQueue* DX12_Hook::_FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
 {
-    if (initialized)
+    ID3D12CommandQueue* pCommandQueue = nullptr;
+
+    if (CommandQueueOffset == 0 && pCmdQueue != nullptr)
     {
-        overlay_hook_ready(false);
+        for (size_t i = 0; i < 1024; ++i)
+        {
+            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == pCmdQueue)
+            {
+                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
+                CommandQueueOffset = i;
+                break;
+            }
+        }
+    }
+
+    if (CommandQueueOffset != 0)
+        pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + CommandQueueOffset);
+
+    return pCommandQueue;
+}
+
+void DX12_Hook::_ResetRenderState()
+{
+    if (_Initialized)
+    {
+        OverlayHookReady(false);
 
         ImGui_ImplDX12_Shutdown();
-        Windows_Hook::Inst()->resetRenderState();
+        Windows_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
         OverlayFrames.clear();
@@ -117,12 +146,12 @@ void DX12_Hook::resetRenderState()
         SafeRelease(pRtvDescHeap);
         SafeRelease(pDevice);
 
-        initialized = false;
+        _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue)
+void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue)
 {
     if (pCommandQueue == nullptr)
         return;
@@ -135,7 +164,7 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue
 
     pSwapChain3->GetDesc(&sc_desc);
 
-    if (!initialized)
+    if (!_Initialized)
     {
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         pDevice = nullptr;
@@ -242,15 +271,15 @@ void DX12_Hook::prepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue
 			//heaps.cpu_handle,
             //heaps.gpu_handle);
         
-        initialized = true;
-        overlay_hook_ready(true);
+        _Initialized = true;
+        OverlayHookReady(true);
     }
 
-    if (ImGui_ImplDX12_NewFrame() && Windows_Hook::Inst()->prepareForOverlay(sc_desc.OutputWindow))
+    if (ImGui_ImplDX12_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(sc_desc.OutputWindow))
     {
         ImGui::NewFrame();
 
-        overlay_proc();
+        OverlayProc();
 
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
 
@@ -286,43 +315,26 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncI
 {
     auto inst = DX12_Hook::Inst();
 
-    if (inst->CommandQueueOffset == 0 && inst->pCmdQueue != nullptr)
+    ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
+    if (pCommandQueue != nullptr)
     {
-        for (size_t i = 0; i < 1024; ++i)
-        {
-            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + i) == inst->pCmdQueue)
-            {
-                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
-                inst->CommandQueueOffset = i;
-                
-                break;
-            }
-        }
+        inst->_PrepareForOverlay(_this, pCommandQueue);
     }
 
-    if (inst->CommandQueueOffset != 0)
-    {
-        ID3D12CommandQueue* pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(_this) + inst->CommandQueueOffset);
-
-        inst->prepareForOverlay(_this, pCommandQueue);
-    }
-
-    auto res = (_this->*inst->Present)(SyncInterval, Flags);
-
-    return res;
+    return (_this->*inst->Present)(SyncInterval, Flags);
 }
 
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
     auto inst = DX12_Hook::Inst();
-    inst->resetRenderState();
+    inst->_ResetRenderState();
     return (_this->*inst->ResizeTarget)(pNewTargetParameters);
 }
 
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
     auto inst = DX12_Hook::Inst();
-    inst->resetRenderState();
+    inst->_ResetRenderState();
     return (_this->*inst->ResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 
@@ -333,20 +345,34 @@ void STDMETHODCALLTYPE DX12_Hook::MyExecuteCommandLists(ID3D12CommandQueue *_thi
     (_this->*inst->ExecuteCommandLists)(NumCommandLists, ppCommandLists);
 }
 
+HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+{
+    auto inst = DX12_Hook::Inst();
+    
+    ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
+    if (pCommandQueue != nullptr)
+    {
+        inst->_PrepareForOverlay(_this, pCommandQueue);
+    }
+
+    return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+}
+
 DX12_Hook::DX12_Hook():
-    initialized(false),
+    _Initialized(false),
     CommandQueueOffset(0),
     pDevice(nullptr),
     pCmdQueue(nullptr),
     pSrvDescHeap(nullptr),
     pCmdList(nullptr),
     pRtvDescHeap(nullptr),
-    hooked(false),
-    windows_hooked(false),
+    _Hooked(false),
+    _WindowsHooked(false),
     Present(nullptr),
     ResizeBuffers(nullptr),
     ResizeTarget(nullptr),
-    ExecuteCommandLists(nullptr)
+    ExecuteCommandLists(nullptr),
+    Present1(nullptr)
 {
     SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
@@ -355,10 +381,10 @@ DX12_Hook::~DX12_Hook()
 {
     SPDLOG_INFO("DX12 Hook removed");
 
-    if (windows_hooked)
+    if (_WindowsHooked)
         delete Windows_Hook::Inst();
 
-    if (initialized)
+    if (_Initialized)
     {
         OverlayFrames.clear();
 
@@ -368,7 +394,7 @@ DX12_Hook::~DX12_Hook()
         ImGui_ImplDX12_InvalidateDeviceObjects();
         ImGui::DestroyContext();
 
-        initialized = false;
+        _Initialized = false;
     }
 
     _inst = nullptr;
@@ -387,13 +413,20 @@ std::string DX12_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX12_Hook::loadFunctions(decltype(Present) PresentFcn, decltype(ResizeBuffers) ResizeBuffersFcn, decltype(ResizeTarget) ResizeTargetFcn, decltype(ExecuteCommandLists) ExecuteCommandListsFcn)
+void DX12_Hook::LoadFunctions(
+    decltype(Present) PresentFcn,
+    decltype(ResizeBuffers) ResizeBuffersFcn,
+    decltype(ResizeTarget) ResizeTargetFcn,
+    decltype(ExecuteCommandLists) ExecuteCommandListsFcn,
+    decltype(Present1) Present1Fcn)
 {
     Present = PresentFcn;
     ResizeBuffers = ResizeBuffersFcn;
     ResizeTarget = ResizeTargetFcn;
 
     ExecuteCommandLists = ExecuteCommandListsFcn;
+
+    Present1 = Present1Fcn;
 }
 
 std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
@@ -571,8 +604,8 @@ void DX12_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     //auto ptr = resource.lock();
     //if (ptr)
     //{
-    //    auto it = image_resources.find(ptr);
-    //    if (it != image_resources.end())
-    //        image_resources.erase(it);
+    //    auto it = _ImageResources.find(ptr);
+    //    if (it != _ImageResources.end())
+    //        _ImageResources.erase(it);
     //}
 }

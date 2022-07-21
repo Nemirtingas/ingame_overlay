@@ -36,18 +36,18 @@ private:
     static OpenGLX_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool x11_hooked;
-    bool initialized;
-    Display *display;
-    GLXContext context;
-    std::set<std::shared_ptr<uint64_t>> image_resources;
+    bool _Hooked;
+    bool _X11Hooked;
+    bool _Initialized;
+    Display *_Display;
+    GLXContext _Context;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     OpenGLX_Hook();
 
-    void resetRenderState();
-    void prepareForOverlay(Display* display, GLXDrawable drawable);
+    void _ResetRenderState();
+    void _PrepareForOverlay(Display* display, GLXDrawable drawable);
 
     // Hook to render functions
     decltype(::glXSwapBuffers)* glXSwapBuffers;
@@ -59,11 +59,11 @@ public:
 
     virtual ~OpenGLX_Hook();
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback);
-    virtual bool is_started();
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool IsStarted();
     static OpenGLX_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void loadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
+    void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

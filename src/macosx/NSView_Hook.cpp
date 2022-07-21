@@ -29,9 +29,9 @@ constexpr decltype(NSView_Hook::DLL_NAME) NSView_Hook::DLL_NAME;
 
 NSView_Hook* NSView_Hook::_inst = nullptr;
 
-bool NSView_Hook::start_hook(std::function<bool(bool)>& _key_combination_callback)
+bool NSView_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         void* hAppKit = System::Library::GetLibraryHandle(DLL_NAME);
         if (hAppKit == nullptr)
@@ -48,33 +48,33 @@ bool NSView_Hook::start_hook(std::function<bool(bool)>& _key_combination_callbac
             return false;
         }
 
-        nsview_hook = new ObjCHookWrapper();
+        _NSViewHook = new ObjCHookWrapper();
         
         SPDLOG_INFO("Hooked NSView");
-        key_combination_callback = std::move(_key_combination_callback);
-        hooked = true;
+        KeyCombinationCallback = std::move(_key_combination_callback);
+        _Hooked = true;
     }
     return true;
 }
 
-void NSView_Hook::resetRenderState()
+void NSView_Hook::ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        nsview_hook->UnhookMainWindow();
-        initialized = false;
+        _NSViewHook->UnhookMainWindow();
+        _Initialized = false;
         ImGui_ImplOSX_Shutdown();
     }
 }
 
-bool NSView_Hook::prepareForOverlay()
+bool NSView_Hook::PrepareForOverlay()
 {
-    if (!hooked)
+    if (!_Hooked)
         return false;
 
-    if(!initialized)
+    if(!_Initialized)
     {
-        if (!nsview_hook->HookMainWindow())
+        if (!_NSViewHook->HookMainWindow())
         {
             SPDLOG_WARN("Failed to start NSView hook.");
             return false;
@@ -83,16 +83,16 @@ bool NSView_Hook::prepareForOverlay()
         ImGui_ImplOSX_Init();
     }
     
-    ImGui_ImplOSX_NewFrame(nsview_hook->GetNSView());
+    ImGui_ImplOSX_NewFrame(_NSViewHook->GetNSView());
     return true;
 }
 
 bool NSView_Hook::IgnoreInputs()
 {
-    if(key_combination_callback == nullptr)
+    if(KeyCombinationCallback == nullptr)
         return false;
 
-    return key_combination_callback(false);
+    return KeyCombinationCallback(false);
 }
 
 void NSView_Hook::HandleNSEvent(void* _NSEvent, void* _NSView)
@@ -103,9 +103,9 @@ void NSView_Hook::HandleNSEvent(void* _NSEvent, void* _NSView)
 /////////////////////////////////////////////////////////////////////////////////////
 
 NSView_Hook::NSView_Hook() :
-    initialized(false),
-    hooked(false),
-    nsview_hook(nullptr)
+    _Initialized(false),
+    _Hooked(false),
+    _NSViewHook(nullptr)
 {
 }
 
@@ -113,7 +113,7 @@ NSView_Hook::~NSView_Hook()
 {
     SPDLOG_INFO("NSView Hook removed");
 
-    resetRenderState();
+    ResetRenderState();
 
     _inst = nullptr;
 }
@@ -144,8 +144,8 @@ void NSView_Hook_HandleNSEvent(void* _NSEvent, void* _NSView)
 bool NSView_Hook_KeyCallback(bool v)
 {
 	auto* inst = NSView_Hook::Inst();
-	if(inst->key_combination_callback == nullptr)
+	if(inst->KeyCombinationCallback == nullptr)
 		return false;
 	
-	return inst->key_combination_callback(v);
+	return inst->KeyCombinationCallback(v);
 }

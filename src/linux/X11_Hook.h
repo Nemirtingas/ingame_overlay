@@ -37,13 +37,13 @@ private:
     static X11_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool initialized;
-    Window game_wnd;
+    bool _Hooked;
+    bool _Initialized;
+    Window _GameWnd;
 
     // Functions
     X11_Hook();
-    int check_for_overlay(Display *d, int num_events);
+    int _CheckForOverlay(Display *d, int num_events);
 
     // Hook to X11 window messages
     decltype(::XEventsQueued)* XEventsQueued;
@@ -52,19 +52,19 @@ private:
     static int MyXEventsQueued(Display * display, int mode);
     static int MyXPending(Display* display);
 
-    std::function<bool(bool)> key_combination_callback;
+    std::function<bool(bool)> _KeyCombinationCallback;
 
 public:
     std::string LibraryName;
 
     virtual ~X11_Hook();
 
-    void resetRenderState();
-    bool prepareForOverlay(Display *display, Window wnd);
+    void ResetRenderState();
+    bool PrepareForOverlay(Display *display, Window wnd);
 
-    Window get_game_wnd() const{ return game_wnd; }
+    Window GetGameWnd() const{ return _GameWnd; }
 
-    bool start_hook(std::function<bool(bool)>& key_combination_callback);
+    bool StartHook(std::function<bool(bool)>& key_combination_callback);
     static X11_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };

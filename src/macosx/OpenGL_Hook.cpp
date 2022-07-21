@@ -30,9 +30,9 @@ OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
 decltype(OpenGL_Hook::DLL_NAME) OpenGL_Hook::DLL_NAME;
 
-bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         if (CGLFlushDrawable == nullptr)
         {
@@ -40,59 +40,59 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        if (!NSView_Hook::Inst()->start_hook(key_combination_callback))
+        if (!NSView_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
         SPDLOG_INFO("Hooked OpenGL");
 
-        hooked = true;
+        _Hooked = true;
 
         UnhookAll();
         BeginHook();
         HookFuncs(
-                  std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGL_Hook::MyCGLFlushDrawable)
+            std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGL_Hook::MyCGLFlushDrawable)
         );
         EndHook();
     }
     return true;
 }
 
-bool OpenGL_Hook::is_started()
+bool OpenGL_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
-void OpenGL_Hook::resetRenderState()
+void OpenGL_Hook::_ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        Renderer_Hook::overlay_hook_ready(false);
+        OverlayHookReady(false);
 
         ImGui_ImplOpenGL2_Shutdown();
-        //NSView_Hook::Inst()->resetRenderState();
+        //NSView_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
-        initialized = false;
+        _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGL_Hook::prepareForOverlay()
+void OpenGL_Hook::_PrepareForOverlay()
 {
-    if( !initialized )
+    if( !_Initialized )
     {
         ImGui::CreateContext();
         ImGui_ImplOpenGL2_Init();
 
-        initialized = true;
-        overlay_hook_ready(true);
+        _Initialized = true;
+        OverlayHookReady(true);
     }
 
-    if (NSView_Hook::Inst()->prepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
+    if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
     {
         ImGui::NewFrame();
 
-        overlay_proc();
+        OverlayProc();
 
         ImGui::Render();
 
@@ -106,13 +106,13 @@ void OpenGL_Hook::prepareForOverlay()
 
 int64_t OpenGL_Hook::MyCGLFlushDrawable(CGLDrawable_t *glDrawable)
 {
-    OpenGL_Hook::Inst()->prepareForOverlay();
+    OpenGL_Hook::Inst()->_PrepareForOverlay();
     return OpenGL_Hook::Inst()->CGLFlushDrawable(glDrawable);
 }
 
 OpenGL_Hook::OpenGL_Hook():
-    initialized(false),
-    hooked(false),
+    _Initialized(false),
+    _Hooked(false),
     CGLFlushDrawable(nullptr)
 {
     
@@ -122,7 +122,7 @@ OpenGL_Hook::~OpenGL_Hook()
 {
     SPDLOG_INFO("OpenGL Hook removed");
 
-    if (initialized)
+    if (_Initialized)
     {
         ImGui_ImplOpenGL2_Shutdown();
         ImGui::DestroyContext();
@@ -144,7 +144,7 @@ std::string OpenGL_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void OpenGL_Hook::loadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
+void OpenGL_Hook::LoadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
 {
     CGLFlushDrawable = pfnCGLFlushDrawable;
 }
@@ -184,7 +184,7 @@ std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data,
         }
     });
 
-    image_resources.emplace(ptr);
+    _ImageResources.emplace(ptr);
     return ptr;
 }
 
@@ -193,8 +193,8 @@ void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     auto ptr = resource.lock();
     if (ptr)
     {
-        auto it = image_resources.find(ptr);
-        if (it != image_resources.end())
-            image_resources.erase(it);
+        auto it = _ImageResources.find(ptr);
+        if (it != _ImageResources.end())
+            _ImageResources.erase(it);
     }
 }

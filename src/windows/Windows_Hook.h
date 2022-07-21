@@ -33,12 +33,12 @@ private:
     static Windows_Hook* _inst;
 
     // Variables
-    bool hooked;
-    bool initialized;
-    bool in_proc;
-    HWND _game_hwnd;
-    WNDPROC _game_wndproc;
-    POINT _saved_cursor_pos;
+    bool _Hooked;
+    bool _Initialized;
+    int _RecurseCallCount;
+    HWND _GameHwnd;
+    WNDPROC _GameWndProc;
+    POINT _SavedCursorPos;
 
     // Functions
     Windows_Hook();
@@ -63,20 +63,20 @@ private:
 
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
-    std::function<bool(bool)> key_combination_callback;
+    std::function<bool(bool)> _KeyCombinationCallback;
 
 public:
     std::string LibraryName;
 
     virtual ~Windows_Hook();
 
-    void resetRenderState();
-    bool prepareForOverlay(HWND hWnd);
+    void _ResetRenderState();
+    bool _PrepareForOverlay(HWND hWnd);
 
     HWND GetGameHwnd() const;
     WNDPROC GetGameWndProc() const;
 
-    bool start_hook(std::function<bool(bool)>& key_combination_callbacl);
+    bool StartHook(std::function<bool(bool)>& key_combination_callback);
     static Windows_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };

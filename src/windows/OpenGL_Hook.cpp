@@ -27,9 +27,9 @@
 
 OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
-bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
+bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
-    if (!hooked)
+    if (!_Hooked)
     {
         if (wglSwapBuffers == nullptr)
         {
@@ -37,14 +37,14 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
             return false;
         }
 
-        if (!Windows_Hook::Inst()->start_hook(key_combination_callback))
+        if (!Windows_Hook::Inst()->StartHook(key_combination_callback))
             return false;
 
-        windows_hooked = true;
+        _WindowsHooked = true;
 
         SPDLOG_INFO("Hooked OpenGL");
 
-        hooked = true;
+        _Hooked = true;
 
         UnhookAll();
         BeginHook();
@@ -56,49 +56,49 @@ bool OpenGL_Hook::start_hook(std::function<bool(bool)> key_combination_callback)
     return true;
 }
 
-bool OpenGL_Hook::is_started()
+bool OpenGL_Hook::IsStarted()
 {
-    return hooked;
+    return _Hooked;
 }
 
-void OpenGL_Hook::resetRenderState()
+void OpenGL_Hook::_ResetRenderState()
 {
-    if (initialized)
+    if (_Initialized)
     {
-        overlay_hook_ready(false);
+        OverlayHookReady(false);
 
         ImGui_ImplOpenGL3_Shutdown();
-        Windows_Hook::Inst()->resetRenderState();
+        Windows_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
         last_window = nullptr;
-        initialized = false;
+        _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGL_Hook::prepareForOverlay(HDC hDC)
+void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
 {
     HWND hWnd = WindowFromDC(hDC);
 
     if (hWnd != last_window)
-        resetRenderState();
+        _ResetRenderState();
 
-    if (!initialized)
+    if (!_Initialized)
     {
         ImGui::CreateContext();
         ImGui_ImplOpenGL3_Init();
 
         last_window = hWnd;
-        initialized = true;
-        overlay_hook_ready(true);
+        _Initialized = true;
+        OverlayHookReady(true);
     }
 
-    if (ImGui_ImplOpenGL3_NewFrame() && Windows_Hook::Inst()->prepareForOverlay(hWnd))
+    if (ImGui_ImplOpenGL3_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(hWnd))
     {
         ImGui::NewFrame();
 
-        overlay_proc();
+        OverlayProc();
 
         ImGui::Render();
 
@@ -109,14 +109,14 @@ void OpenGL_Hook::prepareForOverlay(HDC hDC)
 BOOL WINAPI OpenGL_Hook::MywglSwapBuffers(HDC hDC)
 {
     auto inst = OpenGL_Hook::Inst();
-    inst->prepareForOverlay(hDC);
+    inst->_PrepareForOverlay(hDC);
     return inst->wglSwapBuffers(hDC);
 }
 
 OpenGL_Hook::OpenGL_Hook():
-    hooked(false),
-    windows_hooked(false),
-    initialized(false),
+    _Hooked(false),
+    _WindowsHooked(false),
+    _Initialized(false),
     last_window(nullptr),
     wglSwapBuffers(nullptr)
 {
@@ -126,10 +126,10 @@ OpenGL_Hook::~OpenGL_Hook()
 {
     SPDLOG_INFO("OpenGL Hook removed");
 
-    if (windows_hooked)
+    if (_WindowsHooked)
         delete Windows_Hook::Inst();
 
-    if (initialized)
+    if (_Initialized)
     {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui::DestroyContext();
@@ -151,7 +151,7 @@ std::string OpenGL_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void OpenGL_Hook::loadFunctions(wglSwapBuffers_t pfnwglSwapBuffers)
+void OpenGL_Hook::LoadFunctions(wglSwapBuffers_t pfnwglSwapBuffers)
 {
     wglSwapBuffers = pfnwglSwapBuffers;
 }
@@ -191,7 +191,7 @@ std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data,
         }
     });
 
-    image_resources.emplace(ptr);
+    _ImageResources.emplace(ptr);
     return ptr;
 }
 
@@ -200,8 +200,8 @@ void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     auto ptr = resource.lock();
     if (ptr)
     {
-        auto it = image_resources.find(ptr);
-        if (it != image_resources.end())
-            image_resources.erase(it);
+        auto it = _ImageResources.find(ptr);
+        if (it != _ImageResources.end())
+            _ImageResources.erase(it);
     }
 }

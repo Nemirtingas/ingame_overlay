@@ -28,17 +28,17 @@ class Renderer_Hook
 {
 public:
     Renderer_Hook():
-        overlay_proc(&default_overlay_proc),
-        overlay_hook_ready(&default_overlay_hook_ready)
+        OverlayProc(&DefaultOverlayProc),
+        OverlayHookReady(&DefaultOverlayHookReady)
     {}
 
-    static void default_overlay_proc() {}
-    static void default_overlay_hook_ready(bool) {}
-    std::function<void()> overlay_proc;
-    std::function<void(bool)> overlay_hook_ready;
+    static void DefaultOverlayProc() {}
+    static void DefaultOverlayHookReady(bool) {}
+    std::function<void()> OverlayProc;
+    std::function<void(bool)> OverlayHookReady;
 
-    virtual bool start_hook(std::function<bool(bool)> key_combination_callback) = 0;
-    virtual bool is_started() = 0;
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback) = 0;
+    virtual bool IsStarted() = 0;
     // Returns a Handle to the renderer image ressource or nullptr if it failed to create the resource, the handle can be used in ImGui's Image calls, image_buffer must be RGBA ordered
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height) = 0;
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource) = 0;

@@ -36,7 +36,7 @@ void shared_library_load(void* hmodule)
                 return;
 
             // overlay_proc is called  when the process wants to swap buffers.
-            overlay_datas.renderer->overlay_proc = []()
+            overlay_datas.renderer->OverlayProc = []()
             {
                 std::lock_guard<std::mutex> lk(overlay_datas.overlay_mutex);
 
@@ -63,12 +63,12 @@ void shared_library_load(void* hmodule)
 
             // Called when the renderer hook is ready (true)
             // or when the renderer has been reset (false).
-            overlay_datas.renderer->overlay_hook_ready = [](bool is_ready)
+            overlay_datas.renderer->OverlayHookReady = [](bool is_ready)
             {
                 std::lock_guard<std::mutex> lk(overlay_datas.overlay_mutex);
             };
 
-            overlay_datas.renderer->start_hook([](bool toggle)
+            overlay_datas.renderer->StartHook([](bool toggle)
             {
                 std::lock_guard<std::mutex> lk(overlay_datas.overlay_mutex);
 
