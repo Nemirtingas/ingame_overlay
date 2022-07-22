@@ -113,6 +113,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(BUILD_TESTS "Build tests." OFF)
 option(USE_SPDLOG "Enable logs with SPDLOG." OFF)
 
+find_package(Threads REQUIRED)
+
 if(NOT ${IMGUI_USER_CONFIG} STREQUAL "")
   set(IMGUI_USER_CONFIG_VALUE IMGUI_USER_CONFIG="${IMGUI_USER_CONFIG}")
   get_filename_component(IMGUI_USER_CONFIG_NAME_VALUE ${IMGUI_USER_CONFIG} NAME)
@@ -189,8 +191,10 @@ target_compile_definitions(ingame_overlay
   PRIVATE
   $<$<BOOL:${USE_SPDLOG}>:USE_SPDLOG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
+  $<BUILD_INTERFACE:IMGUI_DISABLE_DEMO_WINDOWS>
   PUBLIC
   $<INSTALL_INTERFACE:${IMGUI_USER_CONFIG_NAME_VALUE}>
+  IMGUI_IMPL_OPENGL_LOADER_GLAD2
 )
 
 add_library(InGameOverlay::InGameOverlay ALIAS ingame_overlay)
@@ -224,7 +228,7 @@ if(${BUILD_TESTS})
     
     target_compile_definitions(dx10_app
       PRIVATE
-      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx10/ingameoverlay_imconfig.h"
+      ${IMGUI_USER_CONFIG_VALUE}
     )
     
     set_property(TARGET dx10_app PROPERTY
@@ -255,7 +259,7 @@ if(${BUILD_TESTS})
     
     target_compile_definitions(dx11_app
       PRIVATE
-      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx11/ingameoverlay_imconfig.h"
+      ${IMGUI_USER_CONFIG_VALUE}
     )
     
     set_property(TARGET dx11_app PROPERTY
@@ -287,7 +291,7 @@ if(${BUILD_TESTS})
     
     target_compile_definitions(dx12_app
       PRIVATE
-      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/dx12/ingameoverlay_imconfig.h"
+      ${IMGUI_USER_CONFIG_VALUE}
     )
     
     set_property(TARGET dx12_app PROPERTY
@@ -311,7 +315,7 @@ if(${BUILD_TESTS})
     target_include_directories(linux_opengl_app
       PRIVATE
       deps/ImGui
-      tests/linux_opengl/glad2/include/
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include
     )
 
     target_link_libraries(linux_opengl_app
@@ -323,7 +327,8 @@ if(${BUILD_TESTS})
 
     target_compile_definitions(linux_opengl_app
       PRIVATE
-      IMGUI_USER_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/tests/linux_opengl/ingameoverlay_imconfig.h"
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
     )
 
   endif()
@@ -331,14 +336,25 @@ if(${BUILD_TESTS})
   add_library(overlay_example SHARED
     tests/overlay_example/library_main.cpp
   )
-  
-  set_property(TARGET overlay_example PROPERTY
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  set_property(TARGET overlay_example PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+  set_target_properties(overlay_example PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    POSITION_INDEPENDENT_CODE ON
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+  )
+
+  target_link_options(overlay_example
+    PRIVATE
+    $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--exclude-libs,ALL>
+    $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--no-undefined>
+  )
   
   target_link_libraries(overlay_example
     PRIVATE
     InGameOverlay::InGameOverlay
+    Threads::Threads
   )
 
 endif()

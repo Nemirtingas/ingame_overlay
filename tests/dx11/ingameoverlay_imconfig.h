@@ -6,5 +6,4 @@
 // ImTextureID [configurable type: override in imconfig.h with '#define ImTextureID xxx']
 #define ImTextureID uint64_t
 
-#define IMGUI_IMPL_OPENGL_LOADER_GLAD2
 #define IMGUI_IMPL_VULKAN_NO_PROTOTYPES

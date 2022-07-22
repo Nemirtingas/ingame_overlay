@@ -1181,7 +1181,7 @@ public:
     Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
         std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
-            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGLX_Hook::DLL_NAME,& Renderer_Detector::hook_openglx},
+            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGLX_Hook::DLL_NAME, &Renderer_Detector::hook_openglx},
         };
 
         std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);

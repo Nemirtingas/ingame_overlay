@@ -27,6 +27,8 @@
 
 OpenGLX_Hook* OpenGLX_Hook::_inst = nullptr;
 
+constexpr decltype(OpenGLX_Hook::DLL_NAME) OpenGLX_Hook::DLL_NAME;
+
 bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
 {
     if (!_Hooked)

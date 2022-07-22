@@ -1,18 +1,18 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <dlfcn.h>
-
-#define IMGUI_IMPL_OPENGL_LOADER_GLAD2
-#define GLAD_GL_IMPLEMENTATION
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <stdio.h>
+
+#define GLAD_GL_IMPLEMENTATION
 
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
@@ -45,11 +45,38 @@ using namespace gl;
 #include <GL/gl.h>
 #include <GL/glx.h>
 
+#include <string>
+
 extern int ImGui_ImplX11_EventHandler(XEvent &event);
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB       0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB       0x2092
 typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+
+static std::string expandSymlink(std::string file_path)
+{
+    struct stat file_stat;
+    std::string link_target;
+    ssize_t name_len = 128;
+    while(lstat(file_path.c_str(), &file_stat) >= 0 && S_ISLNK(file_stat.st_mode) == 1)
+    {
+        do
+        {
+            name_len *= 2;
+            link_target.resize(name_len);
+            name_len = readlink(file_path.c_str(), &link_target[0], link_target.length());
+        } while (name_len == link_target.length());
+        link_target.resize(name_len);
+        file_path = std::move(link_target);
+    }
+
+    return file_path;
+}
+
+static std::string getExecutablePath()
+{
+    return expandSymlink("/proc/self/exe");
+}
 
 static bool isExtensionSupported(const char *extList, const char *extension)
 {
@@ -152,11 +179,11 @@ int main(int argc, char* argv[])
       glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLE_BUFFERS, &samp_buf );
       glXGetFBConfigAttrib( display, fbc[i], GLX_SAMPLES       , &samples  );
       
-      printf( "  Matching fbconfig %d, visual ID 0x%2x: SAMPLE_BUFFERS = %d,"
+      printf( "  Matching fbconfig %d, visual ID 0x%2lx: SAMPLE_BUFFERS = %d,"
               " SAMPLES = %d\n", 
               i, vi -> visualid, samp_buf, samples );
 
-      if ( best_fbc < 0 || samp_buf && samples > best_num_samp )
+      if ( best_fbc < 0 || (samp_buf && samples > best_num_samp) )
         best_fbc = i, best_num_samp = samples;
       if ( worst_fbc < 0 || !samp_buf || samples < worst_num_samp )
         worst_fbc = i, worst_num_samp = samples;
@@ -171,7 +198,7 @@ int main(int argc, char* argv[])
 
   // Get a visual
   XVisualInfo *vi = glXGetVisualFromFBConfig( display, bestFbc );
-  printf( "Chosen visual ID = 0x%x\n", vi->visualid );
+  printf( "Chosen visual ID = 0x%lx\n", vi->visualid );
 
   printf( "Creating colormap\n" );
   XSetWindowAttributes swa;
@@ -351,14 +378,6 @@ int main(int argc, char* argv[])
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
 
-    // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-    XEvent event;
-    bool running = true;
-
     Atom wmDeleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, win, &wmDeleteMessage, 1);
 
@@ -367,6 +386,19 @@ int main(int argc, char* argv[])
                  SubstructureRedirectMask | SubstructureNotifyMask |
                  KeyPressMask | KeyReleaseMask |
                  ButtonPressMask | ButtonReleaseMask);
+
+    std::string exec_path = getExecutablePath();
+    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + "liboverlay_example.so";
+    void* overlay_hook = dlopen(exec_path.c_str(), RTLD_NOW);
+    printf("Loading %s: %p\n", exec_path.c_str(), overlay_hook);
+
+    // Our state
+    bool show_demo_window = true;
+    bool show_another_window = false;
+    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+
+    XEvent event;
+    bool running = true;
 
     while (running)
     {
