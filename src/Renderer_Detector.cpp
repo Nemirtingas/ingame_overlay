@@ -230,6 +230,16 @@ private:
         }
     }
 
+    template<typename T>
+    void HookDetected(T*& detected_renderer)
+    {
+        detection_hooks.UnhookAll();
+        renderer_hook = static_cast<Renderer_Hook*>(detected_renderer);
+        detected_renderer = nullptr;
+        detection_done = true;
+        DestroyHWND();
+    }
+
     void DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
     {
         IUnknown* pDevice = nullptr;
@@ -239,10 +249,7 @@ private:
         }
         if (pDevice != nullptr)
         {
-            detection_hooks.UnhookAll();
-            renderer_hook = static_cast<Renderer_Hook*>(dx12_hook);
-            dx12_hook = nullptr;
-            detection_done = true;
+            HookDetected(dx12_hook);
         }
         else
         {
@@ -252,10 +259,7 @@ private:
             }
             if (pDevice != nullptr)
             {
-                detection_hooks.UnhookAll();
-                renderer_hook = static_cast<Renderer_Hook*>(dx11_hook);
-                dx11_hook = nullptr;
-                detection_done = true;
+                HookDetected(dx11_hook);
             }
             else
             {
@@ -265,10 +269,7 @@ private:
                 }
                 if (pDevice != nullptr)
                 {
-                    detection_hooks.UnhookAll();
-                    renderer_hook = static_cast<Renderer_Hook*>(dx10_hook);
-                    dx10_hook = nullptr;
-                    detection_done = true;
+                    HookDetected(dx10_hook);
                 }
             }
         }
@@ -325,10 +326,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->detection_hooks.UnhookAll();
-        inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx9_hook);
-        inst->dx9_hook = nullptr;
-        inst->detection_done = true;
+        inst->HookDetected(inst->dx9_hook);
 
         return res;
     }
@@ -342,10 +340,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->detection_hooks.UnhookAll();
-        inst->renderer_hook = static_cast<Renderer_Hook*>(inst->dx9_hook);
-        inst->dx9_hook = nullptr;
-        inst->detection_done = true;
+        inst->HookDetected(inst->dx9_hook);
 
         return res;
     }
@@ -361,10 +356,7 @@ private:
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
         {
-            inst->detection_hooks.UnhookAll();
-            inst->renderer_hook = static_cast<Renderer_Hook*>(inst->opengl_hook);
-            inst->opengl_hook = nullptr;
-            inst->detection_done = true;
+            inst->HookDetected(inst->opengl_hook);
         }
 
         return res;
@@ -379,10 +371,7 @@ private:
         if (inst->detection_done)
             return res;
 
-        inst->detection_hooks.UnhookAll();
-        inst->renderer_hook = static_cast<Renderer_Hook*>(inst->vulkan_hook);
-        inst->vulkan_hook = nullptr;
-        inst->detection_done = true;
+        inst->HookDetected(inst->vulkan_hook);
         
         return res;
     }
