@@ -138,8 +138,6 @@ set(INGAMEOVERLAY_IMGUI_HEADERS
   $<$<BOOL:${IMGUI_USER_CONFIG}>:${IMGUI_USER_CONFIG}>
 )
 
-set(SYSTEM_CODE ON CACHE BOOL "")
-set(FILESYSTEM_CODE OFF CACHE BOOL "")
 add_subdirectory(deps/System EXCLUDE_FROM_ALL)
 add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
 
