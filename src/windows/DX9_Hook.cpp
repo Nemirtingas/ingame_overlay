@@ -63,7 +63,12 @@ bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
         {
             HookFuncs(
                 std::make_pair<void**, void*>(&(PVOID&)PresentEx, &DX9_Hook::MyPresentEx)
-                //std::make_pair<void**, void*>(&(PVOID&)EndScene, &DX9_Hook::MyEndScene)
+            );
+        }
+        if (SwapChainPresent != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)SwapChainPresent, &DX9_Hook::MySwapChainPresent)
             );
         }
         EndHook();
@@ -135,15 +140,6 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MyReset(IDirect3DDevice9* _this, D3DPRESENT_
     return (_this->*inst->Reset)(pPresentationParameters);
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MyEndScene(IDirect3DDevice9* _this)
-{   
-    auto inst = DX9_Hook::Inst();
-    if( !inst->uses_present )
-        inst->_PrepareForOverlay(_this);
-
-    return (_this->*inst->EndScene)();
-}
-
 HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresent(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
     auto inst = DX9_Hook::Inst();
@@ -160,13 +156,26 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresentEx(IDirect3DDevice9Ex* _this, CONST
     return (_this->*inst->PresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 }
 
+HRESULT STDMETHODCALLTYPE DX9_Hook::MySwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+{
+    IDirect3DDevice9* pDevice;
+    auto inst = DX9_Hook::Inst();
+    inst->uses_present = true;
+
+    if (SUCCEEDED(_this->GetDevice(&pDevice)))
+    {
+        inst->_PrepareForOverlay(pDevice);
+        pDevice->Release();
+    }
+    return (_this->*inst->SwapChainPresent)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+}
+
 DX9_Hook::DX9_Hook():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
     uses_present(false),
     last_window(nullptr),
-    EndScene(nullptr),
     Present(nullptr),
     PresentEx(nullptr),
     Reset(nullptr)
@@ -202,13 +211,14 @@ std::string DX9_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX9_Hook::LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(EndScene) EndSceneFcn, decltype(PresentEx) PresentExFcn)
+void DX9_Hook::LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(PresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn)
 {
     Present = PresentFcn;
     Reset = ResetFcn;
-    EndScene = EndSceneFcn;
 
     PresentEx = PresentExFcn;
+
+    SwapChainPresent = SwapChainPresentFcn;
 }
 
 std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

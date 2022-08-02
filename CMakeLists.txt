@@ -110,7 +110,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(BUILD_TESTS "Build tests." OFF)
+option(BUILD_INGAMEOVERLAY_TESTS "Build tests." OFF)
 option(USE_SPDLOG "Enable logs with SPDLOG." OFF)
 
 find_package(Threads REQUIRED)
@@ -198,9 +198,40 @@ target_compile_definitions(ingame_overlay
 add_library(InGameOverlay::InGameOverlay ALIAS ingame_overlay)
 set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
-if(${BUILD_TESTS})
+if(${BUILD_INGAMEOVERLAY_TESTS})
 
   if(WIN32)
+	add_executable(dx9_app
+      tests/dx9/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx9.cpp
+      deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.cpp
+    )
+    
+    target_include_directories(dx9_app
+      PRIVATE
+      deps/ImGui
+    )
+    
+    target_link_libraries(dx9_app
+      PRIVATE
+      user32
+      d3d9
+    )
+    
+    target_compile_definitions(dx9_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+    )
+    
+    set_property(TARGET dx9_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  
     add_executable(dx10_app
       tests/dx10/main.cpp
       deps/ImGui/imgui.cpp

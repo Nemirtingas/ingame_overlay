@@ -40,13 +40,14 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
-#include "windows/DirectX_VTables.h"
 #include "windows/DX12_Hook.h"
 #include "windows/DX11_Hook.h"
 #include "windows/DX10_Hook.h"
 #include "windows/DX9_Hook.h"
 #include "windows/OpenGL_Hook.h"
 #include "windows/Vulkan_Hook.h"
+
+#include "windows/DirectX_VTables.h"
 
 #include <random>
 
@@ -119,6 +120,7 @@ private:
     decltype(&IDXGISwapChain1::Present1)     IDXGISwapChainPresent1;
     decltype(&IDirect3DDevice9::Present)     IDirect3DDevice9Present;
     decltype(&IDirect3DDevice9Ex::PresentEx) IDirect3DDevice9ExPresentEx;
+    decltype(&IDirect3DSwapChain9::Present)  IDirect3DSwapChain9Present;
     decltype(::SwapBuffers)*                 wglSwapBuffers;
     decltype(::vkQueuePresentKHR)*           vkQueuePresentKHR;
 
@@ -345,6 +347,20 @@ private:
         return res;
     }
 
+    static HRESULT STDMETHODCALLTYPE MyDX9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+    {
+        auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+
+        auto res = (_this->*inst->IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+        if (inst->detection_done)
+            return res;
+
+        inst->HookDetected(inst->dx9_hook);
+
+        return res;
+    }
+
     static BOOL WINAPI MywglSwapBuffers(HDC hDC)
     {
         auto inst = Inst();
@@ -410,31 +426,50 @@ private:
         }
     }
 
-    void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, void*& pfnPresent, void*& pfnReset, void*& pfnEndScene, void*& pfnPresentEx)
+    void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
+        decltype(&IDirect3DDevice9::Present)& pfnPresent,
+        decltype(&IDirect3DDevice9::Reset)& pfnReset,
+        decltype(&IDirect3DDevice9Ex::PresentEx)& pfnPresentEx,
+        decltype(&IDirect3DSwapChain9::Present)& pfnSwapChainPresent)
     {
         void** vTable = *reinterpret_cast<void***>(pDevice);
-        pfnPresent   = (void*)vTable[(int)IDirect3DDevice9VTable::Present];
-        pfnReset     = (void*)vTable[(int)IDirect3DDevice9VTable::Reset];
-        pfnEndScene  = (void*)vTable[(int)IDirect3DDevice9VTable::EndScene];
-        pfnPresentEx = (ex ? (void*)vTable[(int)IDirect3DDevice9VTable::PresentEx] : nullptr);
-
+        (void*&)pfnPresent   = vTable[(int)IDirect3DDevice9VTable::Present];
+        (void*&)pfnReset     = vTable[(int)IDirect3DDevice9VTable::Reset];
+        
         (void*&)IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
-
+        
         detection_hooks.BeginHook();
         detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9Present, (void*)&MyDX9Present });
         detection_hooks.EndHook();
-
+        
         if (ex)
         {
+            (void*&)pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
             (void*&)IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
-
+        
             detection_hooks.BeginHook();
             detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9ExPresentEx, (void*)&MyDX9PresentEx });
             detection_hooks.EndHook();
         }
         else
         {
+            pfnPresentEx = nullptr;
             IDirect3DDevice9ExPresentEx = nullptr;
+        }
+        
+        if (pSwapChain != nullptr)
+        {
+            IDirect3DSwapChain9VTable* vTable = *reinterpret_cast<IDirect3DSwapChain9VTable**>(pSwapChain);
+            pfnSwapChainPresent = vTable->pPresent;
+            IDirect3DSwapChain9Present = vTable->pPresent;
+        
+            detection_hooks.BeginHook();
+            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DSwapChain9Present, (void*)&MyDX9SwapChainPresent });
+            detection_hooks.EndHook();
+        }
+        else
+        {
+            pfnSwapChainPresent = nullptr;
         }
     }
 
@@ -470,7 +505,8 @@ private:
             }
 
             IDirect3D9Ex* pD3D = nullptr;
-            IUnknown* pDevice = nullptr;
+            IDirect3DDevice9* pDevice = nullptr;
+            IDirect3DSwapChain9* pSwapChain = nullptr;
 
             auto Direct3DCreate9Ex = libD3d9.GetSymbol<decltype(::Direct3DCreate9Ex)>("Direct3DCreate9Ex");
 
@@ -485,7 +521,7 @@ private:
             if (Direct3DCreate9Ex != nullptr)
             {
                 Direct3DCreate9Ex(D3D_SDK_VERSION, &pD3D);
-                pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
+                pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
             }
             
             if (pDevice == nullptr)
@@ -494,33 +530,37 @@ private:
                 auto Direct3DCreate9 = libD3d9.GetSymbol<decltype(::Direct3DCreate9)>("Direct3DCreate9");
                 if (Direct3DCreate9 != nullptr)
                 {
+                    // D3DDEVTYPE_HAL
                     pD3D = reinterpret_cast<IDirect3D9Ex*>(Direct3DCreate9(D3D_SDK_VERSION));
-                    pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_NULLREF, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, reinterpret_cast<IDirect3DDevice9**>(&pDevice));
+                    pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, &pDevice);
                 }
             }
 
             if (pDevice != nullptr)
             {
                 SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
-
+                
                 dx9_hooked = true;
+
+                pDevice->GetSwapChain(0, &pSwapChain);
 
                 decltype(&IDirect3DDevice9::Present) pfnPresent;
                 decltype(&IDirect3DDevice9::Reset) pfnReset;
-                decltype(&IDirect3DDevice9::EndScene) pfnEndScene;
                 decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
+                decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
 
-                HookDX9Present(reinterpret_cast<IDirect3DDevice9*>(pDevice), Direct3DCreate9Ex != nullptr, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnEndScene, (void*&)pfnPresentEx);
+                HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
 
                 dx9_hook = DX9_Hook::Inst();
                 dx9_hook->LibraryName = library_path;
-                dx9_hook->LoadFunctions(pfnPresent, pfnReset, pfnEndScene, pfnPresentEx);
+                dx9_hook->LoadFunctions(pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
             }
             else
             {
                 SPDLOG_WARN("Failed to hook D3D9::Present to detect DX Version");
             }
 
+            if (pSwapChain) pSwapChain->Release();
             if (pDevice) pDevice->Release();
             if (pD3D) pD3D->Release();
         }
