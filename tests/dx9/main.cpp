@@ -163,7 +163,7 @@ int main(int, char**)
         }
         else
         {
-            g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+            result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
         }
 
         // Handle loss of D3D9 device

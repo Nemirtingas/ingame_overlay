@@ -91,37 +91,57 @@ void DX9_Hook::_ResetRenderState()
         Windows_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
-        SafeRelease(pDevice);
+        SafeRelease(_pDevice);
         
-        last_window = nullptr;
+        _LastWindow = nullptr;
         _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice)
+void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 {
-    D3DDEVICE_CREATION_PARAMETERS param;
-    pDevice->GetCreationParameters(&param);
+    if (!destWindow)
+    {
+        IDirect3DSwapChain9 *pSwapChain = nullptr;
+        if (pDevice->GetSwapChain(0, &pSwapChain) == D3D_OK)
+        {
+            D3DPRESENT_PARAMETERS params;
+            if (pSwapChain->GetPresentParameters(&params) == D3D_OK)
+            {
+                destWindow = params.hDeviceWindow;
+            }
+
+            pSwapChain->Release();
+        }
+    }
+
+    //Is this necessary anymore?
+    if (!destWindow)
+    {
+        D3DDEVICE_CREATION_PARAMETERS param;
+        pDevice->GetCreationParameters(&param);
+        destWindow = param.hFocusWindow;
+    }
 
     // Workaround to detect if we changed window.
-    if (param.hFocusWindow != last_window || this->pDevice != pDevice)
+    if (destWindow != _LastWindow || _pDevice != pDevice)
         _ResetRenderState();
 
     if (!_Initialized)
     {
         pDevice->AddRef();
-        this->pDevice = pDevice;
+        _pDevice = pDevice;
 
         ImGui::CreateContext();
         ImGui_ImplDX9_Init(pDevice);
 
-        last_window = param.hFocusWindow;
+        _LastWindow = destWindow;
         _Initialized = true;
         OverlayHookReady(true);
     }
 
-    if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(param.hFocusWindow))
+    if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(destWindow))
     {
         ImGui::NewFrame();
 
@@ -143,16 +163,14 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MyReset(IDirect3DDevice9* _this, D3DPRESENT_
 HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresent(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
     auto inst = DX9_Hook::Inst();
-    inst->uses_present = true;
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 }
 
 HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
     auto inst = DX9_Hook::Inst();
-    inst->uses_present = true;
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->PresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 }
 
@@ -160,11 +178,20 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MySwapChainPresent(IDirect3DSwapChain9* _thi
 {
     IDirect3DDevice9* pDevice;
     auto inst = DX9_Hook::Inst();
-    inst->uses_present = true;
 
     if (SUCCEEDED(_this->GetDevice(&pDevice)))
     {
-        inst->_PrepareForOverlay(pDevice);
+        HWND destWindow = hDestWindowOverride;
+        if (!destWindow)
+        {
+            D3DPRESENT_PARAMETERS param;
+            if (_this->GetPresentParameters(&param) == D3D_OK)
+            {
+                destWindow = param.hDeviceWindow;
+            }
+        }
+
+        inst->_PrepareForOverlay(pDevice, destWindow);
         pDevice->Release();
     }
     return (_this->*inst->SwapChainPresent)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
@@ -174,8 +201,7 @@ DX9_Hook::DX9_Hook():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
-    uses_present(false),
-    last_window(nullptr),
+    _LastWindow(nullptr),
     Present(nullptr),
     PresentEx(nullptr),
     Reset(nullptr)
@@ -225,7 +251,7 @@ std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, ui
 {
     IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
 
-    pDevice->CreateTexture(
+    _pDevice->CreateTexture(
         width,
         height,
         1,

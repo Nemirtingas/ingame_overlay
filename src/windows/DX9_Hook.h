@@ -39,16 +39,15 @@ private:
     bool _Hooked;
     bool _WindowsHooked;
     bool _Initialized;
-    bool uses_present;
-    HWND last_window;
-    IDirect3DDevice9* pDevice;
+    HWND _LastWindow;
+    IDirect3DDevice9* _pDevice;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     DX9_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(IDirect3DDevice9* pDevice);
+    void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);
 
     // Hook to render functions
     decltype(&IDirect3DDevice9::Reset)       Reset;
