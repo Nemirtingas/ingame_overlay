@@ -80,6 +80,12 @@ bool NSView_Hook::PrepareForOverlay()
             return false;
         }
 
+        double width, height;
+
+        get_window_size_from_sharedApplication(&width, &height);
+
+        ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
+
         ImGui_ImplOSX_Init();
     }
     

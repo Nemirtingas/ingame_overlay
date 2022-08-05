@@ -39,27 +39,26 @@ private:
     bool _Hooked;
     bool _WindowsHooked;
     bool _Initialized;
-    bool uses_present;
-    HWND last_window;
-    IDirect3DDevice9* pDevice;
+    HWND _LastWindow;
+    IDirect3DDevice9* _pDevice;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
 
     // Functions
     DX9_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(IDirect3DDevice9* pDevice);
+    void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);
 
     // Hook to render functions
     decltype(&IDirect3DDevice9::Reset)       Reset;
-    decltype(&IDirect3DDevice9::EndScene)    EndScene;
     decltype(&IDirect3DDevice9::Present)     Present;
     decltype(&IDirect3DDevice9Ex::PresentEx) PresentEx;
+    decltype(&IDirect3DSwapChain9::Present)  SwapChainPresent;
 
     static HRESULT STDMETHODCALLTYPE MyReset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters);
-    static HRESULT STDMETHODCALLTYPE MyEndScene(IDirect3DDevice9 *_this);
     static HRESULT STDMETHODCALLTYPE MyPresent(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion);
     static HRESULT STDMETHODCALLTYPE MyPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags);
+    static HRESULT STDMETHODCALLTYPE MySwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags);
 
 public:
     std::string LibraryName;
@@ -71,7 +70,7 @@ public:
     static DX9_Hook* Inst();
     virtual std::string GetLibraryName() const;
 
-    void LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(EndScene) EndSceneFcn, decltype(PresentEx) PresentExFcn);
+    void LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(PresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

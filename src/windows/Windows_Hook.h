@@ -70,8 +70,9 @@ public:
 
     virtual ~Windows_Hook();
 
-    void _ResetRenderState();
-    bool _PrepareForOverlay(HWND hWnd);
+    void ResetRenderState();
+    void SetInitialWindowSize(HWND hWnd);
+    bool PrepareForOverlay(HWND hWnd);
 
     HWND GetGameHwnd() const;
     WNDPROC GetGameWndProc() const;

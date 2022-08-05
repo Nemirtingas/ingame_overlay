@@ -63,7 +63,12 @@ bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback)
         {
             HookFuncs(
                 std::make_pair<void**, void*>(&(PVOID&)PresentEx, &DX9_Hook::MyPresentEx)
-                //std::make_pair<void**, void*>(&(PVOID&)EndScene, &DX9_Hook::MyEndScene)
+            );
+        }
+        if (SwapChainPresent != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)SwapChainPresent, &DX9_Hook::MySwapChainPresent)
             );
         }
         EndHook();
@@ -83,40 +88,63 @@ void DX9_Hook::_ResetRenderState()
         OverlayHookReady(false);
 
         ImGui_ImplDX9_Shutdown();
-        Windows_Hook::Inst()->_ResetRenderState();
+        Windows_Hook::Inst()->ResetRenderState();
         ImGui::DestroyContext();
 
-        SafeRelease(pDevice);
+        SafeRelease(_pDevice);
         
-        last_window = nullptr;
+        _LastWindow = nullptr;
         _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice)
+void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 {
-    D3DDEVICE_CREATION_PARAMETERS param;
-    pDevice->GetCreationParameters(&param);
+    if (!destWindow)
+    {
+        IDirect3DSwapChain9 *pSwapChain = nullptr;
+        if (pDevice->GetSwapChain(0, &pSwapChain) == D3D_OK)
+        {
+            D3DPRESENT_PARAMETERS params;
+            if (pSwapChain->GetPresentParameters(&params) == D3D_OK)
+            {
+                destWindow = params.hDeviceWindow;
+            }
+
+            pSwapChain->Release();
+        }
+    }
+
+    //Is this necessary anymore?
+    if (!destWindow)
+    {
+        D3DDEVICE_CREATION_PARAMETERS param;
+        pDevice->GetCreationParameters(&param);
+        destWindow = param.hFocusWindow;
+    }
 
     // Workaround to detect if we changed window.
-    if (param.hFocusWindow != last_window || this->pDevice != pDevice)
+    if (destWindow != _LastWindow || _pDevice != pDevice)
         _ResetRenderState();
 
     if (!_Initialized)
     {
         pDevice->AddRef();
-        this->pDevice = pDevice;
+        _pDevice = pDevice;
 
         ImGui::CreateContext();
         ImGui_ImplDX9_Init(pDevice);
 
-        last_window = param.hFocusWindow;
+        _LastWindow = destWindow;
+
+        Windows_Hook::Inst()->SetInitialWindowSize(destWindow);
+
         _Initialized = true;
         OverlayHookReady(true);
     }
 
-    if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->_PrepareForOverlay(param.hFocusWindow))
+    if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(destWindow))
     {
         ImGui::NewFrame();
 
@@ -135,38 +163,48 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MyReset(IDirect3DDevice9* _this, D3DPRESENT_
     return (_this->*inst->Reset)(pPresentationParameters);
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MyEndScene(IDirect3DDevice9* _this)
-{   
-    auto inst = DX9_Hook::Inst();
-    if( !inst->uses_present )
-        inst->_PrepareForOverlay(_this);
-
-    return (_this->*inst->EndScene)();
-}
-
 HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresent(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
     auto inst = DX9_Hook::Inst();
-    inst->uses_present = true;
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 }
 
 HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
     auto inst = DX9_Hook::Inst();
-    inst->uses_present = true;
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->PresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+}
+
+HRESULT STDMETHODCALLTYPE DX9_Hook::MySwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+{
+    IDirect3DDevice9* pDevice;
+    auto inst = DX9_Hook::Inst();
+
+    if (SUCCEEDED(_this->GetDevice(&pDevice)))
+    {
+        HWND destWindow = hDestWindowOverride;
+        if (!destWindow)
+        {
+            D3DPRESENT_PARAMETERS param;
+            if (_this->GetPresentParameters(&param) == D3D_OK)
+            {
+                destWindow = param.hDeviceWindow;
+            }
+        }
+
+        inst->_PrepareForOverlay(pDevice, destWindow);
+        pDevice->Release();
+    }
+    return (_this->*inst->SwapChainPresent)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 }
 
 DX9_Hook::DX9_Hook():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
-    uses_present(false),
-    last_window(nullptr),
-    EndScene(nullptr),
+    _LastWindow(nullptr),
     Present(nullptr),
     PresentEx(nullptr),
     Reset(nullptr)
@@ -202,20 +240,21 @@ std::string DX9_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void DX9_Hook::LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(EndScene) EndSceneFcn, decltype(PresentEx) PresentExFcn)
+void DX9_Hook::LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(PresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn)
 {
     Present = PresentFcn;
     Reset = ResetFcn;
-    EndScene = EndSceneFcn;
 
     PresentEx = PresentExFcn;
+
+    SwapChainPresent = SwapChainPresentFcn;
 }
 
 std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
 
-    pDevice->CreateTexture(
+    _pDevice->CreateTexture(
         width,
         height,
         1,

@@ -19,8 +19,6 @@
 
 #pragma once
 
-#include <DXGI.h>
-
 enum class IDXGISwapChainVTable
 {
     // IUnknown
@@ -463,5 +461,27 @@ enum class IDirect3DDevice9VTable
     CreateOffscreenPlainSurfaceEx,
     CreateDepthStencilSurfaceEx,
     ResetEx,
+    GetDisplayModeEx,
+};
+
+enum class IDirect3DSwapChain9VTable
+{
+    // IUnknown
+    QueryInterface,
+    AddRef,
+    Release,
+
+    // IDirect3DSwapChain9
+    Present,
+    GetFrontBufferData,
+    GetBackBuffer,
+    GetRasterStatus,
+    GetDisplayMode,
+    GetDevice,
+    GetPresentParameters,
+
+    // IDirect3DSwapChain9Ex
+    GetLastPresentCount,
+    GetPresentStats,
     GetDisplayModeEx,
 };
