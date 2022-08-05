@@ -90,7 +90,7 @@ void X11_Hook::SetInitialWindowSize(Display* display, Window wnd)
     int unused_int;
     unsigned int unused_unsigned_int;
 
-    XGetGeometry(display, (Window)drawable, &unused_window, &unused_int, &unused_int, &width, &height, &unused_unsigned_int, &unused_unsigned_int);
+    XGetGeometry(display, wnd, &unused_window, &unused_int, &unused_int, &width, &height, &unused_unsigned_int, &unused_unsigned_int);
 
     ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
 }
