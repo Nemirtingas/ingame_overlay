@@ -464,7 +464,7 @@ enum class IDirect3DDevice9VTable
     GetDisplayModeEx,
 };
 
-struct IDirect3DSwapChain9VTable
+enum class IDirect3DSwapChain9VTable
 {
     // IUnknown
     QueryInterface,
