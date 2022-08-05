@@ -427,14 +427,14 @@ private:
     }
 
     void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
-        decltype(&IDirect3DDevice9::Present)& pfnPresent,
-        decltype(&IDirect3DDevice9::Reset)& pfnReset,
-        decltype(&IDirect3DDevice9Ex::PresentEx)& pfnPresentEx,
-        decltype(&IDirect3DSwapChain9::Present)& pfnSwapChainPresent)
+        void*& pfnPresent,
+        void*& pfnReset,
+        void*& pfnPresentEx,
+        void*& pfnSwapChainPresent)
     {
         void** vTable = *reinterpret_cast<void***>(pDevice);
-        (void*&)pfnPresent   = vTable[(int)IDirect3DDevice9VTable::Present];
-        (void*&)pfnReset     = vTable[(int)IDirect3DDevice9VTable::Reset];
+        pfnPresent   = vTable[(int)IDirect3DDevice9VTable::Present];
+        pfnReset     = vTable[(int)IDirect3DDevice9VTable::Reset];
         
         (void*&)IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
         
@@ -444,7 +444,7 @@ private:
         
         if (ex)
         {
-            (void*&)pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
+            pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
             (void*&)IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
         
             detection_hooks.BeginHook();
@@ -459,9 +459,9 @@ private:
         
         if (pSwapChain != nullptr)
         {
-            IDirect3DSwapChain9VTable* vTable = *reinterpret_cast<IDirect3DSwapChain9VTable**>(pSwapChain);
-            pfnSwapChainPresent = vTable->pPresent;
-            IDirect3DSwapChain9Present = vTable->pPresent;
+            vTable = *reinterpret_cast<void***>(pSwapChain);
+            pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
+            (void*&)IDirect3DSwapChain9Present = vTable[(int)IDirect3DSwapChain9VTable::Present];
         
             detection_hooks.BeginHook();
             detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DSwapChain9Present, (void*)&MyDX9SwapChainPresent });
@@ -549,7 +549,7 @@ private:
                 decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
                 decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
 
-                HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
+                HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnSwapChainPresent);
 
                 dx9_hook = DX9_Hook::Inst();
                 dx9_hook->LibraryName = library_path;
