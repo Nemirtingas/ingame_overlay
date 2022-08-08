@@ -25,6 +25,7 @@
 #include <System/String.hpp>
 #include <System/System.h>
 #include <System/Library.h>
+#include <System/ScopedLock.hpp>
 #include <mini_detour/mini_detour.h>
 
 #if defined(WIN64) || defined(_WIN64) || defined(__MINGW64__) \
@@ -143,6 +144,8 @@ private:
     Vulkan_Hook* vulkan_hook;
     
     bool detection_done;
+    std::condition_variable stop_detection_cv;
+    std::mutex stop_detection_mutex;
 
     HWND dummyWindow = nullptr;
     std::wstring _WindowClassName;
@@ -1041,7 +1044,10 @@ public:
             std::lock_guard<std::mutex> lk(renderer_mutex);
             if (detection_done)
             {
-                return renderer_hook;
+                if (renderer_hook != nullptr)
+                    return renderer_hook;
+
+                detection_done = false;
             }
 
             if (CreateHWND() == nullptr)
@@ -1065,6 +1071,10 @@ public:
         auto start_time = std::chrono::steady_clock::now();
         do
         {
+            std::unique_lock<std::mutex> lck(stop_detection_mutex);
+            if (detection_done)
+                break;
+
             for (auto const& library : libraries)
             {
                 void* lib_handle = System::Library::GetLibraryHandle(library.first.c_str());
@@ -1075,7 +1085,8 @@ public:
                     (this->*library.second)(name);
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
+
+            stop_detection_cv.wait_for(lck, std::chrono::milliseconds{ 100 });
         } while (!detection_done && (timeout.count() == -1 || (std::chrono::steady_clock::now() - start_time) <= timeout));
 
         {
@@ -1083,18 +1094,37 @@ public:
             DestroyHWND();
 
             detection_done = true;
+            detection_hooks.UnhookAll();
+
+            dxgi_hooked = false;
+            dxgi1_2_hooked = false;
+            dx12_hooked = false;
+            dx11_hooked = false;
+            dx10_hooked = false;
+            dx9_hooked = false;
+            opengl_hooked = false;
+            vulkan_hooked = false;
+
             delete dx9_hook   ; dx9_hook    = nullptr;
             delete dx10_hook  ; dx10_hook   = nullptr;
             delete dx11_hook  ; dx11_hook   = nullptr;
             delete dx12_hook  ; dx12_hook   = nullptr;
             delete opengl_hook; opengl_hook = nullptr;
             delete vulkan_hook; vulkan_hook = nullptr;
-            detection_hooks.UnhookAll();
         }
 
         SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
         return renderer_hook;
+    }
+
+    void stop_detection()
+    {
+        {
+            System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
+            detection_done = true;
+        }
+        stop_detection_cv.notify_all();
     }
 };
 
@@ -1148,6 +1178,8 @@ private:
     OpenGLX_Hook* openglx_hook;
 
     bool detection_done;
+    std::condition_variable stop_detection_cv;
+    std::mutex stop_detection_mutex;
 
     static void MyglXSwapBuffers(Display* dpy, GLXDrawable drawable)
     {
@@ -1221,7 +1253,12 @@ public:
         {
             std::lock_guard<std::mutex> lk(renderer_mutex);
             if (detection_done)
-                return renderer_hook;
+            {
+                if (renderer_hook != nullptr)
+                    return renderer_hook;
+
+                detection_done = false;
+            }
         }
 
         SPDLOG_TRACE("Started renderer detection.");
@@ -1229,6 +1266,10 @@ public:
         auto start_time = std::chrono::steady_clock::now();
         do
         {
+            std::unique_lock<std::mutex> lck(stop_detection_mutex);
+            if (detection_done)
+                break;
+
             for (auto const& library : libraries)
             {
                 void* lib_handle = System::Library::GetLibraryHandle(library.first);
@@ -1239,12 +1280,18 @@ public:
                     (this->*library.second)(lib_path);
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
+            
+            stop_detection_cv.wait_for(lck, std::chrono::milliseconds{ 100 });
         } while (!detection_done && (timeout.count() == -1 || (std::chrono::steady_clock::now() - start_time) <= timeout));
 
         {
             std::lock_guard<std::mutex> lk(renderer_mutex);
+            
             detection_done = true;
+            detection_hooks.UnhookAll();
+
+            openglx_hooked = false;
+
             delete openglx_hook; openglx_hook = nullptr;
             //delete vulkan_hook; vulkan_hook = nullptr;
         }
@@ -1252,6 +1299,15 @@ public:
         SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
         return renderer_hook;
+    }
+
+    void stop_detection()
+    {
+        {
+            System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
+            detection_done = true;
+        }
+        stop_detection_cv.notify_all();
     }
 };
 
@@ -1301,6 +1357,8 @@ private:
    OpenGL_Hook* opengl_hook;
 
    bool detection_done;
+   std::condition_variable stop_detection_cv;
+   std::mutex stop_detection_mutex;
 
    static int64_t MyCGLFlushDrawable(CGLDrawable_t* glDrawable)
    {
@@ -1374,7 +1432,12 @@ public:
        {
            std::lock_guard<std::mutex> lk(renderer_mutex);
            if (detection_done)
-               return renderer_hook;
+           {
+               if (renderer_hook != nullptr)
+                   return renderer_hook;
+
+               detection_done = false;
+           }
        }
 
        SPDLOG_TRACE("Started renderer detection.");
@@ -1382,6 +1445,10 @@ public:
        auto start_time = std::chrono::steady_clock::now();
        do
        {
+           std::unique_lock<std::mutex> lck(stop_detection_mutex);
+           if (detection_done)
+               break;
+
            for (auto const& library : libraries)
            {
                void* lib_handle = System::Library::GetLibraryHandle(library.first);
@@ -1392,12 +1459,18 @@ public:
                    (this->*library.second)(lib_path);
                }
            }
-           std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
+           
+           stop_detection_cv.wait_for(lck, std::chrono::milliseconds{ 100 });
        } while (!detection_done && (timeout.count() == -1 || (std::chrono::steady_clock::now() - start_time) <= timeout));
 
        {
            std::lock_guard<std::mutex> lk(renderer_mutex);
+           
            detection_done = true;
+           detection_hooks.UnhookAll();
+
+           opengl_hooked = false;
+
            delete opengl_hook; opengl_hook = nullptr;
            //delete vulkan_hook; vulkan_hook = nullptr;
        }
@@ -1406,13 +1479,31 @@ public:
 
        return renderer_hook;
    }
+
+   void stop_detection()
+   {
+       {
+           System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
+           detection_done = true;
+        }
+       stop_detection_cv.notify_all();
+    }
 };
 
 Renderer_Detector* Renderer_Detector::instance = nullptr;
 
 #endif
 
-std::future<Renderer_Hook*> detect_renderer(std::chrono::milliseconds timeout)
+namespace ingame_overlay {
+
+std::future<Renderer_Hook*> DetectRenderer(std::chrono::milliseconds timeout)
 {
     return std::async(std::launch::async, &Renderer_Detector::detect_renderer, Renderer_Detector::Inst(), timeout);
+}
+
+void StopRendererDetection()
+{
+    Renderer_Detector::Inst()->stop_detection();
+}
+
 }
