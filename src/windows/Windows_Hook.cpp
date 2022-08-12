@@ -134,12 +134,9 @@ bool Windows_Hook::PrepareForOverlay(HWND hWnd)
         POINT pos;
         if (this->GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
         {
-            io.MousePos = ImVec2((float)pos.x, (float)pos.y);
+            io.AddMousePosEvent((float)pos.x, (float)pos.y);
         }
 
-        io.KeyCtrl  = (this->GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        io.KeyShift = (this->GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        io.KeyAlt   = (this->GetKeyState(VK_MENU) & 0x8000) != 0;
         return true;
     }
 
@@ -248,7 +245,8 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
             if (clean_keys)
             {
                 auto& io = ImGui::GetIO();
-                memset(io.KeysDown, 0, sizeof(io.KeysDown));
+                io.ClearInputKeys();
+                io.ClearInputCharacters();
             }
             return 0;
         }

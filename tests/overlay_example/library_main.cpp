@@ -68,7 +68,7 @@ void shared_library_load(void* hmodule)
                 if (ImGui::Begin("Overlay", &overlay_datas.show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
                 {
                     ImGui::TextUnformatted("Hello from overlay !");
-                    ImGui::Text("%d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
+                    ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                     ImGui::Text("Renderer Hooked: %s", overlay_datas.renderer->GetLibraryName().c_str());
                 }
                 ImGui::End();
