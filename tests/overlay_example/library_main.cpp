@@ -10,7 +10,7 @@ struct overlay_t
 {
     std::thread worker;
 
-    Renderer_Hook* renderer;
+    ingame_overlay::Renderer_Hook* renderer;
     std::mutex overlay_mutex;
     bool show;
     bool stop;
@@ -93,7 +93,7 @@ void shared_library_load(void* hmodule)
                 //  false = overlay is hidden
                 //  true = overlay is shown
                 return overlay_datas.show;
-            });
+            }, { ingame_overlay::ToggleKey::ALT, ingame_overlay::ToggleKey::F1 });
         }
     });
 }

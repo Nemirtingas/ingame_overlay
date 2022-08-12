@@ -59,7 +59,7 @@ public:
 
     virtual ~OpenGLX_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
     virtual bool IsStarted();
     static OpenGLX_Hook* Inst();
     virtual std::string GetLibraryName() const;

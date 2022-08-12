@@ -135,7 +135,7 @@ private:
     bool vulkan_hooked;
 
     Base_Hook detection_hooks;
-    Renderer_Hook* renderer_hook;
+    ingame_overlay::Renderer_Hook* renderer_hook;
     DX12_Hook*   dx12_hook;
     DX11_Hook*   dx11_hook;
     DX10_Hook*   dx10_hook;
@@ -239,7 +239,7 @@ private:
     void HookDetected(T*& detected_renderer)
     {
         detection_hooks.UnhookAll();
-        renderer_hook = static_cast<Renderer_Hook*>(detected_renderer);
+        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(detected_renderer);
         detected_renderer = nullptr;
         detection_done = true;
         DestroyHWND();
@@ -1033,7 +1033,7 @@ private:
     }
 
 public:
-    Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
+    ingame_overlay::Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
         std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
         
@@ -1174,7 +1174,7 @@ private:
     bool openglx_hooked;
     //bool vulkan_hooked;
 
-    Renderer_Hook* renderer_hook;
+    ingame_overlay::Renderer_Hook* renderer_hook;
     OpenGLX_Hook* openglx_hook;
 
     bool detection_done;
@@ -1192,7 +1192,7 @@ private:
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
         {
             inst->detection_hooks.UnhookAll();
-            inst->renderer_hook = static_cast<Renderer_Hook*>(Inst()->openglx_hook);
+            inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(Inst()->openglx_hook);
             inst->openglx_hook = nullptr;
             inst->detection_done = true;
         }
@@ -1239,7 +1239,7 @@ private:
     }
 
 public:
-    Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
+    ingame_overlay::Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
     {
         std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
             std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGLX_Hook::DLL_NAME, &Renderer_Detector::hook_openglx},
@@ -1353,7 +1353,7 @@ private:
 
    bool opengl_hooked;
 
-   Renderer_Hook* renderer_hook;
+   ingame_overlay::Renderer_Hook* renderer_hook;
    OpenGL_Hook* opengl_hook;
 
    bool detection_done;
@@ -1369,7 +1369,7 @@ private:
        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(2, 0))
        {
            inst->detection_hooks.UnhookAll();
-           inst->renderer_hook = static_cast<Renderer_Hook*>(Inst()->opengl_hook);
+           inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(Inst()->opengl_hook);
            inst->opengl_hook = nullptr;
            inst->detection_done = true;
        }
@@ -1418,7 +1418,7 @@ private:
    }
 
 public:
-   Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
+    ingame_overlay::Renderer_Hook* detect_renderer(std::chrono::milliseconds timeout)
    {
        std::pair<const char*, void(Renderer_Detector::*)(std::string const&)> libraries[]{
            std::pair<const char*, void(Renderer_Detector::*)(std::string const&)>{OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl}
@@ -1496,7 +1496,7 @@ Renderer_Detector* Renderer_Detector::instance = nullptr;
 
 namespace ingame_overlay {
 
-std::future<Renderer_Hook*> DetectRenderer(std::chrono::milliseconds timeout)
+std::future<ingame_overlay::Renderer_Hook*> DetectRenderer(std::chrono::milliseconds timeout)
 {
     return std::async(std::launch::async, &Renderer_Detector::detect_renderer, Renderer_Detector::Inst(), timeout);
 }

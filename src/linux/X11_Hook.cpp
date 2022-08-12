@@ -29,7 +29,55 @@ constexpr decltype(X11_Hook::DLL_NAME) X11_Hook::DLL_NAME;
 
 X11_Hook* X11_Hook::_inst = nullptr;
 
-bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback)
+bool GetKeyState(Display* d, KeySym keySym)
+{
+    if (d == NULL)
+    {
+        return false;
+    }
+
+    char szKey[32];
+    int iKeyCodeToFind = XKeysymToKeycode(d, keySym);
+
+    XQueryKeymap(d, szKey);
+
+    return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
+}
+
+uint32_t ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
+{
+    struct {
+        ingame_overlay::ToggleKey lib_key;
+        uint32_t native_key;
+    } mapping[] = {
+        { ingame_overlay::ToggleKey::ALT  , XK_Alt_L     },
+        { ingame_overlay::ToggleKey::CTRL , XK_Control_L },
+        { ingame_overlay::ToggleKey::SHIFT, XK_Shift_L   },
+        { ingame_overlay::ToggleKey::TAB  , XK_Tab       },
+        { ingame_overlay::ToggleKey::F1   , XK_F1        },
+        { ingame_overlay::ToggleKey::F2   , XK_F2        },
+        { ingame_overlay::ToggleKey::F3   , XK_F3        },
+        { ingame_overlay::ToggleKey::F4   , XK_F4        },
+        { ingame_overlay::ToggleKey::F5   , XK_F5        },
+        { ingame_overlay::ToggleKey::F6   , XK_F6        },
+        { ingame_overlay::ToggleKey::F7   , XK_F7        },
+        { ingame_overlay::ToggleKey::F8   , XK_F8        },
+        { ingame_overlay::ToggleKey::F9   , XK_F9        },
+        { ingame_overlay::ToggleKey::F10  , XK_F10       },
+        { ingame_overlay::ToggleKey::F11  , XK_F11       },
+        { ingame_overlay::ToggleKey::F12  , XK_F12       },
+    };
+
+    for (auto const& item : mapping)
+    {
+        if (item.lib_key == k)
+            return item.native_key;
+    }
+
+    return 0;
+}
+
+bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, std::set<ingame_overlay::ToggleKey>& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -60,6 +108,16 @@ bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback)
         SPDLOG_INFO("Hooked X11");
 
         _KeyCombinationCallback = std::move(_key_combination_callback);
+        
+        for (auto& key : toggle_keys)
+        {
+            uint32_t k = ToggleKeyToNativeKey(key);
+            if (k != 0)
+            {
+                _NativeKeyCombination.insert(k);
+            }
+        }
+
         _Hooked = true;
 
         UnhookAll();
@@ -215,8 +273,9 @@ X11_Hook::X11_Hook() :
     _Initialized(false),
     _Hooked(false),
     _GameWnd(0),
+    _KeyCombinationPushed(false)
     XEventsQueued(nullptr),
-    XPending(nullptr)
+    XPending(nullptr),
 {
 }
 

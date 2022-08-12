@@ -40,6 +40,12 @@ private:
     WNDPROC _GameWndProc;
     POINT _SavedCursorPos;
 
+    // In (bool): Is toggle wanted
+    // Out(bool): Is the overlay visible, if true, inputs will be disabled
+    std::function<bool(bool)> _KeyCombinationCallback;
+    std::set<int> _NativeKeyCombination;
+    bool _KeyCombinationPushed;
+
     // Functions
     Windows_Hook();
 
@@ -61,10 +67,6 @@ private:
     static BOOL  WINAPI MyGetCursorPos(LPPOINT lpPoint);
     static BOOL  WINAPI MySetCursorPos(int X, int Y);
 
-    // In (bool): Is toggle wanted
-    // Out(bool): Is the overlay visible, if true, inputs will be disabled
-    std::function<bool(bool)> _KeyCombinationCallback;
-
 public:
     std::string LibraryName;
 
@@ -77,7 +79,7 @@ public:
     HWND GetGameHwnd() const;
     WNDPROC GetGameWndProc() const;
 
-    bool StartHook(std::function<bool(bool)>& key_combination_callback);
+    bool StartHook(std::function<bool(bool)>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
     static Windows_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };
