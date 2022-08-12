@@ -93,7 +93,7 @@ void shared_library_load(void* hmodule)
                 //  false = overlay is hidden
                 //  true = overlay is shown
                 return overlay_datas.show;
-            }, { ingame_overlay::ToggleKey::ALT, ingame_overlay::ToggleKey::F1 });
+            }, { ingame_overlay::ToggleKey::SHIFT, ingame_overlay::ToggleKey::F2 });
         }
     });
 }
