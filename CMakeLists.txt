@@ -185,13 +185,14 @@ target_include_directories(ingame_overlay
   $<INSTALL_INTERFACE:include>
 )
 
-target_compile_definitions(ingame_overlay 
+target_compile_definitions(ingame_overlay
   PRIVATE
   $<$<BOOL:${USE_SPDLOG}>:USE_SPDLOG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
   $<BUILD_INTERFACE:IMGUI_DISABLE_DEMO_WINDOWS>
   PUBLIC
   $<INSTALL_INTERFACE:${IMGUI_USER_CONFIG_NAME_VALUE}>
+  IMGUI_IMPL_OPENGL_LOADER_CUSTOM
   IMGUI_IMPL_OPENGL_LOADER_GLAD2
   IMGUI_IMPL_VULKAN_NO_PROTOTYPES
   IMGUI_DISABLE_OBSOLETE_KEYIO
@@ -345,6 +346,42 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     set_property(TARGET dx12_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+    add_executable(windows_opengl3_app
+      tests/windows_opengl3/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl3.cpp
+      deps/ImGui/backends/imgui_impl_win32.cpp
+    )
+
+    target_include_directories(windows_opengl3_app
+      PRIVATE
+      deps/ImGui
+	  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
+    )
+
+    target_link_libraries(windows_opengl3_app
+      PRIVATE
+      user32
+      opengl32
+    )
+
+    target_compile_definitions(windows_opengl3_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_DISABLE_OBSOLETE_KEYIO
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+    )
+
+    set_property(TARGET windows_opengl3_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
   elseif(APPLE)
 
   elseif(UNIX)
@@ -376,10 +413,11 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     target_compile_definitions(linux_opengl_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
       IMGUI_IMPL_OPENGL_LOADER_GLAD2
       IMGUI_DISABLE_OBSOLETE_KEYIO
-	  IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-	  IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     )
 
   endif()
