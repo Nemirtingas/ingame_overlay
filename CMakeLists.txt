@@ -1,4 +1,3 @@
-
 cmake_policy(SET CMP0091 NEW)
 project(ingame_overlay)
 cmake_minimum_required(VERSION 3.15)
@@ -15,7 +14,7 @@ if(WIN32) # Setup some variables for Windows build
     src/windows/Vulkan_Hook.cpp
     src/windows/Windows_Hook.cpp
   )
-  
+
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
     src/windows/DX9_Hook.h
@@ -47,23 +46,21 @@ elseif(APPLE)
   set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -stdlib=libc++")
 
   enable_language(OBJCXX)
-  link_libraries("-framework AppKit")
+  link_libraries("-framework AppKit -framework GameController")
 
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
     src/Renderer_Detector.cpp
-    src/macosx/objc_wrappers.mm
-    src/macosx/NSView_Hook.cpp
+    src/macosx/NSView_Hook.mm
     src/macosx/OpenGL_Hook.cpp
   )
-  
+
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
-    src/macosx/objc_wrappers.h
     src/macosx/NSView_Hook.h
     src/macosx/OpenGL_Hook.h
   )
-  
+
   set(IMGUI_SOURCES
     deps/ImGui/imgui.cpp
     deps/ImGui/imgui_draw.cpp
@@ -72,7 +69,7 @@ elseif(APPLE)
     deps/ImGui/backends/imgui_impl_opengl2.cpp
     deps/ImGui/backends/imgui_impl_osx.mm
   )
-  
+
 elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
@@ -84,7 +81,7 @@ elseif(UNIX)
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
-	src/linux/OpenGLX_Hook.h
+        src/linux/OpenGLX_Hook.h
     src/linux/X11_Hook.h
   )
 
@@ -158,12 +155,12 @@ set_target_properties(ingame_overlay PROPERTIES
 
 target_link_libraries(ingame_overlay
   PUBLIC
-  
+
   System::System
   MiniDetour::MiniDetour
-  
+
   $<$<BOOL:${USE_SPDLOG}>:spdlog::spdlog>
-  
+
   $<$<BOOL:${WIN32}>:opengl32>
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
@@ -181,7 +178,7 @@ target_include_directories(ingame_overlay
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/ImGui>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan_sdk/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
-  
+
   $<INSTALL_INTERFACE:include>
 )
 
@@ -205,7 +202,7 @@ set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 if(${BUILD_INGAMEOVERLAY_TESTS})
 
   if(WIN32)
-	add_executable(dx9_app
+    add_executable(dx9_app
       tests/dx9/main.cpp
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
@@ -216,30 +213,31 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
       deps/ImGui/backends/imgui_impl_win32.cpp
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
-    
+
     target_include_directories(dx9_app
       PRIVATE
       deps/ImGui
     )
-    
+
     target_link_libraries(dx9_app
       PRIVATE
       user32
       d3d9
     )
-    
+
     target_compile_definitions(dx9_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
-	  IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
       IMGUI_DISABLE_OBSOLETE_KEYIO
-	  IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-	  IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     )
-    
+
     set_property(TARGET dx9_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  
+
     add_executable(dx10_app
       tests/dx10/main.cpp
       deps/ImGui/imgui.cpp
@@ -251,30 +249,31 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
       deps/ImGui/backends/imgui_impl_win32.cpp
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
-    
+
     target_include_directories(dx10_app
       PRIVATE
       deps/ImGui
     )
-    
+
     target_link_libraries(dx10_app
       PRIVATE
       user32
       d3d10
     )
-    
+
     target_compile_definitions(dx10_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
-	  IMGUI_IMPL_OPENGL_LOADER_GLAD2
+	  IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
       IMGUI_DISABLE_OBSOLETE_KEYIO
-	  IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-	  IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     )
-    
+
     set_property(TARGET dx10_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  
+
     add_executable(dx11_app
       tests/dx11/main.cpp
       deps/ImGui/imgui.cpp
@@ -286,30 +285,31 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
       deps/ImGui/backends/imgui_impl_win32.cpp
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
-    
+
     target_include_directories(dx11_app
       PRIVATE
       deps/ImGui
     )
-    
+
     target_link_libraries(dx11_app
       PRIVATE
       user32
       d3d11
     )
-    
+
     target_compile_definitions(dx11_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
-	  IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
       IMGUI_DISABLE_OBSOLETE_KEYIO
-	  IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-	  IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     )
-    
+
     set_property(TARGET dx11_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    
+
     add_executable(dx12_app
       tests/dx12/main.cpp
       deps/ImGui/imgui.cpp
@@ -321,28 +321,29 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
       deps/ImGui/backends/imgui_impl_win32.cpp
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
-    
+
     target_include_directories(dx12_app
       PRIVATE
       deps/ImGui
     )
-    
+
     target_link_libraries(dx12_app
       PRIVATE
       user32
       d3d12
       dxgi
     )
-    
+
     target_compile_definitions(dx12_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
-	  IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
       IMGUI_DISABLE_OBSOLETE_KEYIO
-	  IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-	  IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     )
-    
+
     set_property(TARGET dx12_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -439,7 +440,7 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--exclude-libs,ALL>
     $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--no-undefined>
   )
-  
+
   target_link_libraries(overlay_example
     PRIVATE
     InGameOverlay::InGameOverlay
