@@ -27,7 +27,7 @@ struct CGLDrawable_t;
 extern "C" int64_t CGLFlushDrawable(CGLDrawable_t*);
 
 class OpenGL_Hook :
-    public Renderer_Hook,
+    public ingame_overlay::Renderer_Hook,
     public Base_Hook
 {
 public:
@@ -57,7 +57,7 @@ public:
 
     virtual ~OpenGL_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback);
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys);
     virtual bool IsStarted();
     static OpenGL_Hook* Inst();
     virtual std::string GetLibraryName() const;

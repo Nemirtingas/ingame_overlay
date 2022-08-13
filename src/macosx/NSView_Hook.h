@@ -6,7 +6,7 @@
  * and/or modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 3 of the License, or (at your option) any later version.
- * 
+ *
  * The ingame overlay project is distributed in the hope that it will be
  * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -23,8 +23,6 @@
 
 #include "../internal_includes.h"
 
-#include "objc_wrappers.h"
-
 class NSView_Hook :
     public Base_Hook
 {
@@ -37,12 +35,16 @@ private:
     // Variables
     bool _Hooked;
     bool _Initialized;
-    class ObjCHookWrapper* _NSViewHook;
+    void* _NSViewHook;
 
     // Functions
     NSView_Hook();
 
 public:
+    std::function<bool(bool)> KeyCombinationCallback;
+    std::set<int> NativeKeyCombination;
+    bool KeyCombinationPushed;
+
     std::string LibraryName;
 
     virtual ~NSView_Hook();
@@ -50,11 +52,7 @@ public:
     void ResetRenderState();
     bool PrepareForOverlay();
 
-    std::function<bool(bool)> KeyCombinationCallback;
-    bool IgnoreInputs();
-    void HandleNSEvent(void* _NSEvent, void* _NSView);
-
-    bool StartHook(std::function<bool(bool)>& key_combination_callback);
+    bool StartHook(std::function<bool(bool)>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
     static NSView_Hook* Inst();
     virtual std::string GetLibraryName() const;
 
