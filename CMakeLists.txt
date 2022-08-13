@@ -46,7 +46,7 @@ elseif(APPLE)
   set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -stdlib=libc++")
 
   enable_language(OBJCXX)
-  link_libraries("-framework AppKit -framework GameController")
+  link_libraries("-framework AppKit -framework GameController -framework Carbon")
 
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
@@ -384,6 +384,38 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
   elseif(APPLE)
+
+	add_executable(macos_opengl2_app
+      tests/macos_opengl2/main.mm
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl2.cpp
+      deps/ImGui/backends/imgui_impl_osx.mm
+    )
+
+    target_include_directories(macos_opengl2_app
+      PRIVATE
+      deps/ImGui
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include
+    )
+
+    target_link_libraries(macos_opengl2_app
+      PRIVATE
+      dl
+    )
+
+    target_compile_definitions(macos_opengl2_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_DISABLE_OBSOLETE_KEYIO
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+    )
 
   elseif(UNIX)
 

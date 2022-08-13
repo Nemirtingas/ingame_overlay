@@ -40,7 +40,7 @@ bool GetKeyState( unsigned short inKeyCode )
 {
     unsigned char keyMap[16];
     GetKeys((BigEndianUInt32*) &keyMap);
-    return ((keyMap[ inKeyCode >> 3] >> (inKeyCode & 7)) & 1) != 0;
+    return ((keyMap[inKeyCode >> 3] >> (inKeyCode & 7)) & 1) != 0;
 }
 
 @interface NSViewHook : NSObject
@@ -93,7 +93,7 @@ bool GetKeyState( unsigned short inKeyCode )
                     int key_count = 0;
                     for (auto const& key : inst->NativeKeyCombination)
                     {
-                        if (GetKeyState([event keyCode]) & (1 << 15))
+                        if (GetKeyState(key))
                             ++key_count;
                     }
 
