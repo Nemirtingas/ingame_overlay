@@ -73,6 +73,18 @@ bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, s
 {
     if (!_Hooked)
     {
+        if (!_key_combination_callback)
+        {
+            SPDLOG_ERROR("Failed to hook X11: No key combination callback.");
+            return false;
+        }
+
+        if (toggle_keys.empty())
+        {
+            SPDLOG_ERROR("Failed to hook X11: No key combination.");
+            return false;
+        }
+
         void* hX11 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hX11 == nullptr)
         {

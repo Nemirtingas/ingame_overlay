@@ -66,6 +66,18 @@ bool Windows_Hook::StartHook(std::function<bool(bool)>& _key_combination_callbac
 {
     if (!_Hooked)
     {
+        if (!_key_combination_callback)
+        {
+            SPDLOG_ERROR("Failed to hook Windows: No key combination callback.");
+            return false;
+        }
+
+        if (toggle_keys.empty())
+        {
+            SPDLOG_ERROR("Failed to hook Windows: No key combination.");
+            return false;
+        }
+
         void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
         {
@@ -255,7 +267,7 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
     Windows_Hook* inst = Windows_Hook::Inst();
     bool skip_input = inst->_KeyCombinationCallback(false);
     bool clean_keys = false;
-    if (inst->_Initialized && inst->_NativeKeyCombination.size() > 0)
+    if (inst->_Initialized)
     {
         // Is the event is a key press
         if (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
