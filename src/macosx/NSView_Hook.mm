@@ -139,10 +139,10 @@ bool GetKeyState( unsigned short inKeyCode )
             break;
         }
 
-        //if (ignore_event)
-        //{
-        //    ImGui_ImplOSX_HandleEvent(event, view);
-        //}
+        if (ignore_event)
+        {
+            ImGui_ImplOSX_HandleEvent(event, view);
+        }
 
         return (ignore_event ? nil : event);
     }];
