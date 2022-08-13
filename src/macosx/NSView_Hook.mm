@@ -313,6 +313,8 @@ bool NSView_Hook::PrepareForOverlay()
         ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
 
         ImGui_ImplOSX_Init([window contentView]);
+
+        _Initialized = true;
     }
 
     ImGui_ImplOSX_NewFrame([((NSViewHook*)_NSViewHook)->window contentView]);
