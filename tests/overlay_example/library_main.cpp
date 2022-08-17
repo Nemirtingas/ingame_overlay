@@ -4,6 +4,8 @@
 #include <imgui.h>
 #include <ingame_overlay/Renderer_Detector.h>
 
+using namespace std::chrono_literals;
+
 static void* g_hModule;
 
 struct overlay_t
@@ -29,10 +31,14 @@ void shared_library_load(void* hmodule)
     {
         std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
         // Try to detect renderer for at least 15 seconds.
-        auto future = ingame_overlay::DetectRenderer(std::chrono::milliseconds{ 4000 });
-
-        std::this_thread::sleep_for(std::chrono::microseconds(500));
-        ingame_overlay::StopRendererDetection();
+        auto future = ingame_overlay::DetectRenderer();
+        auto future2 = ingame_overlay::DetectRenderer(4s);
+        auto future3 = ingame_overlay::DetectRenderer(4s);
+        auto future4 = ingame_overlay::DetectRenderer(4s);
+        
+        //ingame_overlay::StopRendererDetection();
+        std::thread([]() { std::this_thread::sleep_for(20ms); ingame_overlay::DetectRenderer(); }).detach();
+        ingame_overlay::FreeDetector();
 
         future.wait();
         if (future.valid())
