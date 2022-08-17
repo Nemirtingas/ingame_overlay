@@ -1045,6 +1045,11 @@ private:
         }
     }
 
+    bool EnterDetection()
+    {
+        return CreateHWND() != nullptr;
+    }
+
     void ExitDetection()
     {
         DestroyHWND();
@@ -1163,6 +1168,11 @@ private:
         }
     }
 
+    bool EnterDetection()
+    {
+        return true;
+    }
+
     void ExitDetection()
     {
         detection_done = true;
@@ -1267,6 +1277,11 @@ private:
         }
     }
 
+    bool EnterDetection()
+    {
+        return true;
+    }
+
     void ExitDetection()
     {
         detection_done = true;
@@ -1326,7 +1341,7 @@ public:
                         }
                     }
 
-                    if (CreateHWND() == nullptr)
+                    if (!EnterDetection())
                         cancel = true;
                 }
                 else
