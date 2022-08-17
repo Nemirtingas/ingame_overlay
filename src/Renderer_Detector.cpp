@@ -1097,7 +1097,7 @@ private:
         openglx_hook(nullptr),
         //vulkan_hook(nullptr),
         detection_done(false),
-        detection_started(false),
+        detection_count(0),
         detection_cancelled(false)
     {}
 
@@ -1201,7 +1201,7 @@ private:
         renderer_hook(nullptr),
         opengl_hook(nullptr),
         detection_done(false),
-        detection_started(false),
+        detection_count(0),
         detection_cancelled(false)
     {}
 
