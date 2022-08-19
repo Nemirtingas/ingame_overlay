@@ -1401,6 +1401,7 @@ public:
 
                 --detection_count;
             }
+            stop_detection_cv.notify_all();
 
             SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
 
