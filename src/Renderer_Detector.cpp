@@ -1321,7 +1321,7 @@ public:
 
         ++detection_count;
 
-        return std::async(std::launch::async, [&]() -> ingame_overlay::Renderer_Hook*
+        return std::async(std::launch::async, [this, timeout]() -> ingame_overlay::Renderer_Hook*
         {
             std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
             constexpr std::chrono::milliseconds infinite_timeout{ -1 };
