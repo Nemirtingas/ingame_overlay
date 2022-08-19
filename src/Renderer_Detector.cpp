@@ -1314,6 +1314,11 @@ public:
     {
         std::lock_guard<std::mutex> lk(stop_detection_mutex);
 
+        if (detection_count == 0)
+        {// If we have no detections in progress, restart detection.
+            detection_cancelled = false;
+        }
+
         ++detection_count;
 
         return std::async(std::launch::async, [&]() -> ingame_overlay::Renderer_Hook*
