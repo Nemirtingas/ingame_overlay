@@ -1324,6 +1324,7 @@ public:
         return std::async(std::launch::async, [&]() -> ingame_overlay::Renderer_Hook*
         {
             std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
+            constexpr std::chrono::milliseconds infinite_timeout{ -1 };
         
             if (!detection_lock.try_lock_for(timeout))
                 return nullptr;
@@ -1391,7 +1392,7 @@ public:
                 }
 
                 stop_detection_cv.wait_for(lck, std::chrono::milliseconds{ 100 });
-            } while (timeout.count() == -1 || (std::chrono::steady_clock::now() - start_time) <= timeout);
+            } while (timeout == infinite_timeout || (std::chrono::steady_clock::now() - start_time) <= timeout);
 
             {
                 System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
