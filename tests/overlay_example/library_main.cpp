@@ -33,7 +33,7 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
         // Try to detect renderer for an infinite amount of time.
         auto future = ingame_overlay::DetectRenderer();
-        // Try to detect renderer for at least 4 seconds.
+        // Try to detect renderer for at most 4 seconds.
         auto future2 = ingame_overlay::DetectRenderer(4s);
         auto future3 = ingame_overlay::DetectRenderer(4s);
         auto future4 = ingame_overlay::DetectRenderer(4s);
