@@ -42,6 +42,7 @@ private:
     Display *_Display;
     GLXContext _Context;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    void* _ImGuiFontAtlas;
 
     // Functions
     OpenGLX_Hook();
@@ -59,7 +60,7 @@ public:
 
     virtual ~OpenGLX_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys);
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual bool IsStarted();
     static OpenGLX_Hook* Inst();
     virtual std::string GetLibraryName() const;

@@ -44,6 +44,7 @@ private:
     ID3D11DeviceContext* pContext;
     ID3D11RenderTargetView* mainRenderTargetView;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    void* _ImGuiFontAtlas;
 
     // Functions
     DX11_Hook();
@@ -67,7 +68,7 @@ public:
 
     virtual ~DX11_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys);
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual bool IsStarted();
     static DX11_Hook* Inst();
     virtual std::string GetLibraryName() const;

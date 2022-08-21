@@ -26,7 +26,7 @@
 DX12_Hook* DX12_Hook::_inst = nullptr;
 
 template<typename T>
-inline void SafeRelease(T*& pUnk)
+static inline void SafeRelease(T*& pUnk)
 {
     if (pUnk != nullptr)
     {
@@ -35,7 +35,7 @@ inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX12_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool DX12_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -52,6 +52,8 @@ bool DX12_Hook::StartHook(std::function<bool(bool)> key_combination_callback, st
 
         SPDLOG_INFO("Hooked DirectX 12");
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         BeginHook();
         HookFuncs(
@@ -264,7 +266,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
 
         //auto heaps = std::move(get_free_texture_heap());
 
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplDX12_Init(pDevice, bufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, pSrvDescHeap,
             pSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
             pSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
@@ -361,15 +363,16 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent1(IDXGISwapChain1* _this, UINT Syn
 }
 
 DX12_Hook::DX12_Hook():
+    _Hooked(false),
+    _WindowsHooked(false),
     _Initialized(false),
     CommandQueueOffset(0),
-    pDevice(nullptr),
     pCmdQueue(nullptr),
+    pDevice(nullptr),
     pSrvDescHeap(nullptr),
     pCmdList(nullptr),
     pRtvDescHeap(nullptr),
-    _Hooked(false),
-    _WindowsHooked(false),
+    _ImGuiFontAtlas(nullptr),
     Present(nullptr),
     ResizeBuffers(nullptr),
     ResizeTarget(nullptr),
