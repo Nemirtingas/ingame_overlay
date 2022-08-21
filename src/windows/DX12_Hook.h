@@ -92,6 +92,7 @@ private:
     ID3D12DescriptorHeap* pSrvDescHeap;
     ID3D12GraphicsCommandList* pCmdList;
     ID3D12DescriptorHeap* pRtvDescHeap;
+    void* _ImGuiFontAtlas;
 
     // Functions
     DX12_Hook();
@@ -129,7 +130,7 @@ public:
 
     virtual ~DX12_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys);
+    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual bool IsStarted();
     static DX12_Hook* Inst();
     virtual std::string GetLibraryName() const;

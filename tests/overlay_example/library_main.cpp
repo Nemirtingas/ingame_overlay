@@ -12,6 +12,7 @@ struct overlay_t
 {
     std::thread worker;
 
+    ImFontAtlas* font_atlas;
     ingame_overlay::Renderer_Hook* renderer;
     std::mutex overlay_mutex;
     bool show;
@@ -30,8 +31,9 @@ void shared_library_load(void* hmodule)
     overlay_datas->worker = std::thread([]()
     {
         std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
-        // Try to detect renderer for at least 15 seconds.
+        // Try to detect renderer for an infinite amount of time.
         auto future = ingame_overlay::DetectRenderer();
+        // Try to detect renderer for at most 4 seconds.
         auto future2 = ingame_overlay::DetectRenderer(4s);
         auto future3 = ingame_overlay::DetectRenderer(4s);
         auto future4 = ingame_overlay::DetectRenderer(4s);
@@ -46,7 +48,7 @@ void shared_library_load(void* hmodule)
             overlay_datas->renderer = future.get();
             if (overlay_datas->renderer == nullptr)
             {
-                future = ingame_overlay::DetectRenderer(std::chrono::milliseconds{ 4000 });
+                future = ingame_overlay::DetectRenderer(4s);
                 future.wait();
                 if (future.valid())
                 {
@@ -90,6 +92,18 @@ void shared_library_load(void* hmodule)
                 std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
             };
 
+            overlay_datas->font_atlas = new ImFontAtlas();
+
+            ImFontConfig fontcfg;
+
+            fontcfg.OversampleH = fontcfg.OversampleV = 1;
+            fontcfg.PixelSnapH = true;
+            fontcfg.GlyphRanges = overlay_datas->font_atlas->GetGlyphRangesDefault();
+
+            overlay_datas->font_atlas->AddFontDefault(&fontcfg);
+
+            overlay_datas->font_atlas->Build();
+
             overlay_datas->renderer->StartHook([](bool toggle)
             {
                 std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
@@ -102,7 +116,7 @@ void shared_library_load(void* hmodule)
                 //  false = overlay is hidden
                 //  true = overlay is shown
                 return overlay_datas->show;
-            }, { ingame_overlay::ToggleKey::SHIFT, ingame_overlay::ToggleKey::F2 });
+            }, { ingame_overlay::ToggleKey::SHIFT, ingame_overlay::ToggleKey::F2 }, overlay_datas->font_atlas);
         }
     });
 }

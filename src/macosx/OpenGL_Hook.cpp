@@ -29,7 +29,7 @@ OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
 decltype(OpenGL_Hook::DLL_NAME) OpenGL_Hook::DLL_NAME;
 
-bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -43,8 +43,9 @@ bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, 
             return false;
 
         SPDLOG_INFO("Hooked OpenGL");
-
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         UnhookAll();
         BeginHook();
@@ -80,7 +81,7 @@ void OpenGL_Hook::_PrepareForOverlay()
 {
     if( !_Initialized )
     {
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplOpenGL2_Init();
 
         _Initialized = true;
@@ -112,6 +113,7 @@ int64_t OpenGL_Hook::MyCGLFlushDrawable(CGLDrawable_t *glDrawable)
 OpenGL_Hook::OpenGL_Hook():
     _Initialized(false),
     _Hooked(false),
+    _ImGuiFontAtlas(nullptr),
     CGLFlushDrawable(nullptr)
 {
     

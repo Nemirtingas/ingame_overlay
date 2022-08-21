@@ -29,7 +29,7 @@ OpenGLX_Hook* OpenGLX_Hook::_inst = nullptr;
 
 constexpr decltype(OpenGLX_Hook::DLL_NAME) OpenGLX_Hook::DLL_NAME;
 
-bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -45,8 +45,9 @@ bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback,
         _X11Hooked = true;
 
         SPDLOG_INFO("Hooked OpenGLX");
-
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         UnhookAll();
         BeginHook();
@@ -84,7 +85,7 @@ void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 {
     if( !_Initialized )
     {
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplOpenGL3_Init();
 
         //int attributes[] = { //can't be const b/c X11 doesn't like it.  Not sure if that's intentional or just stupid.
@@ -144,6 +145,7 @@ OpenGLX_Hook::OpenGLX_Hook():
     _Initialized(false),
     _Hooked(false),
     _X11Hooked(false),
+    _ImGuiFontAtlas(nullptr),
     glXSwapBuffers(nullptr)
 {
     //_library = dlopen(DLL_NAME);

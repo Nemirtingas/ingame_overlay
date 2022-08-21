@@ -26,7 +26,7 @@
 DX10_Hook* DX10_Hook::_inst = nullptr;
 
 template<typename T>
-inline void SafeRelease(T*& pUnk)
+static inline void SafeRelease(T*& pUnk)
 {
     if (pUnk != nullptr)
     {
@@ -35,7 +35,7 @@ inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX10_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool DX10_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -52,6 +52,8 @@ bool DX10_Hook::StartHook(std::function<bool(bool)> key_combination_callback, st
 
         SPDLOG_INFO("Hooked DirectX 10");
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         BeginHook();
         HookFuncs(
@@ -115,7 +117,7 @@ void DX10_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &mainRenderTargetView);
         pBackBuffer->Release();
 
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplDX10_Init(pDevice);
 
         Windows_Hook::Inst()->SetInitialWindowSize(desc.OutputWindow);
@@ -169,6 +171,7 @@ DX10_Hook::DX10_Hook():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
+    _ImGuiFontAtlas(nullptr),
     pDevice(nullptr),
     mainRenderTargetView(nullptr),
     Present(nullptr),

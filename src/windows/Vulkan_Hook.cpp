@@ -25,7 +25,7 @@
 
 Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
 
-bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
@@ -45,6 +45,8 @@ bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback, 
         SPDLOG_INFO("Hooked Vulkan");
         _Hooked = true;
 
+        _ImGuiFontAtlas = imgui_font_atlas;
+
         BeginHook();
         HookFuncs(
             std::make_pair<void**, void*>(&(PVOID&)vkQueuePresentKHR, &Vulkan_Hook::MyvkQueuePresentKHR)
@@ -61,12 +63,21 @@ bool Vulkan_Hook::IsStarted()
 
 void Vulkan_Hook::_ResetRenderState()
 {
+    if (_Initialized)
+    {
+        OverlayHookReady(false);
+
+        ImGui_ImplVulkan_Shutdown();
+        Windows_Hook::Inst()->ResetRenderState();
+        ImGui::DestroyContext();
+
+        _Initialized = false;
+    }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void Vulkan_Hook::_PrepareForOverlay()
 {
-    
     
 }
 
@@ -81,6 +92,7 @@ Vulkan_Hook::Vulkan_Hook():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
+    _ImGuiFontAtlas(nullptr),
     vkQueuePresentKHR(nullptr)
 {
 }

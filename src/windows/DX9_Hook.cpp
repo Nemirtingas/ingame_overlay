@@ -27,7 +27,7 @@
 DX9_Hook* DX9_Hook::_inst = nullptr;
 
 template<typename T>
-inline void SafeRelease(T*& pUnk)
+static inline void SafeRelease(T*& pUnk)
 {
     if (pUnk != nullptr)
     {
@@ -36,7 +36,7 @@ inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -53,6 +53,8 @@ bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std
 
         SPDLOG_INFO("Hooked DirectX 9");
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         BeginHook();
         HookFuncs(
@@ -133,7 +135,7 @@ void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         pDevice->AddRef();
         _pDevice = pDevice;
 
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplDX9_Init(pDevice);
 
         _LastWindow = destWindow;
@@ -205,6 +207,7 @@ DX9_Hook::DX9_Hook():
     _Hooked(false),
     _WindowsHooked(false),
     _LastWindow(nullptr),
+    _ImGuiFontAtlas(nullptr),
     Present(nullptr),
     PresentEx(nullptr),
     Reset(nullptr)

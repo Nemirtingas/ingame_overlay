@@ -26,7 +26,7 @@
 DX11_Hook* DX11_Hook::_inst = nullptr;
 
 template<typename T>
-inline void SafeRelease(T*& pUnk)
+static inline void SafeRelease(T*& pUnk)
 {
     if (pUnk != nullptr)
     {
@@ -45,7 +45,7 @@ static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11De
     return ret;
 }
 
-bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -62,6 +62,8 @@ bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback, st
 
         SPDLOG_INFO("Hooked DirectX 11");
         _Hooked = true;
+
+        _ImGuiFontAtlas = imgui_font_atlas;
 
         BeginHook();
         HookFuncs(
@@ -147,7 +149,7 @@ void DX11_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
             return;
         
         if(ImGui::GetCurrentContext() == nullptr)
-            ImGui::CreateContext();
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         
         ImGui_ImplDX11_Init(pDevice, pContext);
         
@@ -206,6 +208,7 @@ DX11_Hook::DX11_Hook():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
+    _ImGuiFontAtlas(nullptr),
     pContext(nullptr),
     mainRenderTargetView(nullptr),
     Present(nullptr),

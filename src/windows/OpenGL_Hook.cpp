@@ -27,7 +27,7 @@
 
 OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
-bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys)
+bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -46,7 +46,8 @@ bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, 
 
         _Hooked = true;
 
-        UnhookAll();
+        _ImGuiFontAtlas = imgui_font_atlas;
+
         BeginHook();
         HookFuncs(
             std::make_pair<void**, void*>(&(PVOID&)wglSwapBuffers, &OpenGL_Hook::MywglSwapBuffers)
@@ -86,7 +87,7 @@ void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
 
     if (!_Initialized)
     {
-        ImGui::CreateContext();
+        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         ImGui_ImplOpenGL3_Init();
 
         _LastWindow = hWnd;
@@ -121,6 +122,7 @@ OpenGL_Hook::OpenGL_Hook():
     _WindowsHooked(false),
     _Initialized(false),
     _LastWindow(nullptr),
+    _ImGuiFontAtlas(nullptr),
     wglSwapBuffers(nullptr)
 {
 }
