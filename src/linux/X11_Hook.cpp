@@ -106,8 +106,8 @@ bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, s
             void* hook_ptr;
             const char* func_name;
         } hook_array[] = {
-            { (void**)&XEventsQueued, &X11_Hook::MyXEventsQueued, "XEventsQueued" },
-            { (void**)&XPending     , &X11_Hook::MyXPending     , "XPending"      },
+            { (void**)&XEventsQueued, (void*)&X11_Hook::MyXEventsQueued, "XEventsQueued"},
+            { (void**)&XPending     , (void*)&X11_Hook::MyXPending     , "XPending"      },
         };
 
         for (auto& entry : hook_array)

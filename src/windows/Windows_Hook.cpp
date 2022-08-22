@@ -98,15 +98,15 @@ bool Windows_Hook::StartHook(std::function<bool(bool)>& _key_combination_callbac
             void* hook_ptr;
             const char* func_name;
         } hook_array[] = {
-            { (void**)&GetRawInputBuffer, &Windows_Hook::MyGetRawInputBuffer, "GetRawInputBuffer" },
-            { (void**)&GetRawInputData  , &Windows_Hook::MyGetRawInputData  , "GetRawInputData"   },
-            { (void**)&GetKeyState      , &Windows_Hook::MyGetKeyState      , "GetKeyState"       },
-            { (void**)&GetAsyncKeyState , &Windows_Hook::MyGetAsyncKeyState , "GetAsyncKeyState"  },
-            { (void**)&GetKeyboardState , &Windows_Hook::MyGetKeyboardState , "GetKeyboardState"  },
-            { (void**)&GetCursorPos     , &Windows_Hook::MyGetCursorPos     , "GetCursorPos"      },
-            { (void**)&SetCursorPos     , &Windows_Hook::MySetCursorPos     , "SetCursorPos"      },
-            { (void**)&GetClipCursor    , &Windows_Hook::MyGetClipCursor    , "GetClipCursor"     },
-            { (void**)&ClipCursor       , &Windows_Hook::MyClipCursor       , "ClipCursor"        },
+            { (void**)&GetRawInputBuffer, (void*)&Windows_Hook::MyGetRawInputBuffer, "GetRawInputBuffer" },
+            { (void**)&GetRawInputData  , (void*)&Windows_Hook::MyGetRawInputData  , "GetRawInputData"   },
+            { (void**)&GetKeyState      , (void*)&Windows_Hook::MyGetKeyState      , "GetKeyState"       },
+            { (void**)&GetAsyncKeyState , (void*)&Windows_Hook::MyGetAsyncKeyState , "GetAsyncKeyState"  },
+            { (void**)&GetKeyboardState , (void*)&Windows_Hook::MyGetKeyboardState , "GetKeyboardState"  },
+            { (void**)&GetCursorPos     , (void*)&Windows_Hook::MyGetCursorPos     , "GetCursorPos"      },
+            { (void**)&SetCursorPos     , (void*)&Windows_Hook::MySetCursorPos     , "SetCursorPos"      },
+            { (void**)&GetClipCursor    , (void*)&Windows_Hook::MyGetClipCursor    , "GetClipCursor"     },
+            { (void**)&ClipCursor       , (void*)&Windows_Hook::MyClipCursor       , "ClipCursor"        },
         };
 
         for (auto& entry : hook_array)
