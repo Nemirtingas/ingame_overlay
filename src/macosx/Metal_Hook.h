@@ -23,48 +23,65 @@
 
 #include "../internal_includes.h"
 
-#include <OpenGL/OpenGL.h>
+#include <Metal/Metal.h>
+#include <MetalKit/MetalKit.h>
 
-//struct CGLDrawable_t;
-//extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
-
-class OpenGL_Hook :
+class Metal_Hook :
     public ingame_overlay::Renderer_Hook,
     public Base_Hook
 {
 public:
-    static constexpr const char *DLL_NAME = "OpenGL";
+    static constexpr const char *DLL_NAME = "Metal";
 
 private:
-    static OpenGL_Hook* _inst;
+    static Metal_Hook* _inst;
 
+    struct render_pass_t
+    {
+        MTLRenderPassDescriptor* descriptor;
+        id<MTLCommandBuffer> command_buffer;
+        id<MTLRenderCommandEncoder> encoder;
+    };
+    
     // Variables
     bool _Hooked;
     bool _Initialized;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    id<MTLDevice> _MetalDevice;
+    std::vector<render_pass_t> _RenderPass;
+    
     void* _ImGuiFontAtlas;
 
     // Functions
-    OpenGL_Hook();
+    Metal_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay();
+    void _PrepareForOverlay(render_pass_t& render_pass);
 
     // Hook to render functions
-    decltype(::CGLFlushDrawable)* CGLFlushDrawable;
+    
+    id<MTLRenderCommandEncoder> (*MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    id<MTLRenderCommandEncoder> (*MTLDebugCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    
+    void (*MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
+    void (*MTLDebugRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
 
 public:
     std::string LibraryName;
 
-    static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable);
+    static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    static id<MTLRenderCommandEncoder> MyMTLDebugCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    
+    static void MyMTLRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
+    static void MyMTLDebugRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
 
-    virtual ~OpenGL_Hook();
+    virtual ~Metal_Hook();
 
     virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual bool IsStarted();
-    static OpenGL_Hook* Inst();
+    static Metal_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
+    void LoadFunctions();
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

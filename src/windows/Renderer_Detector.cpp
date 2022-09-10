@@ -31,35 +31,19 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
-#if defined(WIN64) || defined(_WIN64) || defined(__MINGW64__) \
- || defined(WIN32) || defined(_WIN32) || defined(__MINGW32__)
-    #define RENDERERDETECTOR_OS_WINDOWS
+#include "DX12_Hook.h"
+#include "DX11_Hook.h"
+#include "DX10_Hook.h"
+#include "DX9_Hook.h"
+#include "OpenGL_Hook.h"
+#include "Vulkan_Hook.h"
   
-    #include "windows/DX12_Hook.h"
-    #include "windows/DX11_Hook.h"
-    #include "windows/DX10_Hook.h"
-    #include "windows/DX9_Hook.h"
-    #include "windows/OpenGL_Hook.h"
-    #include "windows/Vulkan_Hook.h"
+#include "DirectX_VTables.h"
   
-    #include "windows/DirectX_VTables.h"
+#include <random>
   
-    #include <random>
-  
-    #ifdef GetModuleHandle
-        #undef GetModuleHandle
-    #endif
-
-#elif defined(__linux__) || defined(linux)
-    #define RENDERERDETECTOR_OS_LINUX
-
-    #include "linux/OpenGLX_Hook.h"
-
-#elif defined(__APPLE__)
-    #define RENDERERDETECTOR_OS_APPLE
-
-    #include "macosx/OpenGL_Hook.h"
-
+#ifdef GetModuleHandle
+    #undef GetModuleHandle
 #endif
 
 class Renderer_Detector
@@ -74,14 +58,6 @@ public:
         }
         return instance;
     }
-
-#if defined(RENDERERDETECTOR_OS_WINDOWS)
-#define RENDERER_HOOKS { OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl },\
-                       { Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan },\
-                       {   DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12   },\
-                       {   DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11   },\
-                       {   DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10   },\
-                       {    DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9    },
 
     ~Renderer_Detector()
     {
@@ -98,6 +74,17 @@ public:
     }
 
 private:
+    std::timed_mutex detector_mutex;
+    std::mutex renderer_mutex;
+
+    Base_Hook detection_hooks;
+    ingame_overlay::Renderer_Hook* renderer_hook;
+
+    bool detection_done;
+    uint32_t detection_count;
+    bool detection_cancelled;
+    std::condition_variable stop_detection_cv;
+    std::mutex stop_detection_mutex;
 
     decltype(&IDXGISwapChain::Present)       IDXGISwapChainPresent;
     decltype(&IDXGISwapChain1::Present1)     IDXGISwapChainPresent1;
@@ -1074,241 +1061,6 @@ private:
         delete vulkan_hook; vulkan_hook = nullptr;
     }
 
-#elif defined(RENDERERDETECTOR_OS_LINUX)
-#define RENDERER_HOOKS { OpenGLX_Hook::DLL_NAME, &Renderer_Detector::hook_openglx },
-
-    ~Renderer_Detector()
-    {
-        stop_detection();
-
-        delete openglx_hook;
-        //delete vulkan_hook;
-
-        instance = nullptr;
-    }
-
-private:
-    decltype(::glXSwapBuffers)* glXSwapBuffers;
-
-    bool openglx_hooked;
-    //bool vulkan_hooked;
-
-    OpenGLX_Hook* openglx_hook;
-    //Vulkan_Hook* vulkan_hook;
-
-    Renderer_Detector() :
-        openglx_hooked(false),
-        renderer_hook(nullptr),
-        openglx_hook(nullptr),
-        //vulkan_hook(nullptr),
-        detection_done(false),
-        detection_count(0),
-        detection_cancelled(false)
-    {}
-
-    std::string FindPreferedModulePath(std::string const& name)
-    {
-        return name;
-    }
-
-    static void MyglXSwapBuffers(Display* dpy, GLXDrawable drawable)
-    {
-        auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
-        inst->glXSwapBuffers(dpy, drawable);
-        if (inst->detection_done)
-            return;
-
-        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
-        {
-            inst->detection_hooks.UnhookAll();
-            inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(Inst()->openglx_hook);
-            inst->openglx_hook = nullptr;
-            inst->detection_done = true;
-        }
-    }
-
-    void HookglXSwapBuffers(decltype(::glXSwapBuffers)* _glXSwapBuffers)
-    {
-        glXSwapBuffers = _glXSwapBuffers;
-
-        detection_hooks.BeginHook();
-        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&glXSwapBuffers, (void*)&MyglXSwapBuffers });
-        detection_hooks.EndHook();
-    }
-
-    void hook_openglx(std::string const& library_path)
-    {
-        if (!openglx_hooked)
-        {
-            System::Library::Library libGLX;
-            if (!libGLX.OpenLibrary(library_path, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect OpenGLX", library_path);
-                return;
-            }
-
-            auto glXSwapBuffers = libGLX.GetSymbol<decltype(::glXSwapBuffers)>("glXSwapBuffers");
-            if (glXSwapBuffers != nullptr)
-            {
-                SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
-
-                openglx_hooked = true;
-
-                openglx_hook = OpenGLX_Hook::Inst();
-                openglx_hook->LibraryName = library_path;
-                openglx_hook->LoadFunctions(glXSwapBuffers);
-
-                HookglXSwapBuffers(glXSwapBuffers);
-            }
-            else
-            {
-                SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
-            }
-        }
-    }
-
-    bool EnterDetection()
-    {
-        return true;
-    }
-
-    void ExitDetection()
-    {
-        detection_done = true;
-        detection_hooks.UnhookAll();
-
-        openglx_hooked = false;
-        //vulkan_hooked = false;
-
-        delete openglx_hook; openglx_hook = nullptr;
-        //delete vulkan_hook; vulkan_hook = nullptr;
-    }
-
-#elif defined(RENDERERDETECTOR_OS_APPLE)
-#define RENDERER_HOOKS { OpenGL_Hook::DLL_NAME, & Renderer_Detector::hook_opengl },
-
-    ~Renderer_Detector()
-    {
-        stop_detection();
-
-        delete opengl_hook;
-
-        instance = nullptr;
-    }
-
-private:
-    decltype(::CGLFlushDrawable)* CGLFlushDrawable;
-
-    bool opengl_hooked;
-    //bool metal_hooked;
-
-    OpenGL_Hook* opengl_hook;
-    //Metal_Hook* metal_hook;
-
-    Renderer_Detector() :
-        opengl_hooked(false),
-        renderer_hook(nullptr),
-        opengl_hook(nullptr),
-        detection_done(false),
-        detection_count(0),
-        detection_cancelled(false)
-    {}
-
-    std::string FindPreferedModulePath(std::string const& name)
-    {
-        return name;
-    }
-
-    static int64_t MyCGLFlushDrawable(CGLDrawable_t* glDrawable)
-    {
-        auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
-        int64_t res = inst->CGLFlushDrawable(glDrawable);
-
-        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(2, 0))
-        {
-            inst->detection_hooks.UnhookAll();
-            inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(Inst()->opengl_hook);
-            inst->opengl_hook = nullptr;
-            inst->detection_done = true;
-        }
-
-        return res;
-    }
-
-    void HookglFlushDrawable(decltype(::CGLFlushDrawable)* _CGLFlushDrawable)
-    {
-        CGLFlushDrawable = _CGLFlushDrawable;
-
-        detection_hooks.BeginHook();
-        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&CGLFlushDrawable, (void*)&MyCGLFlushDrawable });
-        detection_hooks.EndHook();
-    }
-
-    void hook_opengl(std::string const& library_path)
-    {
-        if (!opengl_hooked)
-        {
-            System::Library::Library libOpenGL;
-            if (!libOpenGL.OpenLibrary(library_path, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
-                return;
-            }
-
-            auto CGLFlushDrawable = libOpenGL.GetSymbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
-            if (CGLFlushDrawable != nullptr)
-            {
-                SPDLOG_INFO("Hooked CGLFlushDrawable to detect OpenGL");
-
-                opengl_hooked = true;
-
-                opengl_hook = OpenGL_Hook::Inst();
-                opengl_hook->LibraryName = library_path;
-                opengl_hook->LoadFunctions(CGLFlushDrawable);
-
-                HookglFlushDrawable(CGLFlushDrawable);
-            }
-            else
-            {
-                SPDLOG_WARN("Failed to Hook CGLFlushDrawable to detect OpenGL");
-            }
-        }
-    }
-
-    bool EnterDetection()
-    {
-        return true;
-    }
-
-    void ExitDetection()
-    {
-        detection_done = true;
-        detection_hooks.UnhookAll();
-
-        opengl_hooked = false;
-        //metal_hooked = false;
-
-        delete opengl_hook; opengl_hook = nullptr;
-        //delete metal_hook; metal_hook = nullptr;
-    }
-
-#endif
-
-private:
-    std::timed_mutex detector_mutex;
-    std::mutex renderer_mutex;
-
-    Base_Hook detection_hooks;
-    ingame_overlay::Renderer_Hook* renderer_hook;
-    
-    bool detection_done;
-    uint32_t detection_count;
-    bool detection_cancelled;
-    std::condition_variable stop_detection_cv;
-    std::mutex stop_detection_mutex;
-
 public:
     std::future<ingame_overlay::Renderer_Hook*> detect_renderer(std::chrono::milliseconds timeout)
     {
@@ -1366,7 +1118,12 @@ public:
             SPDLOG_TRACE("Started renderer detection.");
 
             std::pair<std::string, void(Renderer_Detector::*)(std::string const&)> libraries[]{
-                RENDERER_HOOKS
+                { OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl },
+                { Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan },
+                {   DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12   },
+                {   DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11   },
+                {   DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10   },
+                {    DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9    },
             };
             std::string name;
 

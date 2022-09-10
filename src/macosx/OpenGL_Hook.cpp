@@ -104,7 +104,7 @@ void OpenGL_Hook::_PrepareForOverlay()
     }
 }
 
-int64_t OpenGL_Hook::MyCGLFlushDrawable(CGLDrawable_t *glDrawable)
+CGLError OpenGL_Hook::MyCGLFlushDrawable(CGLContextObj glDrawable)
 {
     OpenGL_Hook::Inst()->_PrepareForOverlay();
     return OpenGL_Hook::Inst()->CGLFlushDrawable(glDrawable);
