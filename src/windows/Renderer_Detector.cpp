@@ -1079,7 +1079,10 @@ public:
             constexpr std::chrono::milliseconds infinite_timeout{ -1 };
         
             if (!detection_lock.try_lock_for(timeout))
+            {
+                --detection_count;
                 return nullptr;
+            }
 
             bool cancel = false;
             {
