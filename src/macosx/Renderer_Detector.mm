@@ -74,7 +74,7 @@ private:
     std::mutex stop_detection_mutex;
     
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
-    void (*MTKViewDraw)(id, SEL);
+    void (*CommandBufferCommit)(id, SEL);
     
     bool opengl_hooked;
     bool metal_hooked;
@@ -84,7 +84,7 @@ private:
     
     Renderer_Detector() :
         CGLFlushDrawable(nullptr),
-        MTKViewDraw(nullptr),
+        CommandBufferCommit(nullptr),
         opengl_hooked(false),
         metal_hooked(false),
         renderer_hook(nullptr),
@@ -118,12 +118,12 @@ private:
         return res;
     }
     
-    static void MyMTKViewDraw(id self, SEL sel)
+    static void MyCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
         
-        inst->MTKViewDraw(self, sel);
+        inst->CommandBufferCommit(self, sel);
         if (inst->detection_done)
             return;
         
@@ -183,17 +183,24 @@ private:
                 return;
             }
             
-            Method draw_method = class_getInstanceMethod([MTKView class], @selector(draw));
-            MTKViewDraw = (decltype(MTKViewDraw))method_setImplementation(draw_method, (IMP)MyMTKViewDraw);
-            if (MTKViewDraw != nullptr)
+            Method command_buffer_commit_method;
+            
+            command_buffer_commit_method = class_getInstanceMethod(objc_getClass("MTLToolsCommandBuffer"), @selector(commit));
+            
+            if (command_buffer_commit_method != nil)
             {
-                SPDLOG_INFO("Hooked MTKView:draw to detect Metal");
+                CommandBufferCommit = (decltype(CommandBufferCommit))method_setImplementation(command_buffer_commit_method, (IMP)&MyCommandBufferCommit);
                 
-                metal_hooked = true;
-                
-                metal_hook = Metal_Hook::Inst();
-                metal_hook->LibraryName = library_path;
-                metal_hook->LoadFunctions();
+                if(CommandBufferCommit != nullptr)
+                {
+                    SPDLOG_INFO("Hooked MTKView:draw to detect Metal");
+                    
+                    metal_hooked = true;
+                    
+                    metal_hook = Metal_Hook::Inst();
+                    metal_hook->LibraryName = library_path;
+                    metal_hook->LoadFunctions();
+                }
             }
         }
     }
@@ -202,11 +209,15 @@ private:
     {
         detection_done = true;
         detection_hooks.UnhookAll();
-        if (MTKViewDraw != nullptr)
+        
+        if (metal_hooked)
         {
-            Method draw_method = class_getInstanceMethod([MTKView class], @selector(draw));
-            method_setImplementation(draw_method, (IMP)MTKViewDraw);
-            MTKViewDraw = nullptr;
+            metal_hooked = false;
+            if (CommandBufferCommit != nullptr)
+            {
+                Method ns_method = class_getInstanceMethod(objc_getClass("MTLToolsCommandBuffer"), @selector(commit));
+                method_setImplementation(ns_method, (IMP)CommandBufferCommit);
+            }
         }
     }
     
@@ -244,8 +255,11 @@ public:
             constexpr std::chrono::milliseconds infinite_timeout{ -1 };
 
             if (!detection_lock.try_lock_for(timeout))
+            {
+                --detection_count;
                 return nullptr;
-
+            }
+                
             bool cancel = false;
             {
                 System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
