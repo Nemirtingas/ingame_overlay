@@ -78,6 +78,8 @@ public:
     virtual ~Metal_Hook();
 
     virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual void HideAppInputs(bool hide);
+    virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static Metal_Hook* Inst();
     virtual std::string GetLibraryName() const;

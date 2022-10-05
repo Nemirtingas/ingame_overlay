@@ -30,7 +30,7 @@ Metal_Hook* Metal_Hook::_inst = nullptr;
 decltype(Metal_Hook::DLL_NAME) Metal_Hook::DLL_NAME;
 
 
-bool Metal_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -88,6 +88,22 @@ bool Metal_Hook::StartHook(std::function<bool(bool)> key_combination_callback, s
     return true;
 }
 
+void Metal_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        NSView_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void Metal_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        NSView_Hook::Inst()->HideOverlayInputs(hide);
+    }
+}
+
 bool Metal_Hook::IsStarted()
 {
     return _Hooked;
@@ -100,7 +116,7 @@ void Metal_Hook::_ResetRenderState()
         OverlayHookReady(false);
 
         ImGui_ImplMetal_Shutdown();
-        //NSView_Hook::Inst()->_ResetRenderState();
+        NSView_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
         _MetalDevice = nil;

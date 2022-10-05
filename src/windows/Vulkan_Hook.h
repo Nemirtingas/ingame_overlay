@@ -58,7 +58,9 @@ public:
 
     virtual ~Vulkan_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual void HideAppInputs(bool hide);
+    virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static Vulkan_Hook* Inst();
     virtual std::string GetLibraryName() const;

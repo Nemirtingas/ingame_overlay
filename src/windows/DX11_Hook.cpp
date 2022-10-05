@@ -45,7 +45,7 @@ static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11De
     return ret;
 }
 
-bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX11_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -80,6 +80,22 @@ bool DX11_Hook::StartHook(std::function<bool(bool)> key_combination_callback, st
         EndHook();
     }
     return true;
+}
+
+void DX11_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void DX11_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool DX11_Hook::IsStarted()
