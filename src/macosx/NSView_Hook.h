@@ -35,17 +35,17 @@ private:
     // Variables
     bool _Hooked;
     bool _Initialized;
-    bool _HideApplicationInputs;
-    bool _HideOverlayInputs;
     void* _NSViewHook;
 
     // Functions
     NSView_Hook();
 
 public:
-    std::function<void()> _KeyCombinationCallback;
+    std::function<void()> KeyCombinationCallback;
     std::set<int> NativeKeyCombination;
     bool KeyCombinationPushed;
+	bool HideApplicationInputs;
+    bool HideOverlayInputs;
 
     std::string LibraryName;
 

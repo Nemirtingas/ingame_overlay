@@ -81,8 +81,8 @@ bool GetKeyState( unsigned short inKeyCode )
     eventsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event) {
         NSView* view = [[event window]contentView];
         auto* inst = NSView_Hook::Inst();
-        bool hide_app_inputs = inst->_HideApplicationInputs;
-        bool hide_overlay_inputs = inst->_HideOverlayInputs;
+        bool hide_app_inputs = inst->HideApplicationInputs;
+        bool hide_overlay_inputs = inst->HideOverlayInputs;
 
         switch ([event type])
         {
@@ -102,24 +102,20 @@ bool GetKeyState( unsigned short inKeyCode )
                     {// All shortcut keys are pressed
                         if (!inst->KeyCombinationPushed)
                         {
-                            inst->_KeyCombinationCallback();
+                            inst->KeyCombinationCallback();
 
-                            if (inst->_HideOverlayInputs)
+                            if (inst->HideOverlayInputs)
                                 hide_overlay_inputs = true;
 
-                            if(inst->_HideApplicationInputs)
+                            if(inst->HideApplicationInputs)
                             {
                                 hide_app_inputs = true;
 
                                 // Save the last known cursor pos when opening the overlay
                                 // so we can spoof the mouseLocation return value.
-                                savedLocation = [NSEvent mouseLocation];
+                                savedLocation = inst->_mouseLocation(self, sel);
                             }
-                            else
-                            {
-                                inst->ClipCursor(&inst->_SavedClipCursor);
-                            }
-                            inst->_KeyCombinationPushed = true;
+                            inst->KeyCombinationPushed = true;
                         }
                     }
                     else
@@ -173,7 +169,7 @@ bool GetKeyState( unsigned short inKeyCode )
 
 NSPoint MymouseLocation(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->hide_app_inputs)
+    if (NSView_Hook::Inst()->HideAppInputs)
         return savedLocation;
 
     return _mouseLocation(self, sel);
@@ -181,7 +177,7 @@ NSPoint MymouseLocation(id self, SEL sel)
 
 NSInteger MypressedMouseButtons(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->hide_app_inputs)
+    if (NSView_Hook::Inst()->HideAppInputs)
         return 0;
 
     return _pressedMouseButtons(self, sel);
@@ -285,12 +281,12 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
 
 void NSView_Hook::HideAppInputs(bool hide)
 {
-    _HideAppInputs = hide;
+    HideApplicationInputs = hide;
 }
 
 void NSView_Hook::HideOverlayInputs(bool hide)
 {
-    _HideOverlayInputs = hide;
+    HideOverlayInputs = hide;
 }
 
 void NSView_Hook::ResetRenderState()
