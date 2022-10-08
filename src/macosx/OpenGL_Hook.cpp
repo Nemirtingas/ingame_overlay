@@ -85,7 +85,7 @@ void OpenGL_Hook::_ResetRenderState()
         OverlayHookReady(false);
 
         ImGui_ImplOpenGL2_Shutdown();
-        NSView_Hook::Inst()->_ResetRenderState();
+        //NSView_Hook::Inst()->_ResetRenderState();
         ImGui::DestroyContext();
 
         _Initialized = false;

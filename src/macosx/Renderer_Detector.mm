@@ -74,7 +74,7 @@ private:
     std::mutex stop_detection_mutex;
     
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
-    void (*CommandBufferCommit)(id, SEL);
+    void (*IGAccelCommandBufferCommit)(id, SEL);
     
     bool opengl_hooked;
     bool metal_hooked;
@@ -84,7 +84,7 @@ private:
     
     Renderer_Detector() :
         CGLFlushDrawable(nullptr),
-        CommandBufferCommit(nullptr),
+        IGAccelCommandBufferCommit(nullptr),
         opengl_hooked(false),
         metal_hooked(false),
         renderer_hook(nullptr),
@@ -118,12 +118,12 @@ private:
         return res;
     }
     
-    static void MyCommandBufferCommit(id self, SEL sel)
+    static void MyIGAccelCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
-        
-        inst->CommandBufferCommit(self, sel);
+
+        inst->IGAccelCommandBufferCommit(self, sel);
         if (inst->detection_done)
             return;
         
@@ -183,24 +183,24 @@ private:
                 return;
             }
             
-            Method command_buffer_commit_method;
-            
-            command_buffer_commit_method = class_getInstanceMethod(objc_getClass("MTLToolsCommandBuffer"), @selector(commit));
-            
-            if (command_buffer_commit_method != nil)
+            Method command_buffer_method;
+
+            command_buffer_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
+
+            if (command_buffer_method != nil)
             {
-                CommandBufferCommit = (decltype(CommandBufferCommit))method_setImplementation(command_buffer_commit_method, (IMP)&MyCommandBufferCommit);
-                
-                if(CommandBufferCommit != nullptr)
-                {
-                    SPDLOG_INFO("Hooked MTKView:draw to detect Metal");
+                IGAccelCommandBufferCommit = (decltype(IGAccelCommandBufferCommit))method_setImplementation(command_buffer_method, (IMP)&MyIGAccelCommandBufferCommit);
+            }
+            
+            if(IGAccelCommandBufferCommit != nullptr)
+            {
+                SPDLOG_INFO("Hooked MTLCommandBuffer::commit to detect Metal");
                     
-                    metal_hooked = true;
+                metal_hooked = true;
                     
-                    metal_hook = Metal_Hook::Inst();
-                    metal_hook->LibraryName = library_path;
-                    metal_hook->LoadFunctions();
-                }
+                metal_hook = Metal_Hook::Inst();
+                metal_hook->LibraryName = library_path;
+                metal_hook->LoadFunctions();
             }
         }
     }
@@ -213,10 +213,10 @@ private:
         if (metal_hooked)
         {
             metal_hooked = false;
-            if (CommandBufferCommit != nullptr)
+            if (IGAccelCommandBufferCommit != nullptr)
             {
-                Method ns_method = class_getInstanceMethod(objc_getClass("MTLToolsCommandBuffer"), @selector(commit));
-                method_setImplementation(ns_method, (IMP)CommandBufferCommit);
+                Method ns_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
+                method_setImplementation(ns_method, (IMP)IGAccelCommandBufferCommit);
             }
         }
     }
