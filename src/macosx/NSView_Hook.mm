@@ -81,8 +81,8 @@ bool GetKeyState( unsigned short inKeyCode )
     eventsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event) {
         NSView* view = [[event window]contentView];
         auto* inst = NSView_Hook::Inst();
-        bool hide_app_inputs = inst->HideApplicationInputs;
-        bool hide_overlay_inputs = inst->HideOverlayInputs;
+        bool hide_app_inputs = inst->ApplicationInputsHidden;
+        bool hide_overlay_inputs = inst->OverlayInputsHidden;
 
         switch ([event type])
         {
@@ -104,16 +104,16 @@ bool GetKeyState( unsigned short inKeyCode )
                         {
                             inst->KeyCombinationCallback();
 
-                            if (inst->HideOverlayInputs)
+                            if (inst->OverlayInputsHidden)
                                 hide_overlay_inputs = true;
 
-                            if(inst->HideApplicationInputs)
+                            if(inst->ApplicationInputsHidden)
                             {
                                 hide_app_inputs = true;
 
                                 // Save the last known cursor pos when opening the overlay
                                 // so we can spoof the mouseLocation return value.
-                                savedLocation = inst->_mouseLocation(self, sel);
+                                savedLocation = _mouseLocation(self, @selector(mouseLocation));
                             }
                             inst->KeyCombinationPushed = true;
                         }
@@ -169,7 +169,7 @@ bool GetKeyState( unsigned short inKeyCode )
 
 NSPoint MymouseLocation(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->HideAppInputs)
+    if (NSView_Hook::Inst()->ApplicationInputsHidden)
         return savedLocation;
 
     return _mouseLocation(self, sel);
@@ -177,7 +177,7 @@ NSPoint MymouseLocation(id self, SEL sel)
 
 NSInteger MypressedMouseButtons(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->HideAppInputs)
+    if (NSView_Hook::Inst()->ApplicationInputsHidden)
         return 0;
 
     return _pressedMouseButtons(self, sel);
@@ -281,12 +281,12 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
 
 void NSView_Hook::HideAppInputs(bool hide)
 {
-    HideApplicationInputs = hide;
+    ApplicationInputsHidden = hide;
 }
 
 void NSView_Hook::HideOverlayInputs(bool hide)
 {
-    HideOverlayInputs = hide;
+    OverlayInputsHidden = hide;
 }
 
 void NSView_Hook::ResetRenderState()
@@ -344,11 +344,11 @@ bool NSView_Hook::PrepareForOverlay()
 
 NSView_Hook::NSView_Hook() :
     _Initialized(false),
-    _HideApplicationInputs(false),
-    _HideOverlayInputs(true),
     _NSViewHook(nullptr),
     _Hooked(false),
-    KeyCombinationPushed(false)
+    KeyCombinationPushed(false),
+	ApplicationInputsHidden(false),
+    OverlayInputsHidden(true)
 {
 }
 

@@ -41,8 +41,8 @@ private:
     POINT _SavedCursorPos;
     RECT _SavedClipCursor;
     CONST RECT _DefaultClipCursor;
-    bool _HideApplicationInputs;
-    bool _HideOverlayInputs;
+    bool _ApplicationInputsHidden;
+    bool _OverlayInputsHidden;
 
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled

@@ -46,8 +46,8 @@ private:
     std::function<void()> _KeyCombinationCallback;
     std::set<uint32_t> _NativeKeyCombination;
     bool _KeyCombinationPushed;
-    bool _HideApplicationInputs;
-    bool _HideOverlayInputs;
+    bool _ApplicationInputsHidden;
+    bool _OverlayInputsHidden;
 
     // Functions
     X11_Hook();

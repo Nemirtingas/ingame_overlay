@@ -149,12 +149,12 @@ bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::
 
 void X11_Hook::HideAppInputs(bool hide)
 {
-    _HideApplicationInputs = hide;
+    _ApplicationInputsHidden = hide;
 }
 
 void X11_Hook::HideOverlayInputs(bool hide)
 {
-    _HideOverlayInputs = hide;
+    _OverlayInputsHidden = hide;
 }
 
 void X11_Hook::ResetRenderState()
@@ -235,8 +235,8 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
         XEvent event;
         while(num_events)
         {
-            bool hide_app_inputs = inst->_HideApplicationInputs;
-            bool hide_overlay_inputs = inst->_HideOverlayInputs;
+            bool hide_app_inputs = inst->_ApplicationInputsHidden;
+            bool hide_overlay_inputs = inst->_OverlayInputsHidden;
 
             XPeekEvent(d, &event);
 
@@ -257,10 +257,10 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
                     {
                         inst->_KeyCombinationCallback();
 
-                        if (inst->_HideOverlayInputs)
+                        if (inst->_OverlayInputsHidden)
                             hide_overlay_inputs = true;
 
-                        if (inst->_HideApplicationInputs)
+                        if (inst->_ApplicationInputsHidden)
                             hide_app_inputs = true;
 
                         inst->_KeyCombinationPushed = true;
@@ -322,8 +322,8 @@ X11_Hook::X11_Hook() :
     _Hooked(false),
     _GameWnd(0),
     _KeyCombinationPushed(false),
-    _HideApplicationInputs(false),
-    _HideOverlayInputs(true),
+    _ApplicationInputsHidden(false),
+    _OverlayInputsHidden(true),
     XEventsQueued(nullptr),
     XPending(nullptr)
 {

@@ -147,12 +147,12 @@ bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, s
 
 void Windows_Hook::HideAppInputs(bool hide)
 {
-    _HideApplicationInputs = hide;
+    _ApplicationInputsHidden = hide;
 }
 
 void Windows_Hook::HideOverlayInputs(bool hide)
 {
-    _HideOverlayInputs = hide;
+    _OverlayInputsHidden = hide;
 }
 
 void Windows_Hook::ResetRenderState()
@@ -282,8 +282,8 @@ void RawEvent(RAWINPUT& raw)
 LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
-    bool hide_app_inputs = inst->_HideApplicationInputs;
-    bool hide_overlay_inputs = inst->_HideOverlayInputs;
+    bool hide_app_inputs = inst->_ApplicationInputsHidden;
+    bool hide_overlay_inputs = inst->_OverlayInputsHidden;
 
     if (inst->_Initialized)
     {
@@ -303,10 +303,10 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
                 {
                     inst->_KeyCombinationCallback();
 
-                    if (inst->_HideOverlayInputs)
+                    if (inst->_OverlayInputsHidden)
                         hide_overlay_inputs = true;
 
-                    if(inst->_HideApplicationInputs)
+                    if(inst->_ApplicationInputsHidden)
                     {
                         hide_app_inputs = true;
 
@@ -353,7 +353,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
     if (!inst->_Initialized)
         return res;
 
-    if (!inst->_HideOverlayInputs)
+    if (!inst->_OverlayInputsHidden)
     {
         if (pData != nullptr)
         {
@@ -362,7 +362,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
         }
     }
 
-    if (!inst->_HideApplicationInputs)
+    if (!inst->_ApplicationInputsHidden)
         return res;
 
     return 0;
@@ -378,7 +378,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand,
     if (uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
-    if (!inst->_HideApplicationInputs)
+    if (!inst->_ApplicationInputsHidden)
         return res;
 
     memset(pData, 0, *pcbSize);
@@ -390,7 +390,7 @@ SHORT WINAPI Windows_Hook::MyGetKeyState(int nVirtKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->_Initialized && !inst->_HideApplicationInputs)
+    if (inst->_Initialized && !inst->_ApplicationInputsHidden)
         return 0;
 
     return inst->GetKeyState(nVirtKey);
@@ -400,7 +400,7 @@ SHORT WINAPI Windows_Hook::MyGetAsyncKeyState(int vKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->_Initialized && !inst->_HideApplicationInputs)
+    if (inst->_Initialized && !inst->_ApplicationInputsHidden)
         return 0;
 
     return inst->GetAsyncKeyState(vKey);
@@ -410,7 +410,7 @@ BOOL WINAPI Windows_Hook::MyGetKeyboardState(PBYTE lpKeyState)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->_Initialized && inst->_HideApplicationInputs)
+    if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return FALSE;
 
     return inst->GetKeyboardState(lpKeyState);
@@ -421,7 +421,7 @@ BOOL  WINAPI Windows_Hook::MyGetCursorPos(LPPOINT lpPoint)
     Windows_Hook* inst = Windows_Hook::Inst();
     
     BOOL res = inst->GetCursorPos(lpPoint);
-    if (inst->_Initialized && inst->_HideApplicationInputs && lpPoint != nullptr)
+    if (inst->_Initialized && inst->_ApplicationInputsHidden && lpPoint != nullptr)
     {
         *lpPoint = inst->_SavedCursorPos;
     }
@@ -433,7 +433,7 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (!inst->_Initialized || !inst->_HideApplicationInputs)
+    if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->SetCursorPos(X, Y);
 
     return TRUE;
@@ -442,7 +442,7 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
 BOOL WINAPI Windows_Hook::MyGetClipCursor(RECT* lpRect)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
-    if (lpRect == nullptr || !inst->_Initialized || !inst->_HideApplicationInputs)
+    if (lpRect == nullptr || !inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->GetClipCursor(lpRect);
 
     *lpRect = inst->_SavedClipCursor;
@@ -456,7 +456,7 @@ BOOL  WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
 
     inst->_SavedClipCursor = *v;
 
-    if (!inst->_Initialized || !inst->_HideApplicationInputs)
+    if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->ClipCursor(v);
     
     return inst->ClipCursor(&inst->_DefaultClipCursor);
@@ -471,8 +471,8 @@ Windows_Hook::Windows_Hook() :
     _GameHwnd(nullptr),
     _GameWndProc(nullptr),
     _DefaultClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
-    _HideApplicationInputs(false),
-    _HideOverlayInputs(true),
+    _ApplicationInputsHidden(false),
+    _OverlayInputsHidden(true),
     _KeyCombinationPushed(false)
 {
 }
