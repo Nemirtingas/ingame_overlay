@@ -30,7 +30,7 @@ Metal_Hook* Metal_Hook::_inst = nullptr;
 decltype(Metal_Hook::DLL_NAME) Metal_Hook::DLL_NAME;
 
 
-bool Metal_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -49,43 +49,42 @@ bool Metal_Hook::StartHook(std::function<bool(bool)> key_combination_callback, s
         _ImGuiFontAtlas = imgui_font_atlas;
         
         Method ns_method;
-        Class mtlcommandbuffer_class = objc_getClass("MTLToolsCommandBuffer");
-        
+        Class mtlcommandbuffer_class;
+
+        // IGAccel classes hooks
+        mtlcommandbuffer_class = objc_getClass("MTLIGAccelCommandBuffer");
         ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
         
         if (ns_method != nil)
         {
-            MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(ns_method, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
+            MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(ns_method, (IMP)&MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor);
         }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLDebugCommandBuffer");
-        
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
-        
-        if (ns_method != nil)
-        {
-            MTLDebugCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLDebugCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(ns_method, (IMP)&MyMTLDebugCommandBufferRenderCommandEncoderWithDescriptor);
-        }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLToolsRenderCommandEncoder");
-        
+
+        mtlcommandbuffer_class = objc_getClass("MTLIGAccelRenderCommandEncoder");
         ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
         
         if (ns_method != nil)
         {
-            MTLRenderCommandEncoderEndEncoding = (decltype(MTLRenderCommandEncoderEndEncoding))method_setImplementation(ns_method, (IMP)&MyMTLRenderCommandEncoderEndEncoding);
-        }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLDebugRenderCommandEncoder");
-        
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
-        
-        if (ns_method != nil)
-        {
-            MTLDebugRenderCommandEncoderEndEncoding = (decltype(MTLDebugRenderCommandEncoderEndEncoding))method_setImplementation(ns_method, (IMP)&MyMTLDebugRenderCommandEncoderEndEncoding);
+            MTLIGAccelRenderCommandEncoderEndEncoding = (decltype(MTLIGAccelRenderCommandEncoderEndEncoding))method_setImplementation(ns_method, (IMP)&MyMTLIGAccelRenderCommandEncoderEndEncoding);
         }
     }
     return true;
+}
+
+void Metal_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        NSView_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void Metal_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        NSView_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool Metal_Hook::IsStarted()
@@ -111,12 +110,15 @@ void Metal_Hook::_ResetRenderState()
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
+//void Metal_Hook::_PrepareForOverlay(id<MTLRenderCommandEncoder> mtl_encoder)
 {
+    //static id<MTLCommandQueue> commandQueue;
     if( !_Initialized )
     {
         ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         
         _MetalDevice = [render_pass.command_buffer device];
+        //commandQueue = [_MetalDevice newCommandQueue];
 
         ImGui_ImplMetal_Init(_MetalDevice);
         
@@ -126,20 +128,26 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
     
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(render_pass.descriptor))
     {
+        //id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+        //id<MTLRenderCommandEncoder> renderEncoder = MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(commandBuffer, (SEL)"renderCommandEncoderWithDescriptor:", render_pass.descriptor);
+
         ImGui::NewFrame();
         
         OverlayProc();
         
         ImGui::Render();
-        
+
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), render_pass.command_buffer, render_pass.encoder);
+
+        //ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
+        //MTLIGAccelRenderCommandEncoderEndEncoding(renderEncoder, (SEL)"endEncoding");
     }
 }
 
-id<MTLRenderCommandEncoder> Metal_Hook::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
+id<MTLRenderCommandEncoder> Metal_Hook::MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
 {
     Metal_Hook* inst = Metal_Hook::Inst();
-    id<MTLRenderCommandEncoder> encoder = inst->MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
+    id<MTLRenderCommandEncoder> encoder = inst->MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
     
     inst->_RenderPass.emplace_back(render_pass_t{
         descriptor,
@@ -150,42 +158,11 @@ id<MTLRenderCommandEncoder> Metal_Hook::MyMTLCommandBufferRenderCommandEncoderWi
     return encoder;
 }
 
-id<MTLRenderCommandEncoder> Metal_Hook::MyMTLDebugCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
+void Metal_Hook::MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
 {
     Metal_Hook* inst = Metal_Hook::Inst();
-    id<MTLRenderCommandEncoder> encoder = inst->MTLDebugCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
-    
-    inst->_RenderPass.emplace_back(render_pass_t{
-        descriptor,
-        self,
-        encoder,
-    });
-    
-    return encoder;
-}
 
-void Metal_Hook::MyMTLRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
-{
-    Metal_Hook* inst = Metal_Hook::Inst();
-    
-    for(auto it = inst->_RenderPass.begin(); it != inst->_RenderPass.end(); ++it)
-    {
-        if(it->encoder == self)
-        {
-            inst->_PrepareForOverlay(*it);
-            
-            inst->_RenderPass.erase(it);
-            break;
-        }
-    }
-    
-    inst->MTLRenderCommandEncoderEndEncoding(self, sel);
-}
-
-void Metal_Hook::MyMTLDebugRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
-{
-    Metal_Hook* inst = Metal_Hook::Inst();
-    
+    //inst->MTLIGAccelRenderCommandEncoderEndEncoding(self, sel);
     for(auto it = inst->_RenderPass.begin(); it != inst->_RenderPass.end(); ++it)
     {
         if(it->encoder == self)
@@ -196,14 +173,16 @@ void Metal_Hook::MyMTLDebugRenderCommandEncoderEndEncoding(id<MTLRenderCommandEn
         }
     }
     
-    inst->MTLDebugRenderCommandEncoderEndEncoding(self, sel);
+    inst->MTLIGAccelRenderCommandEncoderEndEncoding(self, sel);
 }
 
 Metal_Hook::Metal_Hook():
     _Initialized(false),
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
-    _MetalDevice(nil)
+    _MetalDevice(nil),
+    MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
+    MTLIGAccelRenderCommandEncoderEndEncoding(nullptr)
 {
     
 }
@@ -212,45 +191,33 @@ Metal_Hook::~Metal_Hook()
 {
     SPDLOG_INFO("Metal Hook removed");
 
-    if (_Initialized)
+    if (_Hooked)
     {
         Method ns_method;
-        Class mtlcommandbuffer_class = objc_getClass("MTLToolsCommandBuffer");
+        Class mtlcommandbuffer_class;
         
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
-        
-        if (ns_method != nil)
+        if (MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
         {
-            method_setImplementation(ns_method, (IMP)&MTLCommandBufferRenderCommandEncoderWithDescriptor);
+            mtlcommandbuffer_class = objc_getClass("MTLIGAccelCommandBuffer");
+            ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
+            if (ns_method != nil)
+                method_setImplementation(ns_method, (IMP)&MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor);
+
+            MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
         }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLDebugCommandBuffer");
-        
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
-        
-        if (ns_method != nil)
+        if (MTLIGAccelRenderCommandEncoderEndEncoding != nullptr)
         {
-            method_setImplementation(ns_method, (IMP)MTLDebugCommandBufferRenderCommandEncoderWithDescriptor);
+            mtlcommandbuffer_class = objc_getClass("MTLIGAccelRenderCommandEncoder");
+            ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
+            if (ns_method != nil)
+                method_setImplementation(ns_method, (IMP)MTLIGAccelRenderCommandEncoderEndEncoding);
+
+            MTLIGAccelRenderCommandEncoderEndEncoding = nullptr;
         }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLToolsRenderCommandEncoder");
-        
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
-        
-        if (ns_method != nil)
-        {
-            method_setImplementation(ns_method, (IMP)MTLRenderCommandEncoderEndEncoding);
-        }
-        
-        mtlcommandbuffer_class = objc_getClass("MTLDebugRenderCommandEncoder");
-        
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
-        
-        if (ns_method != nil)
-        {
-            method_setImplementation(ns_method, (IMP)MTLDebugRenderCommandEncoderEndEncoding);
-        }
-        
+    }
+
+    if (_Initialized)
+    {
         ImGui_ImplMetal_Shutdown();
         ImGui::DestroyContext();
         _MetalDevice = nil;

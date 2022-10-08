@@ -29,7 +29,7 @@ OpenGLX_Hook* OpenGLX_Hook::_inst = nullptr;
 
 constexpr decltype(OpenGLX_Hook::DLL_NAME) OpenGLX_Hook::DLL_NAME;
 
-bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGLX_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -57,6 +57,22 @@ bool OpenGLX_Hook::StartHook(std::function<bool(bool)> key_combination_callback,
         EndHook();
     }
     return true;
+}
+
+void OpenGLX_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        X11_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void OpenGLX_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        X11_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool OpenGLX_Hook::IsStarted()

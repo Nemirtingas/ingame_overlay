@@ -59,25 +59,22 @@ private:
     void _PrepareForOverlay(render_pass_t& render_pass);
 
     // Hook to render functions
+    id<MTLRenderCommandEncoder> (*MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     
-    id<MTLRenderCommandEncoder> (*MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    id<MTLRenderCommandEncoder> (*MTLDebugCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    
-    void (*MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
-    void (*MTLDebugRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
+    void (*MTLIGAccelRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
 
 public:
     std::string LibraryName;
 
-    static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    static id<MTLRenderCommandEncoder> MyMTLDebugCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    static id<MTLRenderCommandEncoder> MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     
-    static void MyMTLRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
-    static void MyMTLDebugRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
+    static void MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
 
     virtual ~Metal_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual void HideAppInputs(bool hide);
+    virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static Metal_Hook* Inst();
     virtual std::string GetLibraryName() const;

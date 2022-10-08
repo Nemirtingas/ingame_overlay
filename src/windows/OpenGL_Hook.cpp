@@ -27,7 +27,7 @@
 
 OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
-bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -55,6 +55,22 @@ bool OpenGL_Hook::StartHook(std::function<bool(bool)> key_combination_callback, 
         EndHook();
     }
     return true;
+}
+
+void OpenGL_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void OpenGL_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool OpenGL_Hook::IsStarted()
