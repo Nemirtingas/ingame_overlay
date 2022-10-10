@@ -198,14 +198,17 @@ bool Windows_Hook::PrepareForOverlay(HWND hWnd)
         if (current_proc == nullptr)
             return false;
 
-        ImGui_ImplWin32_NewFrame();
-        // Read keyboard modifiers inputs
-        auto& io = ImGui::GetIO();
-
-        POINT pos;
-        if (this->GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
+        if (!_OverlayInputsHidden)
         {
-            io.AddMousePosEvent((float)pos.x, (float)pos.y);
+            ImGui_ImplWin32_NewFrame();
+            // Read keyboard modifiers inputs
+            auto& io = ImGui::GetIO();
+
+            POINT pos;
+            if (this->GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
+            {
+                io.AddMousePosEvent((float)pos.x, (float)pos.y);
+            }
         }
 
         return true;
