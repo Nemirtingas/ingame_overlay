@@ -187,6 +187,7 @@ target_include_directories(ingame_overlay
 
 target_compile_definitions(ingame_overlay
   PRIVATE
+  IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
   $<$<BOOL:${USE_SPDLOG}>:USE_SPDLOG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
   $<BUILD_INTERFACE:IMGUI_DISABLE_DEMO_WINDOWS>
