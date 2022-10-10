@@ -23,50 +23,62 @@
 
 #include "../internal_includes.h"
 
-#include <GL/glx.h>
+#include <Metal/Metal.h>
+#include <MetalKit/MetalKit.h>
 
-class OpenGLX_Hook :
+class Metal_Hook :
     public ingame_overlay::Renderer_Hook,
     public Base_Hook
 {
 public:
-    static constexpr const char *DLL_NAME = "libGLX.so";
+    static constexpr const char *DLL_NAME = "Metal";
 
 private:
-    static OpenGLX_Hook* _inst;
+    static Metal_Hook* _inst;
 
+    struct render_pass_t
+    {
+        MTLRenderPassDescriptor* descriptor;
+        id<MTLCommandBuffer> command_buffer;
+        id<MTLRenderCommandEncoder> encoder;
+    };
+    
     // Variables
     bool _Hooked;
-    bool _X11Hooked;
     bool _Initialized;
-    Display *_Display;
-    GLXContext _Context;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    id<MTLDevice> _MetalDevice;
+    std::vector<render_pass_t> _RenderPass;
+    
     void* _ImGuiFontAtlas;
 
     // Functions
-    OpenGLX_Hook();
+    Metal_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(Display* display, GLXDrawable drawable);
+    void _PrepareForOverlay(render_pass_t& render_pass);
 
     // Hook to render functions
-    decltype(::glXSwapBuffers)* glXSwapBuffers;
+    id<MTLRenderCommandEncoder> (*MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    
+    void (*MTLIGAccelRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
 
 public:
     std::string LibraryName;
 
-    static void MyglXSwapBuffers(Display* display, GLXDrawable drawable);
+    static id<MTLRenderCommandEncoder> MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    
+    static void MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
 
-    virtual ~OpenGLX_Hook();
+    virtual ~Metal_Hook();
 
     virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
-    static OpenGLX_Hook* Inst();
+    static Metal_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
+    void LoadFunctions();
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

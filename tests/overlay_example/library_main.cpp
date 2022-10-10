@@ -78,6 +78,12 @@ void shared_library_load(void* hmodule)
 
                 if (ImGui::Begin("Overlay", &overlay_datas->show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
                 {
+                    if (!overlay_datas->show)
+                    {
+                        overlay_datas->renderer->HideAppInputs(false);
+                        overlay_datas->renderer->HideOverlayInputs(true);
+                    }
+
                     ImGui::TextUnformatted("Hello from overlay !");
                     ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                     ImGui::Text("Renderer Hooked: %s", overlay_datas->renderer->GetLibraryName().c_str());
@@ -104,18 +110,22 @@ void shared_library_load(void* hmodule)
 
             overlay_datas->font_atlas->Build();
 
-            overlay_datas->renderer->StartHook([](bool toggle)
+            overlay_datas->renderer->StartHook([]()
             {
                 std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
 
-                // toggle is true when the key combination to open the overlay has been pressed
-                if(toggle)
-                    overlay_datas->show = !overlay_datas->show;
-
-                // return the state of the overlay:
-                //  false = overlay is hidden
-                //  true = overlay is shown
-                return overlay_datas->show;
+                if (overlay_datas->show)
+                {
+                    overlay_datas->renderer->HideAppInputs(false);
+                    overlay_datas->renderer->HideOverlayInputs(true);
+                    overlay_datas->show = false;
+                }
+                else
+                {
+                    overlay_datas->renderer->HideAppInputs(true);
+                    overlay_datas->renderer->HideOverlayInputs(false);
+                    overlay_datas->show = true;
+                }
             }, { ingame_overlay::ToggleKey::SHIFT, ingame_overlay::ToggleKey::F2 }, overlay_datas->font_atlas);
         }
     });

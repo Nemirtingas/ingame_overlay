@@ -81,7 +81,8 @@ bool GetKeyState( unsigned short inKeyCode )
     eventsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event) {
         NSView* view = [[event window]contentView];
         auto* inst = NSView_Hook::Inst();
-        bool ignore_event = inst->KeyCombinationCallback(false);
+        bool hide_app_inputs = inst->ApplicationInputsHidden;
+        bool hide_overlay_inputs = inst->OverlayInputsHidden;
 
         switch ([event type])
         {
@@ -101,12 +102,18 @@ bool GetKeyState( unsigned short inKeyCode )
                     {// All shortcut keys are pressed
                         if (!inst->KeyCombinationPushed)
                         {
-                            if (inst->KeyCombinationCallback(true))
+                            inst->KeyCombinationCallback();
+
+                            if (inst->OverlayInputsHidden)
+                                hide_overlay_inputs = true;
+
+                            if(inst->ApplicationInputsHidden)
                             {
-                                ignore_event = true;
+                                hide_app_inputs = true;
+
                                 // Save the last known cursor pos when opening the overlay
-                                // so we can spoof the GetCursorPos return value.
-                                savedLocation = [NSEvent mouseLocation];
+                                // so we can spoof the mouseLocation return value.
+                                savedLocation = _mouseLocation(self, @selector(mouseLocation));
                             }
                             inst->KeyCombinationPushed = true;
                         }
@@ -133,18 +140,16 @@ bool GetKeyState( unsigned short inKeyCode )
                     (p.y >= -4.0f && p.y <= 3.0f) ||
                     (p.y >= (bounds.size.height - 2) && p.y <= (bounds.size.height + 3.0f)))
                 {// Allow window resize
-                    ignore_event = false;
+                    hide_overlay_inputs = false;
                 }
             }
             break;
         }
 
-        if (ignore_event)
-        {
+        if (!hide_overlay_inputs)
             ImGui_ImplOSX_HandleEvent(event, view);
-        }
 
-        return (ignore_event ? nil : event);
+        return (hide_app_inputs ? nil : event);
     }];
 }
 
@@ -164,7 +169,7 @@ bool GetKeyState( unsigned short inKeyCode )
 
 NSPoint MymouseLocation(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->KeyCombinationCallback(false))
+    if (NSView_Hook::Inst()->ApplicationInputsHidden)
         return savedLocation;
 
     return _mouseLocation(self, sel);
@@ -172,7 +177,7 @@ NSPoint MymouseLocation(id self, SEL sel)
 
 NSInteger MypressedMouseButtons(id self, SEL sel)
 {
-    if (NSView_Hook::Inst()->KeyCombinationCallback(false))
+    if (NSView_Hook::Inst()->ApplicationInputsHidden)
         return 0;
 
     return _pressedMouseButtons(self, sel);
@@ -226,7 +231,7 @@ uint32_t ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
     return 0;
 }
 
-bool NSView_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
+bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -274,6 +279,16 @@ bool NSView_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback
     return true;
 }
 
+void NSView_Hook::HideAppInputs(bool hide)
+{
+    ApplicationInputsHidden = hide;
+}
+
+void NSView_Hook::HideOverlayInputs(bool hide)
+{
+    OverlayInputsHidden = hide;
+}
+
 void NSView_Hook::ResetRenderState()
 {
     if (_Initialized)
@@ -281,6 +296,10 @@ void NSView_Hook::ResetRenderState()
         [(NSViewHook*)_NSViewHook StopHook] ;
 
         _Initialized = false;
+        
+        HideAppInputs(false);
+        HideOverlayInputs(true);
+
         ImGui_ImplOSX_Shutdown();
     }
 }
@@ -327,7 +346,9 @@ NSView_Hook::NSView_Hook() :
     _Initialized(false),
     _NSViewHook(nullptr),
     _Hooked(false),
-    KeyCombinationPushed(false)
+    KeyCombinationPushed(false),
+	ApplicationInputsHidden(false),
+    OverlayInputsHidden(true)
 {
 }
 

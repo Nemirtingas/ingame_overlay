@@ -25,7 +25,7 @@
 
 Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
 
-bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
@@ -54,6 +54,22 @@ bool Vulkan_Hook::StartHook(std::function<bool(bool)> key_combination_callback, 
         EndHook();
     }
     return true;
+}
+
+void Vulkan_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void Vulkan_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool Vulkan_Hook::IsStarted()

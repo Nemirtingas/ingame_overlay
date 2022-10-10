@@ -41,10 +41,12 @@ private:
     POINT _SavedCursorPos;
     RECT _SavedClipCursor;
     CONST RECT _DefaultClipCursor;
+    bool _ApplicationInputsHidden;
+    bool _OverlayInputsHidden;
 
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
-    std::function<bool(bool)> _KeyCombinationCallback;
+    std::function<void()> _KeyCombinationCallback;
     std::set<int> _NativeKeyCombination;
     bool _KeyCombinationPushed;
 
@@ -85,7 +87,9 @@ public:
     HWND GetGameHwnd() const;
     WNDPROC GetGameWndProc() const;
 
-    bool StartHook(std::function<bool(bool)>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    void HideAppInputs(bool hide);
+    void HideOverlayInputs(bool hide);
     static Windows_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };

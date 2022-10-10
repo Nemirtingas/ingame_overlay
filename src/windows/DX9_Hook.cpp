@@ -36,7 +36,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX9_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -76,6 +76,22 @@ bool DX9_Hook::StartHook(std::function<bool(bool)> key_combination_callback, std
         EndHook();
     }
     return true;
+}
+
+void DX9_Hook::HideAppInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideAppInputs(hide);
+    }
+}
+
+void DX9_Hook::HideOverlayInputs(bool hide)
+{
+    if (_Initialized)
+    {
+        Windows_Hook::Inst()->HideOverlayInputs(hide);
+    }
 }
 
 bool DX9_Hook::IsStarted()

@@ -41,9 +41,11 @@ private:
     NSView_Hook();
 
 public:
-    std::function<bool(bool)> KeyCombinationCallback;
+    std::function<void()> KeyCombinationCallback;
     std::set<int> NativeKeyCombination;
     bool KeyCombinationPushed;
+	bool ApplicationInputsHidden;
+    bool OverlayInputsHidden;
 
     std::string LibraryName;
 
@@ -52,7 +54,9 @@ public:
     void ResetRenderState();
     bool PrepareForOverlay();
 
-    bool StartHook(std::function<bool(bool)>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    void HideAppInputs(bool hide);
+    void HideOverlayInputs(bool hide);
     static NSView_Hook* Inst();
     virtual std::string GetLibraryName() const;
 

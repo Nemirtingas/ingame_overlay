@@ -23,8 +23,10 @@
 
 #include "../internal_includes.h"
 
-struct CGLDrawable_t;
-extern "C" int64_t CGLFlushDrawable(CGLDrawable_t*);
+#include <OpenGL/OpenGL.h>
+
+//struct CGLDrawable_t;
+//extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
 
 class OpenGL_Hook :
     public ingame_overlay::Renderer_Hook,
@@ -54,11 +56,13 @@ private:
 public:
     std::string LibraryName;
 
-    static int64_t MyCGLFlushDrawable(CGLDrawable_t* glDrawable);
+    static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable);
 
     virtual ~OpenGL_Hook();
 
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual void HideAppInputs(bool hide);
+    virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static OpenGL_Hook* Inst();
     virtual std::string GetLibraryName() const;

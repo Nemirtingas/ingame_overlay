@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.15)
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
-    src/Renderer_Detector.cpp
+    src/windows/Renderer_Detector.cpp
     src/windows/DX9_Hook.cpp
     src/windows/DX10_Hook.cpp
     src/windows/DX11_Hook.cpp
@@ -46,19 +46,21 @@ elseif(APPLE)
   set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -stdlib=libc++")
 
   enable_language(OBJCXX)
-  link_libraries("-framework AppKit -framework Carbon")
+  link_libraries("-framework AppKit -framework Carbon -framework Metal -framework MetalKit")
 
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
-    src/Renderer_Detector.cpp
+    src/macosx/Renderer_Detector.mm
     src/macosx/NSView_Hook.mm
     src/macosx/OpenGL_Hook.cpp
+    src/macosx/Metal_Hook.mm
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
     src/macosx/NSView_Hook.h
     src/macosx/OpenGL_Hook.h
+    src/macosx/Metal_Hook.h
   )
 
   set(IMGUI_SOURCES
@@ -67,6 +69,7 @@ elseif(APPLE)
     deps/ImGui/imgui_tables.cpp
     deps/ImGui/imgui_widgets.cpp
     deps/ImGui/backends/imgui_impl_opengl2.cpp
+    deps/ImGui/backends/imgui_impl_metal.mm
     deps/ImGui/backends/imgui_impl_osx.mm
   )
 
@@ -74,14 +77,14 @@ elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
     src/Base_Hook.cpp
-    src/Renderer_Detector.cpp
+    src/linux/Renderer_Detector.cpp
     src/linux/OpenGLX_Hook.cpp
     src/linux/X11_Hook.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/Base_Hook.h
-        src/linux/OpenGLX_Hook.h
+    src/linux/OpenGLX_Hook.h
     src/linux/X11_Hook.h
   )
 
@@ -366,7 +369,7 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     target_include_directories(windows_opengl3_app
       PRIVATE
       deps/ImGui
-	  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
     )
 
     target_link_libraries(windows_opengl3_app
@@ -391,7 +394,7 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
 
   elseif(APPLE)
 
-	add_executable(macos_opengl2_app
+    add_executable(macos_opengl2_app
       tests/macos_opengl2/main.mm
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
@@ -414,6 +417,48 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     )
 
     target_compile_definitions(macos_opengl2_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_KEYIO
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_DISABLE_APPLE_GAMEPAD
+    )
+
+    add_executable(macos_metal_app
+      tests/macos_metal/main.mm
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_metal.mm
+      deps/ImGui/backends/imgui_impl_osx.mm
+    )
+
+    target_include_directories(macos_metal_app
+      PRIVATE
+      deps/ImGui
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include
+    )
+
+    set_target_properties(macos_metal_app PROPERTIES
+      BUNDLE True
+      MACOSX_BUNDLE_GUI_IDENTIFIER my.domain.style.identifier.macos_metal_app
+      MACOSX_BUNDLE_BUNDLE_NAME macos_metal_app
+      MACOSX_BUNDLE_BUNDLE_VERSION "1"
+      MACOSX_BUNDLE_SHORT_VERSION_STRING "1"
+      MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/cmake/customtemplate.plist.in
+    )
+
+    target_link_libraries(macos_metal_app
+      PRIVATE
+      dl
+    )
+
+    target_compile_definitions(macos_metal_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
       IMGUI_IMPL_OPENGL_LOADER_CUSTOM

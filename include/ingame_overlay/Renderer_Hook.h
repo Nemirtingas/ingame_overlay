@@ -37,13 +37,8 @@ enum class ToggleKey
 class Renderer_Hook
 {
 public:
-    Renderer_Hook():
-        OverlayProc(&DefaultOverlayProc),
-        OverlayHookReady(&DefaultOverlayHookReady)
-    {}
+    virtual ~Renderer_Hook() {}
 
-    static void DefaultOverlayProc() {}
-    static void DefaultOverlayHookReady(bool) {}
     std::function<void()> OverlayProc;
     std::function<void(bool)> OverlayHookReady;
 
@@ -51,9 +46,7 @@ public:
     ///   Starts the current renderer hook procedure, allowing a user to render things on the application window.
     /// </summary>
     /// <param name="key_combination_callback">
-    ///   key_combination_callback is called with parameter "false" when the library wants to know if it should block inputs.
-    ///   key_combination_callback is called with parameter "true" when the library detected the "toggle_keys" has been pressed.
-    ///   You should return false when you don't want to block inputs, true otherwise.
+	///   Callback called when your toggle_keys are all pressed.
     /// </param>
     /// <param name="toggle_keys">
     ///   The key combination that must be pressed to show/hide your overlay.
@@ -62,7 +55,27 @@ public:
     ///   *Can be nullptr*. Fill this parameter with your own ImGuiAtlas pointer if you don't want ImGui to generate one for you.
     /// </param>
     /// <returns></returns>
-    virtual bool StartHook(std::function<bool(bool)> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) = 0;
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) = 0;
+
+	/// <summary>
+	///   Change the hooked application input policy.
+	/// </summary>
+	/// <param name="hide">
+	///   Set to true to hide mouse and keyboards inputs from the hooked application.
+	///   Set to false to allow the hooked application to receive inputs.
+    /// </param>
+	/// <returns></returns>
+	virtual void HideAppInputs(bool hide) = 0;
+	
+	/// <summary>
+	///   Change the overlay input policy.
+	/// </summary>
+	/// <param name="hide">
+	///   Set to true to hide mouse and keyboards inputs from the overlay.
+	///   Set to false to allow the overlay to receive inputs.
+    /// </param>
+	/// <returns></returns>
+	virtual void HideOverlayInputs(bool hide) = 0;
 
     virtual bool IsStarted() = 0;
 

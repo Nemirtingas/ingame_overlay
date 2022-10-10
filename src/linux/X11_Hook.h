@@ -43,9 +43,11 @@ private:
 
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
-    std::function<bool(bool)> _KeyCombinationCallback;
+    std::function<void()> _KeyCombinationCallback;
     std::set<uint32_t> _NativeKeyCombination;
     bool _KeyCombinationPushed;
+    bool _ApplicationInputsHidden;
+    bool _OverlayInputsHidden;
 
     // Functions
     X11_Hook();
@@ -69,7 +71,9 @@ public:
 
     Window GetGameWnd() const{ return _GameWnd; }
 
-    bool StartHook(std::function<bool(bool)>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    void HideAppInputs(bool hide);
+    void HideOverlayInputs(bool hide);
     static X11_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };

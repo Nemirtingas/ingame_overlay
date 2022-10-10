@@ -69,7 +69,7 @@ bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
-bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
+bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -147,12 +147,26 @@ bool X11_Hook::StartHook(std::function<bool(bool)>& _key_combination_callback, s
     return true;
 }
 
+void X11_Hook::HideAppInputs(bool hide)
+{
+    _ApplicationInputsHidden = hide;
+}
+
+void X11_Hook::HideOverlayInputs(bool hide)
+{
+    _OverlayInputsHidden = hide;
+}
+
 void X11_Hook::ResetRenderState()
 {
     if (_Initialized)
     {
         _GameWnd = 0;
         _Initialized = false;
+
+        HideAppInputs(false);
+        HideOverlayInputs(true);
+
         ImGui_ImplX11_Shutdown();
     }
 }
@@ -221,10 +235,10 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
         XEvent event;
         while(num_events)
         {
-            bool skip_input = _KeyCombinationCallback(false);
+            bool hide_app_inputs = inst->_ApplicationInputsHidden;
+            bool hide_overlay_inputs = inst->_OverlayInputsHidden;
 
             XPeekEvent(d, &event);
-            ImGui_ImplX11_EventHandler(event);
 
             // Is the event is a key press
             if (event.type == KeyPress || event.type == KeyRelease)
@@ -241,13 +255,14 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
                 {// All shortcut keys are pressed
                     if (!inst->_KeyCombinationPushed)
                     {
-                        if (inst->_KeyCombinationCallback(true))
-                        {
-                            skip_input = true;
-                            // Save the last known cursor pos when opening the overlay
-                            // so we can spoof the GetCursorPos return value.
-                            //inst->GetCursorPos(&inst->_SavedCursorPos);
-                        }
+                        inst->_KeyCombinationCallback();
+
+                        if (inst->_OverlayInputsHidden)
+                            hide_overlay_inputs = true;
+
+                        if (inst->_ApplicationInputsHidden)
+                            hide_app_inputs = true;
+
                         inst->_KeyCombinationPushed = true;
                     }
                 }
@@ -257,7 +272,10 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
                 }
             }
 
-            if (!skip_input || !IgnoreEvent(event))
+            if (!hide_overlay_inputs)
+                ImGui_ImplX11_EventHandler(event);
+
+            if (!hide_app_inputs || !IgnoreEvent(event))
             {
                 if(num_events)
                     num_events = 1;
@@ -304,6 +322,8 @@ X11_Hook::X11_Hook() :
     _Hooked(false),
     _GameWnd(0),
     _KeyCombinationPushed(false),
+    _ApplicationInputsHidden(false),
+    _OverlayInputsHidden(true),
     XEventsQueued(nullptr),
     XPending(nullptr)
 {
