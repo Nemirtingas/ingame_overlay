@@ -331,8 +331,15 @@ LRESULT CALLBACK Windows_Hook::HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, 
             }
         }
 
-        if (!hide_overlay_inputs)
+        if (uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
+        {
+            ImGui::GetIO().SetAppAcceptingEvents(uMsg == WM_SETFOCUS);
+        }
+
+        if (!hide_overlay_inputs || uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
+        {
             ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
+        }
 
         if (hide_app_inputs && IgnoreMsg(uMsg))
             return 0;
