@@ -196,10 +196,20 @@ bool X11_Hook::PrepareForOverlay(Display *display, Window wnd)
         ImGui_ImplX11_Init(display, (void*)wnd);
         _GameWnd = wnd;
 
+        //XSelectInput(display,
+        //    wnd,
+        //    SubstructureRedirectMask | SubstructureNotifyMask |
+        //    KeyPressMask | KeyReleaseMask |
+        //    ButtonPressMask | ButtonReleaseMask |
+        //    FocusChangeMask | ExposureMask);
+
         _Initialized = true;
     }
 
-    ImGui_ImplX11_NewFrame();
+    if (!_OverlayInputsHidden)
+    {
+        ImGui_ImplX11_NewFrame();
+    }
 
     return true;
 }
@@ -272,8 +282,15 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
                 }
             }
 
-            if (!hide_overlay_inputs)
+            if (event.type == FocusIn || event.type == FocusOut)
+            {
+                ImGui::GetIO().SetAppAcceptingEvents(event.type == FocusIn);
+            }
+
+            if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
+            {
                 ImGui_ImplX11_EventHandler(event);
+            }
 
             if (!hide_app_inputs || !IgnoreEvent(event))
             {
