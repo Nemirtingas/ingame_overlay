@@ -46,7 +46,7 @@ public:
     ///   Starts the current renderer hook procedure, allowing a user to render things on the application window.
     /// </summary>
     /// <param name="key_combination_callback">
-	///   Callback called when your toggle_keys are all pressed.
+    ///   Callback called when your toggle_keys are all pressed.
     /// </param>
     /// <param name="toggle_keys">
     ///   The key combination that must be pressed to show/hide your overlay.
@@ -57,25 +57,25 @@ public:
     /// <returns></returns>
     virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) = 0;
 
-	/// <summary>
-	///   Change the hooked application input policy.
-	/// </summary>
-	/// <param name="hide">
-	///   Set to true to hide mouse and keyboards inputs from the hooked application.
-	///   Set to false to allow the hooked application to receive inputs.
+    /// <summary>
+    ///   Change the hooked application input policy.
+    /// </summary>
+    /// <param name="hide">
+    ///   Set to true to hide mouse and keyboards inputs from the hooked application.
+    ///   Set to false to allow the hooked application to receive inputs.
     /// </param>
-	/// <returns></returns>
-	virtual void HideAppInputs(bool hide) = 0;
+    /// <returns></returns>
+    virtual void HideAppInputs(bool hide) = 0;
 	
-	/// <summary>
-	///   Change the overlay input policy.
-	/// </summary>
-	/// <param name="hide">
-	///   Set to true to hide mouse and keyboards inputs from the overlay.
-	///   Set to false to allow the overlay to receive inputs.
+    /// <summary>
+    ///   Change the overlay input policy.
+    /// </summary>
+    /// <param name="hide">
+    ///   Set to true to hide mouse and keyboards inputs from the overlay.
+    ///   Set to false to allow the overlay to receive inputs.
     /// </param>
-	/// <returns></returns>
-	virtual void HideOverlayInputs(bool hide) = 0;
+    /// <returns></returns>
+    virtual void HideOverlayInputs(bool hide) = 0;
 
     virtual bool IsStarted() = 0;
 
