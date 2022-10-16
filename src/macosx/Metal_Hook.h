@@ -26,6 +26,8 @@
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>
 
+#include <objc/runtime.h>
+
 class Metal_Hook :
     public ingame_overlay::Renderer_Hook,
     public Base_Hook

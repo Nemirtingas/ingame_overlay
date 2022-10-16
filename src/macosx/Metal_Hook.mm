@@ -23,8 +23,6 @@
 #include <imgui.h>
 #include <backends/imgui_impl_metal.h>
 
-#include <objc/runtime.h>
-
 Metal_Hook* Metal_Hook::_inst = nullptr;
 
 decltype(Metal_Hook::DLL_NAME) Metal_Hook::DLL_NAME;

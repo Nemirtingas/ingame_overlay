@@ -31,12 +31,8 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
-#define RENDERERDETECTOR_OS_APPLE
-
 #include "OpenGL_Hook.h"
 #include "Metal_Hook.h"
-
-#include <objc/runtime.h>
 
 class Renderer_Detector
 {
@@ -139,7 +135,7 @@ private:
             return;
         
         metal_hook->LoadFunctions(encoder_with_descriptor, end_encoding);
-        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(inst->metal_hook);
+        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(metal_hook);
         metal_hook = nullptr;
         StopHooks();
     }
@@ -150,7 +146,7 @@ private:
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
 
         inst->IGAccelCommandBufferCommit(self, sel);
-        inst->_FoundMetalRenderer(IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod, IGAccelRenderCommandEncoderEndEncodingMethod);
+        inst->_FoundMetalRenderer(inst->IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod, inst->IGAccelRenderCommandEncoderEndEncodingMethod);
     }
 
     static void MyAGXG13XFamilyCommandBufferCommit(id self, SEL sel)
@@ -159,7 +155,7 @@ private:
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
 
         inst->AGXG13XFamilyCommandBufferCommit(self, sel);
-        inst->_FoundMetalRenderer(AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod, AGXG13XFamilyRenderCommandEncoderEndEncodingMethod);
+        inst->_FoundMetalRenderer(inst->AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod, inst->AGXG13XFamilyRenderCommandEncoderEndEncodingMethod);
     }
     
     void HookglFlushDrawable(decltype(::CGLFlushDrawable)* _CGLFlushDrawable)
