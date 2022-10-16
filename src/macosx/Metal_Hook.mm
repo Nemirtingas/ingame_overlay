@@ -200,8 +200,8 @@ std::string Metal_Hook::GetLibraryName() const
 
 void Metal_Hook::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding)
 {
-    MTLCommandBufferRenderCommandEncoderWithDescriptorMethod = MTLCommandBufferRenderCommandEncoderWithDescriptor;
-    MTLRenderCommandEncoderEndEncodingMethod = RenderCommandEncoderEndEncoding;
+    _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod = MTLCommandBufferRenderCommandEncoderWithDescriptor;
+    _MTLRenderCommandEncoderEndEncodingMethod = RenderCommandEncoderEndEncoding;
 }
 
 std::weak_ptr<uint64_t> Metal_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
