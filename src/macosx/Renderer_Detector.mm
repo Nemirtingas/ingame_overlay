@@ -236,7 +236,7 @@ private:
                 AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod = class_getInstanceMethod(mtl_class, @selector(renderCommandEncoderWithDescriptor:));
                 if (AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod != nil)
                 {
-                    mtl_class = objc_getClass("AGXG13XFamilyRenderCommandEncoder");
+                    mtl_class = objc_getClass("AGXG13XFamilyRenderContext");
                     AGXG13XFamilyRenderCommandEncoderEndEncodingMethod = class_getInstanceMethod(mtl_class, @selector(endEncoding));
                     if (AGXG13XFamilyRenderCommandEncoderEndEncodingMethod != nil)
                     {
