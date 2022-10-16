@@ -34,11 +34,11 @@ bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::
 {
     if (!_Hooked)
     {
-        //if (MTKViewDraw == nullptr)
-        //{
-        //    SPDLOG_WARN("Failed to hook Metal: Rendering functions missing.");
-        //    return false;
-        //}
+        if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod == nil || _MTLRenderCommandEncoderEndEncodingMethod == nil)
+        {
+            SPDLOG_WARN("Failed to hook Metal: Rendering functions missing.");
+            return false;
+        }
 
         if (!NSView_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
@@ -48,25 +48,8 @@ bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::
 
         _ImGuiFontAtlas = imgui_font_atlas;
         
-        Method ns_method;
-        Class mtlcommandbuffer_class;
-
-        // IGAccel classes hooks
-        mtlcommandbuffer_class = objc_getClass("MTLIGAccelCommandBuffer");
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
-        
-        if (ns_method != nil)
-        {
-            MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(ns_method, (IMP)&MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor);
-        }
-
-        mtlcommandbuffer_class = objc_getClass("MTLIGAccelRenderCommandEncoder");
-        ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
-        
-        if (ns_method != nil)
-        {
-            MTLIGAccelRenderCommandEncoderEndEncoding = (decltype(MTLIGAccelRenderCommandEncoderEndEncoding))method_setImplementation(ns_method, (IMP)&MyMTLIGAccelRenderCommandEncoderEndEncoding);
-        }
+        MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
+        MTLRenderCommandEncoderEndEncoding = (decltype(MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
     }
     return true;
 }
@@ -110,15 +93,12 @@ void Metal_Hook::_ResetRenderState()
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
-//void Metal_Hook::_PrepareForOverlay(id<MTLRenderCommandEncoder> mtl_encoder)
 {
-    //static id<MTLCommandQueue> commandQueue;
     if( !_Initialized )
     {
         ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         
         _MetalDevice = [render_pass.command_buffer device];
-        //commandQueue = [_MetalDevice newCommandQueue];
 
         ImGui_ImplMetal_Init(_MetalDevice);
         
@@ -128,9 +108,6 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
     
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(render_pass.descriptor))
     {
-        //id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
-        //id<MTLRenderCommandEncoder> renderEncoder = MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(commandBuffer, (SEL)"renderCommandEncoderWithDescriptor:", render_pass.descriptor);
-
         ImGui::NewFrame();
         
         OverlayProc();
@@ -138,16 +115,13 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
         ImGui::Render();
 
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), render_pass.command_buffer, render_pass.encoder);
-
-        //ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
-        //MTLIGAccelRenderCommandEncoderEndEncoding(renderEncoder, (SEL)"endEncoding");
     }
 }
 
-id<MTLRenderCommandEncoder> Metal_Hook::MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
+id<MTLRenderCommandEncoder> Metal_Hook::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
 {
     Metal_Hook* inst = Metal_Hook::Inst();
-    id<MTLRenderCommandEncoder> encoder = inst->MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
+    id<MTLRenderCommandEncoder> encoder = inst->MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
     
     inst->_RenderPass.emplace_back(render_pass_t{
         descriptor,
@@ -158,11 +132,10 @@ id<MTLRenderCommandEncoder> Metal_Hook::MyMTLIGAccelCommandBufferRenderCommandEn
     return encoder;
 }
 
-void Metal_Hook::MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
+void Metal_Hook::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
 {
     Metal_Hook* inst = Metal_Hook::Inst();
 
-    //inst->MTLIGAccelRenderCommandEncoderEndEncoding(self, sel);
     for(auto it = inst->_RenderPass.begin(); it != inst->_RenderPass.end(); ++it)
     {
         if(it->encoder == self)
@@ -173,7 +146,7 @@ void Metal_Hook::MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommand
         }
     }
     
-    inst->MTLIGAccelRenderCommandEncoderEndEncoding(self, sel);
+    inst->MTLRenderCommandEncoderEndEncoding(self, sel);
 }
 
 Metal_Hook::Metal_Hook():
@@ -181,8 +154,10 @@ Metal_Hook::Metal_Hook():
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
     _MetalDevice(nil),
-    MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
-    MTLIGAccelRenderCommandEncoderEndEncoding(nullptr)
+    _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),
+    _MTLRenderCommandEncoderEndEncodingMethod(nil),
+    MTLCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
+    MTLRenderCommandEncoderEndEncoding(nullptr)
 {
     
 }
@@ -191,29 +166,15 @@ Metal_Hook::~Metal_Hook()
 {
     SPDLOG_INFO("Metal Hook removed");
 
-    if (_Hooked)
+    if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod != nil && MTLCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
     {
-        Method ns_method;
-        Class mtlcommandbuffer_class;
-        
-        if (MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
-        {
-            mtlcommandbuffer_class = objc_getClass("MTLIGAccelCommandBuffer");
-            ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(renderCommandEncoderWithDescriptor:));
-            if (ns_method != nil)
-                method_setImplementation(ns_method, (IMP)&MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor);
-
-            MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
-        }
-        if (MTLIGAccelRenderCommandEncoderEndEncoding != nullptr)
-        {
-            mtlcommandbuffer_class = objc_getClass("MTLIGAccelRenderCommandEncoder");
-            ns_method = class_getInstanceMethod(mtlcommandbuffer_class, @selector(endEncoding));
-            if (ns_method != nil)
-                method_setImplementation(ns_method, (IMP)MTLIGAccelRenderCommandEncoderEndEncoding);
-
-            MTLIGAccelRenderCommandEncoderEndEncoding = nullptr;
-        }
+        method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)MTLCommandBufferRenderCommandEncoderWithDescriptor);
+        MTLCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
+    }
+    if (_MTLRenderCommandEncoderEndEncodingMethod != nil && MTLRenderCommandEncoderEndEncoding != nullptr)
+    {
+        method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)MTLRenderCommandEncoderEndEncoding);
+        MTLRenderCommandEncoderEndEncoding = nullptr;
     }
 
     if (_Initialized)
@@ -239,9 +200,10 @@ std::string Metal_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void Metal_Hook::LoadFunctions()
+void Metal_Hook::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding)
 {
-    
+    MTLCommandBufferRenderCommandEncoderWithDescriptorMethod = MTLCommandBufferRenderCommandEncoderWithDescriptor;
+    MTLRenderCommandEncoderEndEncodingMethod = RenderCommandEncoderEndEncoding;
 }
 
 std::weak_ptr<uint64_t> Metal_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

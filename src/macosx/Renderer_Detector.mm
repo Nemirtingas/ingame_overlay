@@ -75,6 +75,14 @@ private:
     
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
     void (*IGAccelCommandBufferCommit)(id, SEL);
+    Method IGAccelCommandBufferCommitMethod;
+    Method IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod;
+    Method IGAccelRenderCommandEncoderEndEncodingMethod;
+
+    void (*AGXG13XFamilyCommandBufferCommit)(id, SEL);
+    Method AGXG13XFamilyCommandBufferCommitMethod;
+    Method AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod;
+    Method AGXG13XFamilyRenderCommandEncoderEndEncodingMethod;
     
     bool opengl_hooked;
     bool metal_hooked;
@@ -85,6 +93,13 @@ private:
     Renderer_Detector() :
         CGLFlushDrawable(nullptr),
         IGAccelCommandBufferCommit(nullptr),
+        IGAccelCommandBufferCommitMethod(nil),
+        IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),
+        IGAccelRenderCommandEncoderEndEncodingMethod(nil),
+        AGXG13XFamilyCommandBufferCommit(nullptr),
+        AGXG13XFamilyCommandBufferCommitMethod(nil),
+        AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),
+        AGXG13XFamilyRenderCommandEncoderEndEncodingMethod(nil),
         opengl_hooked(false),
         metal_hooked(false),
         renderer_hook(nullptr),
@@ -118,18 +133,33 @@ private:
         return res;
     }
     
+    void _FoundMetalRenderer(Method encoder_with_descriptor, Method end_encoding)
+    {
+        if (detection_done)
+            return;
+        
+        metal_hook->LoadFunctions(encoder_with_descriptor, end_encoding);
+        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(inst->metal_hook);
+        metal_hook = nullptr;
+        StopHooks();
+    }
+
     static void MyIGAccelCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
 
         inst->IGAccelCommandBufferCommit(self, sel);
-        if (inst->detection_done)
-            return;
-        
-        inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(inst->metal_hook);
-        inst->metal_hook = nullptr;
-        inst->StopHooks();
+        inst->_FoundMetalRenderer(IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod, IGAccelRenderCommandEncoderEndEncodingMethod);
+    }
+
+    static void MyAGXG13XFamilyCommandBufferCommit(id self, SEL sel)
+    {
+        auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+
+        inst->AGXG13XFamilyCommandBufferCommit(self, sel);
+        inst->_FoundMetalRenderer(AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod, AGXG13XFamilyRenderCommandEncoderEndEncodingMethod);
     }
     
     void HookglFlushDrawable(decltype(::CGLFlushDrawable)* _CGLFlushDrawable)
@@ -183,24 +213,50 @@ private:
                 return;
             }
             
-            Method command_buffer_method;
+            Class mtl_class;
 
-            command_buffer_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
-
-            if (command_buffer_method != nil)
+            // IGAccel => Intel Graphics Acceleration
+            mtl_class = objc_getClass("MTLIGAccelCommandBuffer");
+            IGAccelCommandBufferCommitMethod = class_getInstanceMethod(mtl_class, @selector(commit));
+            if (IGAccelCommandBufferCommitMethod != nil)
             {
-                IGAccelCommandBufferCommit = (decltype(IGAccelCommandBufferCommit))method_setImplementation(command_buffer_method, (IMP)&MyIGAccelCommandBufferCommit);
+                IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod = class_getInstanceMethod(mtl_class, @selector(renderCommandEncoderWithDescriptor:));
+                if (IGAccelCommandBufferRenderCommandEncoderWithDescriptorMethod != nil)
+                {
+                    mtl_class = objc_getClass("MTLIGAccelRenderCommandEncoder");
+                    IGAccelRenderCommandEncoderEndEncodingMethod = class_getInstanceMethod(mtl_class, @selector(endEncoding));
+                    if (IGAccelRenderCommandEncoderEndEncodingMethod != nil)
+                    {
+                        IGAccelCommandBufferCommit = (decltype(IGAccelCommandBufferCommit))method_setImplementation(IGAccelCommandBufferCommitMethod, (IMP)&MyIGAccelCommandBufferCommit);
+                    }
+                }
+            }
+
+            // AGXG13XFamily => ???
+            mtl_class = objc_getClass("AGXG13XFamilyCommandBuffer");
+            AGXG13XFamilyCommandBufferCommitMethod = class_getInstanceMethod(mtl_class, @selector(commit));
+            if (AGXG13XFamilyCommandBufferCommitMethod != nil)
+            {
+                AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod = class_getInstanceMethod(mtl_class, @selector(renderCommandEncoderWithDescriptor:));
+                if (AGXG13XFamilyCommandBufferRenderCommandEncoderWithDescriptorMethod != nil)
+                {
+                    mtl_class = objc_getClass("AGXG13XFamilyRenderCommandEncoder");
+                    AGXG13XFamilyRenderCommandEncoderEndEncodingMethod = class_getInstanceMethod(mtl_class, @selector(endEncoding));
+                    if (AGXG13XFamilyRenderCommandEncoderEndEncodingMethod != nil)
+                    {
+                        AGXG13XFamilyCommandBufferCommit = (decltype(AGXG13XFamilyCommandBufferCommit))method_setImplementation(AGXG13XFamilyCommandBufferCommitMethod, (IMP)&MyAGXG13XFamilyCommandBufferCommit);
+                    }
+                }
             }
             
-            if(IGAccelCommandBufferCommit != nullptr)
+            if(IGAccelCommandBufferCommit != nullptr || AGXG13XFamilyCommandBufferCommit != nullptr)
             {
-                SPDLOG_INFO("Hooked MTLCommandBuffer::commit to detect Metal");
+                SPDLOG_INFO("Hooked *CommandBuffer::commit to detect Metal");
                     
                 metal_hooked = true;
                     
                 metal_hook = Metal_Hook::Inst();
                 metal_hook->LibraryName = library_path;
-                metal_hook->LoadFunctions();
             }
         }
     }
@@ -215,8 +271,11 @@ private:
             metal_hooked = false;
             if (IGAccelCommandBufferCommit != nullptr)
             {
-                Method ns_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
-                method_setImplementation(ns_method, (IMP)IGAccelCommandBufferCommit);
+                method_setImplementation(IGAccelCommandBufferCommitMethod, (IMP)IGAccelCommandBufferCommit);
+            }
+            if (AGXG13XFamilyCommandBufferCommit != nullptr)
+            {
+                method_setImplementation(AGXG13XFamilyCommandBufferCommitMethod, (IMP)AGXG13XFamilyCommandBufferCommit);
             }
         }
     }
