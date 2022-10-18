@@ -88,7 +88,7 @@ private:
     ID3D12CommandQueue* pCmdQueue;
     ID3D12Device* pDevice;
     std::vector<DX12Frame_t> OverlayFrames;
-	//std::vector<bool> srvDescHeapBitmap;
+    //std::vector<bool> srvDescHeapBitmap;
     ID3D12DescriptorHeap* pSrvDescHeap;
     ID3D12GraphicsCommandList* pCmdList;
     ID3D12DescriptorHeap* pRtvDescHeap;
@@ -103,7 +103,7 @@ private:
     //    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
     //    int64_t id;
     //};
-	//
+    //
     //heap_t get_free_texture_heap();
     //bool release_texture_heap(int64_t heap_id);
 

@@ -58,7 +58,7 @@ public:
     std::function<void()> KeyCombinationCallback;
     std::set<int> NativeKeyCombination;
     bool KeyCombinationPushed;
-	bool ApplicationInputsHidden;
+    bool ApplicationInputsHidden;
     bool OverlayInputsHidden;
 
     std::string LibraryName;

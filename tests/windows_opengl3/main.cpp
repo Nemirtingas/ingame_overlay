@@ -4,7 +4,7 @@
    palette). */
 
 
-#include <windows.h>			/* must include this before GL/gl.h */
+#include <windows.h>            /* must include this before GL/gl.h */
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
@@ -116,9 +116,9 @@ CreateOpenGLWindow(char* title, int x, int y, int width, int height,
 
 int main(int argc, char *argv[])
 {
-    HDC hDC;				/* device context */
-    HGLRC hRC;				/* opengl context */
-    HWND  hWnd;				/* window */
+    HDC hDC;             /* device context */
+    HGLRC hRC;           /* opengl context */
+    HWND  hWnd;          /* window */
 
     hWnd = CreateOpenGLWindow("minimal", 100, 100, 1280, 800, PFD_TYPE_RGBA, 0);
     if (hWnd == NULL)
