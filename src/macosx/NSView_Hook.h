@@ -23,6 +23,11 @@
 
 #include "../internal_includes.h"
 
+#import <Carbon/Carbon.h>
+#import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
+#include <objc/runtime.h>
+
 class NSView_Hook :
     public Base_Hook
 {
@@ -35,7 +40,16 @@ private:
     // Variables
     bool _Hooked;
     bool _Initialized;
-    void* _NSViewHook;
+    id _EventMonitor;
+    NSWindow* _Window;
+    NSPoint _SavedLocation;
+
+    NSInteger(*pressedMouseButtons)(id self, SEL sel);
+    NSPoint (*mouseLocation)(id self, SEL sel);
+
+    // Hooked functions
+    static NSInteger MypressedMouseButtons(id self, SEL sel);
+    static NSPoint MymouseLocation(id self, SEL sel);
 
     // Functions
     NSView_Hook();

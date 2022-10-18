@@ -23,175 +23,45 @@
 #include <backends/imgui_impl_osx.h>
 #include <System/Library.h>
 
-//#import <Cocoa/Cocoa.h>
-#import <Carbon/Carbon.h>
-#import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
-#include <objc/runtime.h>
-
-NSInteger MypressedMouseButtons(id self, SEL sel);
-NSInteger(*_pressedMouseButtons)(id self, SEL sel);
-
-NSPoint savedLocation;
-NSPoint MymouseLocation(id self, SEL sel);
-NSPoint(*_mouseLocation)(id self, SEL sel);
-
-bool GetKeyState( unsigned short inKeyCode )
+static bool GetKeyState( unsigned short inKeyCode )
 {
     unsigned char keyMap[16];
     GetKeys((BigEndianUInt32*) &keyMap);
     return ((keyMap[inKeyCode >> 3] >> (inKeyCode & 7)) & 1) != 0;
 }
 
-@interface NSViewHook : NSObject
+static bool IgnoreEvent(NSEvent* event)
 {
-    id eventsMonitor;
-
-    @public
-        NSWindow* window;
-}
-
-- (void)StartHook:(NSWindow*)view;
--(void)StopHook;
-@end
-
-@implementation NSViewHook
-
-- (void)StartHook:(NSWindow*)window;
-{
-    int mask = NSEventMaskAny;
-    /*
-   NSEventMaskKeyDown | NSEventMaskKeyUp |
-   NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp |
-   NSEventMaskRightMouseDown | NSEventMaskRightMouseDragged | NSEventMaskRightMouseUp |
-   NSEventMaskOtherMouseDown | NSEventMaskOtherMouseDragged | NSEventMaskOtherMouseUp |
-   NSEventMaskMouseMoved |
-   NSEventMaskFlagsChanged |
-   NSEventMaskScrollWheel;
-    */
-
-    self->window = window;
-
-    Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
-    _pressedMouseButtons = (decltype(_pressedMouseButtons))method_setImplementation(ns_method, (IMP)MypressedMouseButtons);
-
-    ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
-    _mouseLocation = (decltype(_mouseLocation))method_setImplementation(ns_method, (IMP)MymouseLocation);
-
-    eventsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event) {
-        NSView* view = [[event window]contentView];
-        auto* inst = NSView_Hook::Inst();
-        bool hide_app_inputs = inst->ApplicationInputsHidden;
-        bool hide_overlay_inputs = inst->OverlayInputsHidden;
-
-        switch ([event type])
+    NSView* view = [[event window] contentView];
+    switch([event type])
+    {
+        case NSEventTypeLeftMouseDragged:
+        case NSEventTypeLeftMouseDown:
+        case NSEventTypeLeftMouseUp:
+        case NSEventTypeMouseMoved:
         {
-            case NSEventTypeKeyDown:
-            case NSEventTypeKeyUp:
-            {
-                if ([event isARepeat] != YES)
-                {
-                    int key_count = 0;
-                    for (auto const& key : inst->NativeKeyCombination)
-                    {
-                        if (GetKeyState(key))
-                            ++key_count;
-                    }
+            NSPoint p = [event locationInWindow];
+            NSRect bounds = [view bounds];
 
-                    if (key_count == inst->NativeKeyCombination.size())
-                    {// All shortcut keys are pressed
-                        if (!inst->KeyCombinationPushed)
-                        {
-                            inst->KeyCombinationCallback();
-
-                            if (inst->OverlayInputsHidden)
-                                hide_overlay_inputs = true;
-
-                            if(inst->ApplicationInputsHidden)
-                            {
-                                hide_app_inputs = true;
-
-                                // Save the last known cursor pos when opening the overlay
-                                // so we can spoof the mouseLocation return value.
-                                savedLocation = _mouseLocation(self, @selector(mouseLocation));
-                            }
-                            inst->KeyCombinationPushed = true;
-                        }
-                    }
-                    else
-                    {
-                        inst->KeyCombinationPushed = false;
-                    }
-                }
+            // 5 pixels outside the window and 5 pixels inside.
+            if ((p.x >= -5.0f && p.x < 5.0f) ||
+                (p.x >= (bounds.size.width - 5)) ||
+                (p.y >= -5.0f && p.y < 5.0f) ||
+                (p.y >= (bounds.size.height - 5)))
+            {// Allow window resize
+                return false;
             }
-            break;
-
-            case NSEventTypeLeftMouseDragged:
-            case NSEventTypeLeftMouseDown:
-            case NSEventTypeLeftMouseUp:
-            case NSEventTypeMouseMoved:
-            {
-                NSPoint p = [event locationInWindow];
-                NSRect bounds = [view bounds];
-
-                // 3 pixels outside the window and 2 pixels inside.
-                if ((p.x >= -4.0f && p.x <= 3.0f) ||
-                    (p.x >= (bounds.size.width - 2) && p.x <= (bounds.size.width + 3.0f)) ||
-                    (p.y >= -4.0f && p.y <= 3.0f) ||
-                    (p.y >= (bounds.size.height - 2) && p.y <= (bounds.size.height + 3.0f)))
-                {// Allow window resize
-                    hide_overlay_inputs = false;
-                }
-            }
-            break;
         }
 
-        if (!hide_overlay_inputs)
-            ImGui_ImplOSX_HandleEvent(event, view);
+        case NSEventTypeRightMouseDown:
+        case NSEventTypeRightMouseUp:
+        case NSEventTypeRightMouseDragged:
+        case NSEventTypeKeyDown:
+        case NSEventTypeKeyUp:
+            return true;
+    }
 
-        return (hide_app_inputs ? nil : event);
-    }];
-}
-
-- (void)StopHook
-{
-    Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
-    method_setImplementation(ns_method, (IMP)_pressedMouseButtons);
-
-    ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
-    method_setImplementation(ns_method, (IMP)_mouseLocation);
-
-    [NSEvent removeMonitor : eventsMonitor] ;
-    eventsMonitor = nil;
-}
-
-@end
-
-NSPoint MymouseLocation(id self, SEL sel)
-{
-    if (NSView_Hook::Inst()->ApplicationInputsHidden)
-        return savedLocation;
-
-    return _mouseLocation(self, sel);
-}
-
-NSInteger MypressedMouseButtons(id self, SEL sel)
-{
-    if (NSView_Hook::Inst()->ApplicationInputsHidden)
-        return 0;
-
-    return _pressedMouseButtons(self, sel);
-}
-
-
-void get_window_size_from_sharedApplication(double* width, double* height)
-{
-    NSApplication* app = [NSApplication sharedApplication];
-    NSWindow* window = [app _mainWindow];
-    NSView* view = window.contentView;
-    NSSize size = [view frame].size;
-    *width = size.width;
-    *height = size.height;
+    return false;
 }
 
 constexpr decltype(NSView_Hook::DLL_NAME) NSView_Hook::DLL_NAME;
@@ -273,6 +143,84 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
                 NativeKeyCombination.insert(k);
             }
         }
+    
+        Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
+        pressedMouseButtons = (decltype(pressedMouseButtons))method_setImplementation(ns_method, (IMP)&NSView_Hook::MypressedMouseButtons);
+
+        ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
+        mouseLocation = (decltype(mouseLocation))method_setImplementation(ns_method, (IMP)&NSView_Hook::MymouseLocation);
+
+        NSInteger mask = NSEventMaskAny;
+        /*
+        NSEventMaskKeyDown | NSEventMaskKeyUp |
+        NSEventMaskLeftMouseDown | NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp |
+        NSEventMaskRightMouseDown | NSEventMaskRightMouseDragged | NSEventMaskRightMouseUp |
+        NSEventMaskOtherMouseDown | NSEventMaskOtherMouseDragged | NSEventMaskOtherMouseUp |
+        NSEventMaskMouseMoved |
+        NSEventMaskFlagsChanged |
+        NSEventMaskScrollWheel;
+        */
+
+        _EventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event)
+        {
+            auto* inst = NSView_Hook::Inst();
+            NSView* view = [[event window]contentView];
+            bool hide_app_inputs = inst->ApplicationInputsHidden;
+            bool hide_overlay_inputs = inst->OverlayInputsHidden;
+    
+            switch ([event type])
+            {
+                case NSEventTypeKeyDown:
+                case NSEventTypeKeyUp:
+                {
+                    if ([event isARepeat] != YES)
+                    {
+                        int key_count = 0;
+                        for (auto const& key : inst->NativeKeyCombination)
+                        {
+                            if (GetKeyState(key))
+                                ++key_count;
+                        }
+    
+                        if (key_count == inst->NativeKeyCombination.size())
+                        {// All shortcut keys are pressed
+                            if (!inst->KeyCombinationPushed)
+                            {
+                                inst->KeyCombinationCallback();
+    
+                                if (inst->OverlayInputsHidden)
+                                    hide_overlay_inputs = true;
+
+                                if(inst->ApplicationInputsHidden)
+                                {
+                                    hide_app_inputs = true;
+    
+                                    // Save the last known cursor pos when opening the overlay
+                                    // so we can spoof the mouseLocation return value.
+                                    inst->_SavedLocation = mouseLocation(event, @selector(mouseLocation));
+                                }
+                                inst->KeyCombinationPushed = true;
+                            }
+                        }
+                        else
+                        {
+                            inst->KeyCombinationPushed = false;
+                        }
+                    }
+                }
+                break;
+            }
+
+            //ImGui::GetIO().SetAppAcceptingEvents(!hide_overlay_inputs);
+    
+            if (!hide_overlay_inputs)
+                ImGui_ImplOSX_HandleEvent(event, view);
+    
+            if (hide_app_inputs && IgnoreEvent(event))
+                return nil;
+    
+            return event;
+        }];
 
         _Hooked = true;
     }
@@ -293,8 +241,6 @@ void NSView_Hook::ResetRenderState()
 {
     if (_Initialized)
     {
-        [(NSViewHook*)_NSViewHook StopHook] ;
-
         _Initialized = false;
         
         HideAppInputs(false);
@@ -311,43 +257,56 @@ bool NSView_Hook::PrepareForOverlay()
 
     if (!_Initialized)
     {
-        NSApplication* app = [NSApplication sharedApplication];
-        NSWindow* window = [app _mainWindow];
-
-        NSViewHook* hook = [[NSViewHook alloc]init];
-        if (hook == nil)
-        {
-            SPDLOG_WARN("Failed to start NSView hook.");
-            return false;
-        }
-
-        [hook StartHook : window];
-
-        _NSViewHook = hook;
-
         double width, height;
+        NSApplication* app = [NSApplication sharedApplication];
+        _Window = [app _mainWindow];
 
-        get_window_size_from_sharedApplication(&width, &height);
+        NSView* view = [_Window contentView];
+        NSSize size = [view frame].size;
 
-        ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
+        ImGui::GetIO().DisplaySize = ImVec2((float)size.width, (float)size.height);
 
-        ImGui_ImplOSX_Init([window contentView]);
+        ImGui_ImplOSX_Init(view);
 
         _Initialized = true;
     }
 
-    ImGui_ImplOSX_NewFrame([((NSViewHook*)_NSViewHook)->window contentView]);
+    ImGui_ImplOSX_NewFrame([_Window contentView]);
     return true;
 }
+
+NSPoint NSView_Hook::MymouseLocation(id self, SEL sel)
+{
+    NSView_Hook* inst = NSView_Hook::Inst();
+    if (inst->ApplicationInputsHidden)
+        return inst->_SavedLocation;
+
+    return inst->mouseLocation(self, sel);
+}
+
+NSInteger NSView_Hook::MypressedMouseButtons(id self, SEL sel)
+{
+    NSView_Hook* inst = NSView_Hook::Inst();
+    if (inst->ApplicationInputsHidden)
+        return 0;
+
+    return inst->pressedMouseButtons(self, sel);
+}
+
+
 
 /////////////////////////////////////////////////////////////////////////////////////
 
 NSView_Hook::NSView_Hook() :
     _Initialized(false),
-    _NSViewHook(nullptr),
     _Hooked(false),
+    _EventMonitor(nil),
+    _Window(nil),
+    _SavedLocation{},
+    pressedMouseButtons(nullptr),
+    mouseLocation(nullptr),
     KeyCombinationPushed(false),
-	ApplicationInputsHidden(false),
+    ApplicationInputsHidden(false),
     OverlayInputsHidden(true)
 {
 }
@@ -358,9 +317,14 @@ NSView_Hook::~NSView_Hook()
 
     ResetRenderState();
 
-    NSViewHook* hook = (NSViewHook*)_NSViewHook;
-    [hook release] ;
-    _NSViewHook = nil;
+    Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
+    method_setImplementation(ns_method, (IMP)pressedMouseButtons);
+
+    ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
+    method_setImplementation(ns_method, (IMP)mouseLocation);
+
+    [NSEvent removeMonitor :_EventMonitor];
+    _EventMonitor = nil;
 
     _inst = nullptr;
 }
