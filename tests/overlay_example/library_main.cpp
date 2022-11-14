@@ -135,10 +135,14 @@ void shared_library_load(void* hmodule)
 
 void shared_library_unload(void* hmodule)
 {
-    std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
-    overlay_datas->worker.detach();
-    overlay_datas->show = false;
-    delete overlay_datas->renderer;
+    {
+        std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
+        if (overlay_datas->worker.joinable())
+            overlay_datas->worker.join();
+
+        overlay_datas->show = false;
+        delete overlay_datas->renderer; overlay_datas->renderer = nullptr;
+    }
     delete overlay_datas;
 }
 
