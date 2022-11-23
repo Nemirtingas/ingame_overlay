@@ -26,6 +26,8 @@
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>
 
+#include <objc/runtime.h>
+
 class Metal_Hook :
     public ingame_overlay::Renderer_Hook,
     public Base_Hook
@@ -59,16 +61,17 @@ private:
     void _PrepareForOverlay(render_pass_t& render_pass);
 
     // Hook to render functions
-    id<MTLRenderCommandEncoder> (*MTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    
-    void (*MTLIGAccelRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
+    Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;
+    Method _MTLRenderCommandEncoderEndEncodingMethod;
+
+    id<MTLRenderCommandEncoder> (*MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    void (*MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
 
 public:
     std::string LibraryName;
 
-    static id<MTLRenderCommandEncoder> MyMTLIGAccelCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    
-    static void MyMTLIGAccelRenderCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
+    static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    static void MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
 
     virtual ~Metal_Hook();
 
@@ -78,7 +81,7 @@ public:
     virtual bool IsStarted();
     static Metal_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions();
+    void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

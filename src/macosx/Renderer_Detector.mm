@@ -31,12 +31,8 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
-#define RENDERERDETECTOR_OS_APPLE
-
 #include "OpenGL_Hook.h"
 #include "Metal_Hook.h"
-
-#include <objc/runtime.h>
 
 class Renderer_Detector
 {
@@ -61,6 +57,28 @@ public:
     }
     
 private:
+    struct driver_hook_t
+    {
+        // Hook definition
+        const char* command_buffer_class;
+        const char* render_command_encoder_class;
+        IMP hook_command_buffer_commit;
+
+        // ObjC runtime
+        void (*CommandBufferCommit)(id, SEL);
+        Method CommandBufferCommitMethod;
+        Method CommandBufferRenderCommandWithDescriptorMethod;
+        Method RenderCommandEncoderEndEncodingMethod;
+    };
+
+    enum
+    {
+        IntelDriver = 0,
+        NVidiaDriver = 1,
+        M1Driver = 2,
+        DriverCount = 3,
+    };
+
     std::timed_mutex detector_mutex;
     std::mutex renderer_mutex;
     
@@ -74,7 +92,8 @@ private:
     std::mutex stop_detection_mutex;
     
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
-    void (*IGAccelCommandBufferCommit)(id, SEL);
+
+    driver_hook_t driver_hooks[DriverCount];
     
     bool opengl_hooked;
     bool metal_hooked;
@@ -84,7 +103,6 @@ private:
     
     Renderer_Detector() :
         CGLFlushDrawable(nullptr),
-        IGAccelCommandBufferCommit(nullptr),
         opengl_hooked(false),
         metal_hooked(false),
         renderer_hook(nullptr),
@@ -93,7 +111,34 @@ private:
         detection_done(false),
         detection_count(0),
         detection_cancelled(false)
-    {}
+    {
+        // IGAccel => Intel Graphics Acceleration
+        driver_hooks[IntelDriver].command_buffer_class = "MTLIGAccelCommandBuffer";
+        driver_hooks[IntelDriver].render_command_encoder_class = "MTLIGAccelRenderCommandEncoder";
+        driver_hooks[IntelDriver].hook_command_buffer_commit = (IMP)&MyIGAccelCommandBufferCommit;
+        driver_hooks[IntelDriver].CommandBufferCommit = nullptr;
+        driver_hooks[IntelDriver].CommandBufferCommitMethod = nil;
+        driver_hooks[IntelDriver].CommandBufferRenderCommandWithDescriptorMethod = nil;
+        driver_hooks[IntelDriver].RenderCommandEncoderEndEncodingMethod = nil;
+
+        // NVMTL => NVidia WebDriver
+        driver_hooks[NVidiaDriver].command_buffer_class = "NVMTLCommandBuffer";
+        driver_hooks[NVidiaDriver].render_command_encoder_class = "NVMTLRenderCommandEncoder_PASCAL_B";
+        driver_hooks[NVidiaDriver].hook_command_buffer_commit = (IMP)&MyNVMTLCommandBufferCommit;
+        driver_hooks[NVidiaDriver].CommandBufferCommit = nullptr;
+        driver_hooks[NVidiaDriver].CommandBufferCommitMethod = nil;
+        driver_hooks[NVidiaDriver].CommandBufferRenderCommandWithDescriptorMethod = nil;
+        driver_hooks[NVidiaDriver].RenderCommandEncoderEndEncodingMethod = nil;
+
+        // AGXG13XFamily => Mac M1 ??
+        driver_hooks[M1Driver].command_buffer_class = "AGXG13XFamilyCommandBuffer";
+        driver_hooks[M1Driver].render_command_encoder_class = "AGXG13XFamilyRenderContext";
+        driver_hooks[M1Driver].hook_command_buffer_commit = (IMP)&MyAGXG13XFamilyCommandBufferCommit;
+        driver_hooks[M1Driver].CommandBufferCommit = nullptr;
+        driver_hooks[M1Driver].CommandBufferCommitMethod = nil;
+        driver_hooks[M1Driver].CommandBufferRenderCommandWithDescriptorMethod = nil;
+        driver_hooks[M1Driver].RenderCommandEncoderEndEncodingMethod = nil;
+    }
     
     std::string FindPreferedModulePath(std::string const& name)
     {
@@ -118,18 +163,39 @@ private:
         return res;
     }
     
+    void _FoundMetalRenderer(int driver, id self, SEL sel)
+    {
+        driver_hook_t& driver_hook = driver_hooks[driver];
+        driver_hook.CommandBufferCommit(self, sel);
+
+        if (detection_done)
+            return;
+
+        metal_hook->LoadFunctions(driver_hook.CommandBufferRenderCommandWithDescriptorMethod, driver_hook.RenderCommandEncoderEndEncodingMethod);
+        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(metal_hook);
+        metal_hook = nullptr;
+        StopHooks();
+    }
+
     static void MyIGAccelCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        inst->_FoundMetalRenderer(IntelDriver, self, sel);
+    }
 
-        inst->IGAccelCommandBufferCommit(self, sel);
-        if (inst->detection_done)
-            return;
-        
-        inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(inst->metal_hook);
-        inst->metal_hook = nullptr;
-        inst->StopHooks();
+    static void MyNVMTLCommandBufferCommit(id self, SEL sel)
+    {
+        auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        inst->_FoundMetalRenderer(NVidiaDriver, self, sel);
+    }
+    
+    static void MyAGXG13XFamilyCommandBufferCommit(id self, SEL sel)
+    {
+        auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        inst->_FoundMetalRenderer(M1Driver, self, sel);
     }
     
     void HookglFlushDrawable(decltype(::CGLFlushDrawable)* _CGLFlushDrawable)
@@ -182,25 +248,40 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect Metal", library_path);
                 return;
             }
-            
-            Method command_buffer_method;
 
-            command_buffer_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
+            int hooked_count = 0;
 
-            if (command_buffer_method != nil)
+            Class mtl_class;
+
+            for (auto& driver_hook : driver_hooks)
             {
-                IGAccelCommandBufferCommit = (decltype(IGAccelCommandBufferCommit))method_setImplementation(command_buffer_method, (IMP)&MyIGAccelCommandBufferCommit);
+                mtl_class = objc_getClass(driver_hook.command_buffer_class);
+                driver_hook.CommandBufferCommitMethod = class_getInstanceMethod(mtl_class, @selector(commit));
+                if (driver_hook.CommandBufferCommitMethod != nil)
+                {
+                    driver_hook.CommandBufferRenderCommandWithDescriptorMethod = class_getInstanceMethod(mtl_class, @selector(renderCommandEncoderWithDescriptor:));
+                    if (driver_hook.CommandBufferRenderCommandWithDescriptorMethod != nil)
+                    {
+                        mtl_class = objc_getClass(driver_hook.render_command_encoder_class);
+                        driver_hook.RenderCommandEncoderEndEncodingMethod = class_getInstanceMethod(mtl_class, @selector(endEncoding));
+                        if (driver_hook.RenderCommandEncoderEndEncodingMethod != nil)
+                        {
+                            driver_hook.CommandBufferCommit = (decltype(driver_hook_t::CommandBufferCommit))method_setImplementation(driver_hook.CommandBufferCommitMethod, driver_hook.hook_command_buffer_commit);
+                            if (driver_hook.CommandBufferCommit != nil)
+                                ++hooked_count;
+                        }
+                    }
+                }
             }
-            
-            if(IGAccelCommandBufferCommit != nullptr)
+
+            if(hooked_count > 0)
             {
-                SPDLOG_INFO("Hooked MTLCommandBuffer::commit to detect Metal");
+                SPDLOG_INFO("Hooked *CommandBuffer::commit to detect Metal");
                     
                 metal_hooked = true;
                     
                 metal_hook = Metal_Hook::Inst();
                 metal_hook->LibraryName = library_path;
-                metal_hook->LoadFunctions();
             }
         }
     }
@@ -213,10 +294,12 @@ private:
         if (metal_hooked)
         {
             metal_hooked = false;
-            if (IGAccelCommandBufferCommit != nullptr)
+            for (auto& driver_hook : driver_hooks)
             {
-                Method ns_method = class_getInstanceMethod(objc_getClass("MTLIGAccelCommandBuffer"), @selector(commit));
-                method_setImplementation(ns_method, (IMP)IGAccelCommandBufferCommit);
+                if (driver_hook.CommandBufferCommit != nullptr)
+                {
+                    method_setImplementation(driver_hook.CommandBufferCommitMethod, (IMP)driver_hook.CommandBufferCommit);
+                }
             }
         }
     }

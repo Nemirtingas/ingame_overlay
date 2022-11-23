@@ -52,7 +52,7 @@ elseif(APPLE)
     src/Base_Hook.cpp
     src/macosx/Renderer_Detector.mm
     src/macosx/NSView_Hook.mm
-    src/macosx/OpenGL_Hook.cpp
+    src/macosx/OpenGL_Hook.mm
     src/macosx/Metal_Hook.mm
   )
 

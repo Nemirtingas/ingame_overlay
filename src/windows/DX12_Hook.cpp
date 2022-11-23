@@ -191,7 +191,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
 
         UINT bufferCount = sc_desc.BufferCount;
 
-		//srvDescHeapBitmap.clear();
+        //srvDescHeapBitmap.clear();
 
         //constexpr UINT descriptor_count = 1024;
 
@@ -199,7 +199,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
             D3D12_DESCRIPTOR_HEAP_DESC desc = {};
             desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
             desc.NumDescriptors = 1;
-			//desc.NumDescriptors = descriptor_count;
+            //desc.NumDescriptors = descriptor_count;
             desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
             if (pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&pSrvDescHeap)) != S_OK)
             {
@@ -208,7 +208,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
                 return;
             }
         }
-		
+        
         //srvDescHeapBitmap.resize(descriptor_count, false);
 
         {
@@ -286,7 +286,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
         ImGui_ImplDX12_Init(pDevice, bufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, pSrvDescHeap,
             pSrvDescHeap->GetCPUDescriptorHandleForHeapStart(),
             pSrvDescHeap->GetGPUDescriptorHandleForHeapStart());
-			//heaps.cpu_handle,
+            //heaps.cpu_handle,
             //heaps.gpu_handle);
         
         Windows_Hook::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
@@ -453,19 +453,19 @@ void DX12_Hook::LoadFunctions(
 std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     return std::shared_ptr<uint64_t>();
-	//heap_t heap = get_free_texture_heap();
-	//
+    //heap_t heap = get_free_texture_heap();
+    //
     //if (heap.id == -1)
     //    return nullptr;
-	//
+    //
     //HRESULT hr;
-	//
+    //
     //D3D12_HEAP_PROPERTIES props;
     //memset(&props, 0, sizeof(D3D12_HEAP_PROPERTIES));
     //props.Type = D3D12_HEAP_TYPE_DEFAULT;
     //props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     //props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-	//
+    //
     //D3D12_RESOURCE_DESC desc;
     //ZeroMemory(&desc, sizeof(desc));
     //desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -479,11 +479,11 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //desc.SampleDesc.Quality = 0;
     //desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     //desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	//
+    //
     //ID3D12Resource* pTexture = NULL;
     //pDevice->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
     //    D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&pTexture));
-	//
+    //
     //UINT uploadPitch = (source->width() * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
     //UINT uploadSize = source->height() * uploadPitch;
     //desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -497,16 +497,16 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //desc.SampleDesc.Quality = 0;
     //desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
     //desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-	//
+    //
     //props.Type = D3D12_HEAP_TYPE_UPLOAD;
     //props.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
     //props.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-	//
+    //
     //ID3D12Resource* uploadBuffer = NULL;
     //hr = pDevice->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &desc,
     //    D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&uploadBuffer));
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //void* mapped = NULL;
     //D3D12_RANGE range = { 0, uploadSize };
     //hr = uploadBuffer->Map(0, &range, &mapped);
@@ -514,7 +514,7 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //for (int y = 0; y < source->height(); y++)
     //    memcpy((void*)((uintptr_t)mapped + y * uploadPitch), reinterpret_cast<uint8_t*>(source->get_raw_pointer()) + y * source->width() * 4, source->width() * 4);
     //uploadBuffer->Unmap(0, &range);
-	//
+    //
     //D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
     //srcLocation.pResource = uploadBuffer;
     //srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
@@ -523,12 +523,12 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //srcLocation.PlacedFootprint.Footprint.Height = source->height();
     //srcLocation.PlacedFootprint.Footprint.Depth = 1;
     //srcLocation.PlacedFootprint.Footprint.RowPitch = uploadPitch;
-	//
+    //
     //D3D12_TEXTURE_COPY_LOCATION dstLocation = {};
     //dstLocation.pResource = pTexture;
     //dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     //dstLocation.SubresourceIndex = 0;
-	//
+    //
     //D3D12_RESOURCE_BARRIER barrier = {};
     //barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     //barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -536,51 +536,51 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     //barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     //barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-	//
+    //
     //ID3D12Fence* fence = NULL;
     //hr = pDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //HANDLE event = CreateEvent(0, 0, 0, 0);
     //IM_ASSERT(event != NULL);
-	//
+    //
     //D3D12_COMMAND_QUEUE_DESC queueDesc = {};
     //queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     //queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     //queueDesc.NodeMask = 1;
-	//
+    //
     //ID3D12CommandQueue* cmdQueue = NULL;
     //hr = pDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&cmdQueue));
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //ID3D12CommandAllocator* cmdAlloc = NULL;
     //hr = pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&cmdAlloc));
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //ID3D12GraphicsCommandList* cmdList = NULL;
     //hr = pDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, cmdAlloc, NULL, IID_PPV_ARGS(&cmdList));
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //cmdList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, NULL);
     //cmdList->ResourceBarrier(1, &barrier);
-	//
+    //
     //hr = cmdList->Close();
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //cmdQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&cmdList);
     //hr = cmdQueue->Signal(fence, 1);
     //IM_ASSERT(SUCCEEDED(hr));
-	//
+    //
     //fence->SetEventOnCompletion(1, event);
     //WaitForSingleObject(event, INFINITE);
-	//
+    //
     //cmdList->Release();
     //cmdAlloc->Release();
     //cmdQueue->Release();
     //CloseHandle(event);
     //fence->Release();
     //uploadBuffer->Release();
-	//
+    //
     //// Create texture view
     //D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
     //ZeroMemory(&srvDesc, sizeof(srvDesc));
@@ -589,24 +589,24 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //srvDesc.Texture2D.MipLevels = desc.MipLevels;
     //srvDesc.Texture2D.MostDetailedMip = 0;
     //srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	//
+    //
     //pDevice->CreateShaderResourceView(pTexture, &srvDesc, heap.cpu_handle);
     //
     ////pSrvDescHeap->Release();
     ////pTexture->Release();
-	//
+    //
     //using gpu_heap_t = decltype(D3D12_GPU_DESCRIPTOR_HANDLE::ptr);
     //struct texture_t{
     //    gpu_heap_t gpu_handle; // This must be the first member, ImGui will use the content of the pointer as a D3D12_GPU_DESCRIPTOR_HANDLE::ptr
     //    ID3D12Resource* pTexture;
     //    int64_t heap_id;
     //};
-	//
+    //
     //texture_t* texture_data = new texture_t;
     //texture_data->gpu_handle = heap.gpu_handle.ptr;
     //texture_data->pTexture = pTexture;
     //texture_data->heap_id = heap.id;
-	//
+    //
     //return std::shared_ptr<uint64_t>((uint64_t*)texture_data, [this](uint64_t* handle)
     //{
     //    if (handle != nullptr)
@@ -614,7 +614,7 @@ std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, u
     //        texture_t* pTextureData = reinterpret_cast<texture_t*>(handle);
     //        pTextureData->pTexture->Release();
     //        release_texture_heap(pTextureData->heap_id);
-	//
+    //
     //        delete pTextureData;
     //    }
     //});

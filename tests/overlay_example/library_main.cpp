@@ -63,6 +63,7 @@ void shared_library_load(void* hmodule)
             overlay_datas->renderer->OverlayProc = []()
             {
                 std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
+                static char buf[255]{};
 
                 if (!overlay_datas->show)
                     return;
@@ -87,6 +88,7 @@ void shared_library_load(void* hmodule)
                     ImGui::TextUnformatted("Hello from overlay !");
                     ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                     ImGui::Text("Renderer Hooked: %s", overlay_datas->renderer->GetLibraryName().c_str());
+                    ImGui::InputText("Test input text", buf, sizeof(buf));
                 }
                 ImGui::End();
             };
@@ -133,10 +135,14 @@ void shared_library_load(void* hmodule)
 
 void shared_library_unload(void* hmodule)
 {
-    std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
-    overlay_datas->worker.detach();
-    overlay_datas->show = false;
-    delete overlay_datas->renderer;
+    {
+        std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
+        if (overlay_datas->worker.joinable())
+            overlay_datas->worker.join();
+
+        overlay_datas->show = false;
+        delete overlay_datas->renderer; overlay_datas->renderer = nullptr;
+    }
     delete overlay_datas;
 }
 
