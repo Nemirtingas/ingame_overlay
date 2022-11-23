@@ -37,7 +37,6 @@ private:
     bool _Initialized;
     int _RecurseCallCount;
     HWND _GameHwnd;
-    WNDPROC _GameWndProc;
     POINT _SavedCursorPos;
     RECT _SavedClipCursor;
     CONST RECT _DefaultClipCursor;
@@ -52,19 +51,26 @@ private:
 
     // Functions
     Windows_Hook();
+    bool _HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    decltype(::TranslateMessage)* _TranslateMessage;
+    decltype(::DefWindowProcA)  * _DefWindowProcA;
+    decltype(::DefWindowProcW)  * _DefWindowProcW;
 
     // Hook to Windows window messages
-    decltype(::GetRawInputBuffer) *GetRawInputBuffer;
-    decltype(::GetRawInputData)   *GetRawInputData;
-    decltype(::GetKeyState)       *GetKeyState;
-    decltype(::GetAsyncKeyState)  *GetAsyncKeyState;
-    decltype(::GetKeyboardState)  *GetKeyboardState;
-    decltype(::GetCursorPos)      *GetCursorPos;
-    decltype(::SetCursorPos)      *SetCursorPos;
-    decltype(::GetClipCursor)     *GetClipCursor;
-    decltype(::ClipCursor)        *ClipCursor;
+    decltype(::GetRawInputBuffer) *_GetRawInputBuffer;
+    decltype(::GetRawInputData)   *_GetRawInputData;
+    decltype(::GetKeyState)       *_GetKeyState;
+    decltype(::GetAsyncKeyState)  *_GetAsyncKeyState;
+    decltype(::GetKeyboardState)  *_GetKeyboardState;
+    decltype(::GetCursorPos)      *_GetCursorPos;
+    decltype(::SetCursorPos)      *_SetCursorPos;
+    decltype(::GetClipCursor)     *_GetClipCursor;
+    decltype(::ClipCursor)        *_ClipCursor;
+    decltype(::GetMessageA)       *_GetMessageA;
+    decltype(::GetMessageW)       *_GetMessageW;
+    decltype(::PeekMessageA)      *_PeekMessageA;
+    decltype(::PeekMessageW)      *_PeekMessageW;
 
-    static LRESULT CALLBACK HookWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     static UINT  WINAPI MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader);
     static UINT  WINAPI MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
     static SHORT WINAPI MyGetKeyState(int nVirtKey);
@@ -74,6 +80,10 @@ private:
     static BOOL  WINAPI MySetCursorPos(int X, int Y);
     static BOOL  WINAPI MyGetClipCursor(RECT* lpRect);
     static BOOL  WINAPI MyClipCursor(CONST RECT* lpRect);
+    static BOOL  WINAPI MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
+    static BOOL  WINAPI MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
+    static BOOL  WINAPI MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
+    static BOOL  WINAPI MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
 
 public:
     std::string LibraryName;
@@ -83,9 +93,6 @@ public:
     void ResetRenderState();
     void SetInitialWindowSize(HWND hWnd);
     bool PrepareForOverlay(HWND hWnd);
-
-    HWND GetGameHwnd() const;
-    WNDPROC GetGameWndProc() const;
 
     bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
