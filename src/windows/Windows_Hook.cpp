@@ -399,7 +399,7 @@ SHORT WINAPI Windows_Hook::MyGetAsyncKeyState(int vKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->_Initialized && !inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return 0;
 
     return inst->_GetAsyncKeyState(vKey);
