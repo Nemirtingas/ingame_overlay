@@ -478,7 +478,8 @@ BOOL  WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     inst->_TranslateMessage(lpMsg);
     //inst->_DispatchMessageA(lpMsg);
     inst->_DefWindowProcA(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam);
-    return FALSE;
+    lpMsg->message = 0;
+    return res;
 }
 
 BOOL  WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
@@ -498,7 +499,8 @@ BOOL  WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     inst->_TranslateMessage(lpMsg);
     //inst->_DispatchMessageW(lpMsg);
     inst->_DefWindowProcW(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam);
-    return FALSE;
+    lpMsg->message = 0;
+    return res;
 }
 
 BOOL  WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
@@ -524,7 +526,8 @@ BOOL  WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
     inst->_TranslateMessage(lpMsg);
     //inst->_DispatchMessageA(lpMsg);
     inst->_DefWindowProcA(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam);
-    return FALSE;
+    lpMsg->message = 0;
+    return res;
 }
 
 BOOL  WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
@@ -550,7 +553,8 @@ BOOL  WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
     inst->_TranslateMessage(lpMsg);
     //inst->_DispatchMessageW(lpMsg);
     inst->_DefWindowProcW(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam);
-    return FALSE;
+    lpMsg->message = 0;
+    return res;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
