@@ -389,7 +389,7 @@ SHORT WINAPI Windows_Hook::MyGetKeyState(int nVirtKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
-    if (inst->_Initialized && !inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && inst->_ApplicationInputsHidden)
         return 0;
 
     return inst->_GetKeyState(nVirtKey);
