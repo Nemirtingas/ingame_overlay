@@ -126,24 +126,23 @@ bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, s
             void** func_ptr;
             void* hook_ptr;
             const char* func_name;
-            bool hook;
         } hook_array[] = {
-            { (void**)&_TranslateMessage , nullptr                                  , "TranslateMessage" , false },
-            { (void**)&_DefWindowProcA   , nullptr                                  , "DefWindowProcA"   , false },
-            { (void**)&_DefWindowProcW   , nullptr                                  , "DefWindowProcW"   , false },
-            { (void**)&_GetRawInputBuffer, (void*)&Windows_Hook::MyGetRawInputBuffer, "GetRawInputBuffer", true  },
-            { (void**)&_GetRawInputData  , (void*)&Windows_Hook::MyGetRawInputData  , "GetRawInputData"  , true  },
-            { (void**)&_GetKeyState      , (void*)&Windows_Hook::MyGetKeyState      , "GetKeyState"      , true  },
-            { (void**)&_GetAsyncKeyState , (void*)&Windows_Hook::MyGetAsyncKeyState , "GetAsyncKeyState" , true  },
-            { (void**)&_GetKeyboardState , (void*)&Windows_Hook::MyGetKeyboardState , "GetKeyboardState" , true  },
-            { (void**)&_GetCursorPos     , (void*)&Windows_Hook::MyGetCursorPos     , "GetCursorPos"     , true  },
-            { (void**)&_SetCursorPos     , (void*)&Windows_Hook::MySetCursorPos     , "SetCursorPos"     , true  },
-            { (void**)&_GetClipCursor    , (void*)&Windows_Hook::MyGetClipCursor    , "GetClipCursor"    , true  },
-            { (void**)&_ClipCursor       , (void*)&Windows_Hook::MyClipCursor       , "ClipCursor"       , true  },
-            { (void**)&_GetMessageA      , (void*)&Windows_Hook::MyGetMessageA      , "GetMessageA"      , true  },
-            { (void**)&_GetMessageW      , (void*)&Windows_Hook::MyGetMessageW      , "GetMessageW"      , true  },
-            { (void**)&_PeekMessageA     , (void*)&Windows_Hook::MyPeekMessageA     , "PeekMessageA"     , true  },
-            { (void**)&_PeekMessageW     , (void*)&Windows_Hook::MyPeekMessageW     , "PeekMessageW"     , true  },
+            { (void**)&_TranslateMessage , nullptr                                  , "TranslateMessage"  },
+            { (void**)&_DefWindowProcA   , nullptr                                  , "DefWindowProcA"    },
+            { (void**)&_DefWindowProcW   , nullptr                                  , "DefWindowProcW"    },
+            { (void**)&_GetRawInputBuffer, (void*)&Windows_Hook::MyGetRawInputBuffer, "GetRawInputBuffer" },
+            { (void**)&_GetRawInputData  , (void*)&Windows_Hook::MyGetRawInputData  , "GetRawInputData"   },
+            { (void**)&_GetKeyState      , (void*)&Windows_Hook::MyGetKeyState      , "GetKeyState"       },
+            { (void**)&_GetAsyncKeyState , (void*)&Windows_Hook::MyGetAsyncKeyState , "GetAsyncKeyState"  },
+            { (void**)&_GetKeyboardState , (void*)&Windows_Hook::MyGetKeyboardState , "GetKeyboardState"  },
+            { (void**)&_GetCursorPos     , (void*)&Windows_Hook::MyGetCursorPos     , "GetCursorPos"      },
+            { (void**)&_SetCursorPos     , (void*)&Windows_Hook::MySetCursorPos     , "SetCursorPos"      },
+            { (void**)&_GetClipCursor    , (void*)&Windows_Hook::MyGetClipCursor    , "GetClipCursor"     },
+            { (void**)&_ClipCursor       , (void*)&Windows_Hook::MyClipCursor       , "ClipCursor"        },
+            { (void**)&_GetMessageA      , (void*)&Windows_Hook::MyGetMessageA      , "GetMessageA"       },
+            { (void**)&_GetMessageW      , (void*)&Windows_Hook::MyGetMessageW      , "GetMessageW"       },
+            { (void**)&_PeekMessageA     , (void*)&Windows_Hook::MyPeekMessageA     , "PeekMessageA"      },
+            { (void**)&_PeekMessageW     , (void*)&Windows_Hook::MyPeekMessageW     , "PeekMessageW"      },
         };
 
         for (auto& entry : hook_array)
@@ -172,7 +171,7 @@ bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, s
 
         for (auto& entry : hook_array)
         {
-            if (entry.hook)
+            if (entry.hook_ptr != nullptr)
                 HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr));
         }
 
