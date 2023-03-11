@@ -185,6 +185,14 @@ bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, s
 void Windows_Hook::HideAppInputs(bool hide)
 {
     _ApplicationInputsHidden = hide;
+    if (hide)
+    {
+        _ClipCursor(&_DefaultClipCursor);
+    }
+    else
+    {
+        _ClipCursor(&_SavedClipCursor);
+    }
 }
 
 void Windows_Hook::HideOverlayInputs(bool hide)
@@ -447,7 +455,7 @@ BOOL WINAPI Windows_Hook::MyGetClipCursor(RECT* lpRect)
     return TRUE;
 }
 
-BOOL  WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
+BOOL WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     CONST RECT* v = lpRect == nullptr ? &inst->_DefaultClipCursor : lpRect;
@@ -460,7 +468,7 @@ BOOL  WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
     return inst->_ClipCursor(&inst->_DefaultClipCursor);
 }
 
-BOOL  WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
+BOOL WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -481,7 +489,7 @@ BOOL  WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     return res;
 }
 
-BOOL  WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
+BOOL WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -502,7 +510,7 @@ BOOL  WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     return res;
 }
 
-BOOL  WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
+BOOL WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -513,7 +521,7 @@ BOOL  WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
         return res;
 
-    if (wRemoveMsg != PM_REMOVE && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
+    if (!(wRemoveMsg & PM_REMOVE) && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
     {
         // Remove message from queue
         inst->_PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE | (wRemoveMsg & (~PM_REMOVE)));
@@ -529,7 +537,7 @@ BOOL  WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
     return res;
 }
 
-BOOL  WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
+BOOL WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
