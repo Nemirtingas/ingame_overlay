@@ -29,35 +29,6 @@ constexpr decltype(Windows_Hook::DLL_NAME) Windows_Hook::DLL_NAME;
 
 Windows_Hook* Windows_Hook::_inst = nullptr;
 
-static void RawEvent(HWND hWnd, RAWINPUT& raw)
-{
-    switch (raw.header.dwType)
-    {
-        case RIM_TYPEMOUSE:
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_LBUTTONDOWN, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_LBUTTONUP, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_RBUTTONDOWN, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_RBUTTONUP, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_MBUTTONDOWN, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_MBUTTONUP, 0, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_MOUSEWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
-            if (raw.data.mouse.usButtonFlags & RI_MOUSE_HWHEEL)
-                ImGui_ImplWin32_WndProcHandler(hWnd, WM_MOUSEHWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
-            break;
-
-        //case RIM_TYPEKEYBOARD:
-            //ImGui_ImplWin32_WndProcHandler(hWnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
-            //break;
-    }
-}
-
 static int ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
 {
     struct {
@@ -242,7 +213,7 @@ bool Windows_Hook::PrepareForOverlay(HWND hWnd)
             //auto& io = ImGui::GetIO();
             //
             //POINT pos;
-            //if (this->GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
+            //if (this->_GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
             //{
             //    io.AddMousePosEvent((float)pos.x, (float)pos.y);
             //}
@@ -273,10 +244,46 @@ bool IgnoreMsg(UINT uMsg)
         case WM_SYSKEYDOWN: case WM_SYSKEYUP: case WM_SYSDEADCHAR:
         case WM_CHAR: case WM_UNICHAR: case WM_DEADCHAR:
         // Raw Input Events
-        case WM_INPUT:
+        //case WM_INPUT: // Don't ignore, we will handle it and ignore in GetRawInputBuffer/GetRawInputData
             return true;
     }
     return false;
+}
+
+void Windows_Hook::_RawEvent(RAWINPUT& raw)
+{
+    switch (raw.header.dwType)
+    {
+    case RIM_TYPEMOUSE:
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_LBUTTONDOWN, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_LBUTTONUP, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_RBUTTONDOWN, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_RBUTTONUP, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MBUTTONDOWN, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MBUTTONUP, 0, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
+        if (raw.data.mouse.usButtonFlags & RI_MOUSE_HWHEEL)
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEHWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
+
+        if (raw.data.mouse.lLastX != 0 || raw.data.mouse.lLastY != 0)
+        {
+            POINT p;
+            _GetCursorPos(&p);
+            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+        }
+        break;
+
+        //case RIM_TYPEKEYBOARD:
+            //ImGui_ImplWin32_WndProcHandler(_GameHwnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
+            //break;
+    }
 }
 
 bool Windows_Hook::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -364,7 +371,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
         if (pData != nullptr)
         {
             for (int i = 0; i < res; ++i)
-                RawEvent(inst->_GameHwnd, pData[i]);
+                inst->_RawEvent(pData[i]);
         }
     }
 
@@ -382,7 +389,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand,
         return res;
 
     if (uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
-        RawEvent(inst->_GameHwnd, *reinterpret_cast<RAWINPUT*>(pData));
+        inst->_RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
     if (!inst->_ApplicationInputsHidden)
         return res;
@@ -548,7 +555,7 @@ BOOL WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
         return res;
 
-    if (wRemoveMsg != PM_REMOVE && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
+    if (!(wRemoveMsg & PM_REMOVE) && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
     {
         // Remove message from queue
         inst->_PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE | (wRemoveMsg & (~PM_REMOVE)));

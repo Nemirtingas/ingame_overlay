@@ -51,6 +51,7 @@ private:
 
     // Functions
     Windows_Hook();
+    void _RawEvent(RAWINPUT& raw);
     bool _HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     decltype(::TranslateMessage)* _TranslateMessage;
     decltype(::DefWindowProcA)  * _DefWindowProcA;
