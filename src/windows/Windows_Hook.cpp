@@ -276,6 +276,7 @@ void Windows_Hook::_RawEvent(RAWINPUT& raw)
         {
             POINT p;
             _GetCursorPos(&p);
+            ::ScreenToClient(_GameHwnd, &p);
             ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
         }
         break;
