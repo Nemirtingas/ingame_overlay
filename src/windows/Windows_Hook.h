@@ -86,6 +86,7 @@ private:
     static BOOL  WINAPI MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
     static BOOL  WINAPI MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
 
+    static short ImGuiGetKeyState(int nVirtKey);
 public:
     std::string LibraryName;
 

@@ -191,6 +191,11 @@ void Windows_Hook::SetInitialWindowSize(HWND hWnd)
     ImGui::GetIO().DisplaySize = ImVec2((float)(rect.right - rect.left), (float)(rect.bottom - rect.top));
 }
 
+short Windows_Hook::ImGuiGetKeyState(int nVirtKey)
+{
+    return Windows_Hook::Inst()->_GetKeyState(nVirtKey);
+}
+
 bool Windows_Hook::PrepareForOverlay(HWND hWnd)
 {
     if (_GameHwnd != hWnd)
@@ -199,7 +204,7 @@ bool Windows_Hook::PrepareForOverlay(HWND hWnd)
     if (!_Initialized)
     {
         _GameHwnd = hWnd;
-        ImGui_ImplWin32_Init(_GameHwnd);
+        ImGui_ImplWin32_Init(_GameHwnd, &Windows_Hook::ImGuiGetKeyState);
 
         _Initialized = true;
     }
