@@ -23,7 +23,7 @@
 #include <backends/imgui_impl_x11.h>
 #include <System/Library.h>
 
-extern int ImGui_ImplX11_EventHandler(XEvent &event);
+extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 
 constexpr decltype(X11_Hook::DLL_NAME) X11_Hook::DLL_NAME;
 
@@ -235,20 +235,34 @@ bool IgnoreEvent(XEvent &event)
 
 int X11_Hook::_CheckForOverlay(Display *d, int num_events)
 {
-    static Time prev_time = {};
     X11_Hook* inst = Inst();
 
     char szKey[32];
 
     if( _Initialized )
     {
-        XEvent event;
+        XEvent event, nextEvent;
+        XEvent* pNextEvent;
         while(num_events)
         {
             bool hide_app_inputs = inst->_ApplicationInputsHidden;
             bool hide_overlay_inputs = inst->_OverlayInputsHidden;
 
             XPeekEvent(d, &event);
+
+            if (event.type == KeyRelease && num_events > 1)
+            {
+                XNextEvent(d, &event);
+                XPeekEvent(d, &nextEvent);
+                XPutBackEvent(d, &event);
+                pNextEvent = &nextEvent;
+                // Consume only 1 event because we don't want to send the KeyRelease event
+                // but we still want to send the KeyPress event.
+            }
+            else
+            {
+                pNextEvent = nullptr;
+            }
 
             // Is the event is a key press
             if (event.type == KeyPress || event.type == KeyRelease)
@@ -289,7 +303,7 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
 
             if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
             {
-                ImGui_ImplX11_EventHandler(event);
+                ImGui_ImplX11_EventHandler(event, pNextEvent);
             }
 
             if (!hide_app_inputs || !IgnoreEvent(event))

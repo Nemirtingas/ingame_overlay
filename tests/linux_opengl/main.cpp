@@ -47,7 +47,7 @@ using namespace gl;
 
 #include <string>
 
-extern int ImGui_ImplX11_EventHandler(XEvent &event);
+extern int ImGui_ImplX11_EventHandler(XEvent &event, XEvent *next_event);
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB       0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB       0x2092
@@ -397,7 +397,8 @@ int main(int argc, char* argv[])
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-    XEvent event;
+    XEvent event, nextEvent;
+    XEvent *pNextEvent;
     bool running = true;
 
     while (running)
@@ -407,7 +408,16 @@ int main(int argc, char* argv[])
         if (XPending(display) > 0)
         {
             XNextEvent(display, &event);
-            ImGui_ImplX11_EventHandler(event);
+            if (event.type == KeyRelease && XPending(display) > 0)
+            {
+                XNextEvent(display, &nextEvent);
+                pNextEvent = &nextEvent;
+            }
+            else
+            {
+                pNextEvent = nullptr;
+            }
+            ImGui_ImplX11_EventHandler(event, pNextEvent);
 
             switch (event.type)
             {
