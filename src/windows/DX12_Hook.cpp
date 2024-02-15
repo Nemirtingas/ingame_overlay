@@ -68,6 +68,12 @@ bool DX12_Hook::StartHook(std::function<void()> key_combination_callback, std::s
                 std::make_pair<void**, void*>(&(PVOID&)Present1, &DX12_Hook::MyPresent1)
             );
         }
+        if (ResizeBuffers1 != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers1, &DX12_Hook::MyResizeBuffers1)
+            );
+        }
         EndHook();
     }
     return true;
@@ -187,7 +193,10 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         pDevice = nullptr;
         if (pSwapChain3->GetDevice(IID_PPV_ARGS(&pDevice)) != S_OK)
+		{
+			pSwapChain3->Release();
             return;
+		}
 
         UINT bufferCount = sc_desc.BufferCount;
 
@@ -358,13 +367,6 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeBuffers(IDXGISwapChain* _this, UINT
     return (_this->*inst->ResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 
-void STDMETHODCALLTYPE DX12_Hook::MyExecuteCommandLists(ID3D12CommandQueue *_this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
-{
-    auto inst = DX12_Hook::Inst();
-    inst->pCmdQueue = _this;
-    (_this->*inst->ExecuteCommandLists)(NumCommandLists, ppCommandLists);
-}
-
 HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
     auto inst = DX12_Hook::Inst();
@@ -376,6 +378,20 @@ HRESULT STDMETHODCALLTYPE DX12_Hook::MyPresent1(IDXGISwapChain1* _this, UINT Syn
     }
 
     return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+}
+
+HRESULT STDMETHODCALLTYPE DX12_Hook::MyResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
+{
+    auto inst = DX12_Hook::Inst();
+    inst->_ResetRenderState();
+    return (_this->*inst->ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+}
+
+void STDMETHODCALLTYPE DX12_Hook::MyExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
+{
+    auto inst = DX12_Hook::Inst();
+    inst->pCmdQueue = _this;
+    (_this->*inst->ExecuteCommandLists)(NumCommandLists, ppCommandLists);
 }
 
 DX12_Hook::DX12_Hook():
@@ -438,16 +454,19 @@ void DX12_Hook::LoadFunctions(
     decltype(Present) PresentFcn,
     decltype(ResizeBuffers) ResizeBuffersFcn,
     decltype(ResizeTarget) ResizeTargetFcn,
-    decltype(ExecuteCommandLists) ExecuteCommandListsFcn,
-    decltype(Present1) Present1Fcn)
+    decltype(Present1) Present1Fcn,
+    decltype(ResizeBuffers1) ResizeBuffers1Fcn,
+    decltype(ExecuteCommandLists) ExecuteCommandListsFcn)
 {
     Present = PresentFcn;
     ResizeBuffers = ResizeBuffersFcn;
     ResizeTarget = ResizeTargetFcn;
 
-    ExecuteCommandLists = ExecuteCommandListsFcn;
-
     Present1 = Present1Fcn;
+
+    ResizeBuffers1 = ResizeBuffers1Fcn;
+
+    ExecuteCommandLists = ExecuteCommandListsFcn;
 }
 
 std::weak_ptr<uint64_t> DX12_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

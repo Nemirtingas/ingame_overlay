@@ -428,6 +428,19 @@ private:
         }
     }
 
+    void GetDXGISwapChain3Methods(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain3::ResizeBuffers1)& pfnResizeBuffer1)
+    {
+        IDXGISwapChain3* pSwapChain3;
+
+        if (SUCCEEDED(pSwapChain1->QueryInterface(IID_PPV_ARGS(&pSwapChain3))))
+        {
+            void** vTable = *reinterpret_cast<void***>(pSwapChain3);
+            (void*&)pfnResizeBuffer1 = vTable[(int)IDXGISwapChainVTable::ResizeBuffers1];
+
+            pSwapChain3->Release();
+        }
+    }
+
     void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
         void*& pfnPresent,
         void*& pfnReset,
@@ -875,9 +888,11 @@ private:
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
+                decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1 = nullptr;
 
                 HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
-                HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
+                HookDXGIPresent1(pSwapChain, pfnPresent1);
+                GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
 
                 void** vTable = *reinterpret_cast<void***>(pCommandQueue);
                 decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists;
@@ -885,7 +900,7 @@ private:
 
                 dx12_hook = DX12_Hook::Inst();
                 dx12_hook->LibraryName = library_path;
-                dx12_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnExecuteCommandLists, pfnPresent1);
+                dx12_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
             }
             else
             {

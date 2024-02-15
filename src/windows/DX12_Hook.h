@@ -116,14 +116,16 @@ private:
     static HRESULT STDMETHODCALLTYPE MyPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
     static HRESULT STDMETHODCALLTYPE MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
-    static void STDMETHODCALLTYPE MyExecuteCommandLists(ID3D12CommandQueue *_this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
     static HRESULT STDMETHODCALLTYPE MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
+    static HRESULT STDMETHODCALLTYPE MyResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
+    static void STDMETHODCALLTYPE MyExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
 
     decltype(&IDXGISwapChain::Present)       Present;
     decltype(&IDXGISwapChain::ResizeBuffers) ResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)  ResizeTarget;
-    decltype(&ID3D12CommandQueue::ExecuteCommandLists) ExecuteCommandLists;
     decltype(&IDXGISwapChain1::Present1)     Present1;
+    decltype(&IDXGISwapChain3::ResizeBuffers1) ResizeBuffers1;
+    decltype(&ID3D12CommandQueue::ExecuteCommandLists) ExecuteCommandLists;
 
 public:
     std::string LibraryName;
@@ -141,8 +143,9 @@ public:
         decltype(Present) PresentFcn,
         decltype(ResizeBuffers) ResizeBuffersFcn,
         decltype(ResizeTarget) ResizeTargetFcn,
-        decltype(ExecuteCommandLists) ExecuteCommandListsFcn,
-        decltype(Present1) Present1Fcn1);
+        decltype(Present1) Present1Fcn1,
+        decltype(ResizeBuffers1) ResizeBuffers1Fcn,
+        decltype(ExecuteCommandLists) ExecuteCommandListsFcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

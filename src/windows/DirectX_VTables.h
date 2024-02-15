@@ -59,6 +59,21 @@ enum class IDXGISwapChainVTable
     GetBackgroundColor,
     SetRotation,
     GetRotation,
+
+    // IDXGISwapChain2
+    SetSourceSize,
+    GetSourceSize,
+    SetMaximumFrameLatency,
+    GetMaximumFrameLatency,
+    GetFrameLatencyWaitableObject,
+    SetMatrixTransform,
+    GetMatrixTransform,
+
+    // IDXGISwapChain3
+    GetCurrentBackBufferIndex,
+    CheckColorSpaceSupport,
+    SetColorSpace1,
+    ResizeBuffers1,
 };
 
 enum class ID3D12CommandQueueVTable
