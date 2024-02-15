@@ -98,6 +98,9 @@ void shared_library_load(void* hmodule)
             overlay_datas->renderer->OverlayHookReady = [](bool is_ready)
             {
                 std::lock_guard<std::mutex> lk(overlay_datas->overlay_mutex);
+
+                if (!is_ready)
+                    overlay_datas->show = false;
             };
 
             overlay_datas->font_atlas = new ImFontAtlas();
