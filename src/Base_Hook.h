@@ -20,6 +20,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <utility>
 #include <mini_detour/mini_detour.h>
 

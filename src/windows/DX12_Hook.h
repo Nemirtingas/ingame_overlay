@@ -36,6 +36,35 @@ public:
 private:
     static DX12_Hook* _inst;
 
+    struct ID3D12DescriptorHeapWrapper_t
+    {
+        ID3D12DescriptorHeap* Heap;
+
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeap* heap):Heap(heap) {}
+
+        inline ~ID3D12DescriptorHeapWrapper_t() { Heap->Release(); }
+    };
+
+    struct ShaderRessourceViewHeap_t
+    {
+        static constexpr uint32_t HeapSize = 1024;
+        std::array<bool, HeapSize> HeapBitmap;
+        uint32_t UsedHeap;
+
+        inline ShaderRessourceViewHeap_t()
+            : HeapBitmap{}, UsedHeap{}
+        {}
+    };
+
+    struct ShaderRessourceView_t
+    {
+        static constexpr uint32_t InvalidId = 0xffffffff;
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle;
+        D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle;
+        uint32_t Id;
+    };
+
     struct DX12Frame_t
     {
         D3D12_CPU_DESCRIPTOR_HANDLE RenderTarget = {};
@@ -88,24 +117,21 @@ private:
     ID3D12CommandQueue* pCmdQueue;
     ID3D12Device* pDevice;
     std::vector<DX12Frame_t> OverlayFrames;
-    //std::vector<bool> srvDescHeapBitmap;
-    ID3D12DescriptorHeap* pSrvDescHeap;
+    std::vector<ID3D12DescriptorHeapWrapper_t> ShaderRessourceViewHeapDescriptors;
+    std::vector<ShaderRessourceViewHeap_t> ShaderRessourceViewHeaps;
     ID3D12GraphicsCommandList* pCmdList;
+    // Render Target View heap
     ID3D12DescriptorHeap* pRtvDescHeap;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
     DX12_Hook();
-
-    //struct heap_t
-    //{
-    //    D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle;
-    //    D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle;
-    //    int64_t id;
-    //};
-    //
-    //heap_t get_free_texture_heap();
-    //bool release_texture_heap(int64_t heap_id);
+    
+    bool _AllocShaderRessourceViewHeap();
+    ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
+    ShaderRessourceView_t _GetFreeShaderRessourceView();
+    void _ReleaseShaderRessourceView(uint32_t id);
 
     ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
