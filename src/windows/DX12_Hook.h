@@ -42,7 +42,23 @@ private:
 
         inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeap* heap):Heap(heap) {}
 
-        inline ~ID3D12DescriptorHeapWrapper_t() { Heap->Release(); }
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeapWrapper_t&& other) noexcept
+        {
+            Heap = other.Heap;
+            other.Heap = nullptr;
+        }
+
+        inline ID3D12DescriptorHeapWrapper_t& operator=(ID3D12DescriptorHeapWrapper_t&& other) noexcept
+        {
+            Heap = other.Heap;
+            other.Heap = nullptr;
+            return *this;
+        }
+
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeapWrapper_t const&) = delete;
+        inline ID3D12DescriptorHeapWrapper_t& operator=(ID3D12DescriptorHeapWrapper_t const&) = delete;
+
+        inline ~ID3D12DescriptorHeapWrapper_t() { if (Heap != nullptr) Heap->Release(); }
     };
 
     struct ShaderRessourceViewHeap_t

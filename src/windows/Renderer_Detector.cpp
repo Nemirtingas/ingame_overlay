@@ -145,7 +145,7 @@ private:
         std::random_device rd;
         std::mt19937_64 gen(rd());
 
-        std::uniform_int_distribution<uint64_t> dis(0, 61);
+        std::uniform_int_distribution<uint32_t> dis(0, 61);
         _WindowClassName.resize(64);
         for (int i = 0; i < 64; ++i)
             _WindowClassName[i] = random_str[dis(gen)];
