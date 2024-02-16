@@ -532,6 +532,11 @@ if(${BUILD_INGAMEOVERLAY_TESTS})
     InGameOverlay::InGameOverlay
     Threads::Threads
   )
+  
+  target_compile_definitions(overlay_example
+    PRIVATE
+    ${IMGUI_USER_CONFIG_VALUE}
+  )
 
 endif()
 

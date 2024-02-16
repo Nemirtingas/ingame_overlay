@@ -1,5 +1,6 @@
 #include <thread>
 #include <mutex>
+#include <vector>
 
 #include <imgui.h>
 #include <ingame_overlay/Renderer_Detector.h>
