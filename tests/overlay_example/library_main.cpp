@@ -4,6 +4,13 @@
 #include <imgui.h>
 #include <ingame_overlay/Renderer_Detector.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#include <stb_image.h>
+#include <thumbs_up.h>
+
 using namespace std::chrono_literals;
 
 static void* g_hModule;
@@ -20,6 +27,32 @@ struct overlay_t
 };
 
 static overlay_t* overlay_datas;
+
+struct Image
+{
+    int32_t Width;
+    int32_t Height;
+    std::vector<uint32_t> Image;
+};
+
+Image CreateImageFromData(void const* data, size_t data_len)
+{
+    Image res;
+    int32_t width, height;
+
+    stbi_uc* buffer = stbi_load_from_memory(reinterpret_cast<stbi_uc const*>(data), data_len, &width, &height, nullptr, 4);
+    if (buffer == nullptr)
+        return res;
+
+    res.Image.resize(size_t(width) * size_t(height));
+    res.Width = width;
+    res.Height = height;
+    memcpy(res.Image.data(), buffer, res.Image.size() * sizeof(uint32_t));
+
+    stbi_image_free(buffer);
+
+    return res;
+}
 
 void shared_library_load(void* hmodule)
 {
@@ -68,6 +101,17 @@ void shared_library_load(void* hmodule)
                 if (!overlay_datas->show)
                     return;
 
+                static std::weak_ptr<uint64_t> image;
+                auto sharedImage = image.lock();
+                if (sharedImage == nullptr)
+                {
+                    auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+
+                    image = overlay_datas->renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+
+                    sharedImage = image.lock();
+                }
+
                 auto& io = ImGui::GetIO();
                 float width = io.DisplaySize.x;
                 float height = io.DisplaySize.y;
@@ -89,6 +133,9 @@ void shared_library_load(void* hmodule)
                     ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                     ImGui::Text("Renderer Hooked: %s", overlay_datas->renderer->GetLibraryName().c_str());
                     ImGui::InputText("Test input text", buf, sizeof(buf));
+
+                    if (sharedImage != nullptr)
+                        ImGui::Image(*sharedImage, { 64, 64 });
                 }
                 ImGui::End();
             };
