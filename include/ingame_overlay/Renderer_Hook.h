@@ -34,13 +34,20 @@ enum class ToggleKey
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
 };
 
+enum class OverlayHookState : uint8_t
+{
+    Ready,
+    Reset,
+    Removing,
+};
+
 class Renderer_Hook
 {
 public:
     virtual ~Renderer_Hook() {}
 
     std::function<void()> OverlayProc;
-    std::function<void(bool)> OverlayHookReady;
+    std::function<void(OverlayHookState)> OverlayHookReady;
 
     /// <summary>
     ///   Starts the current renderer hook procedure, allowing a user to render things on the application window.

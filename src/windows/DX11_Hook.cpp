@@ -107,7 +107,7 @@ void DX11_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplDX11_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -172,7 +172,7 @@ void DX11_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         Windows_Hook::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX11_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(desc.OutputWindow))

@@ -82,7 +82,7 @@ void OpenGL_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -111,7 +111,7 @@ void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
         Windows_Hook::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplOpenGL3_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(hWnd))

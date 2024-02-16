@@ -84,7 +84,7 @@ void OpenGLX_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
         X11_Hook::Inst()->ResetRenderState();
@@ -130,7 +130,7 @@ void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         X11_Hook::Inst()->SetInitialWindowSize(_Display, (Window)drawable);
 
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
 
     //auto oldContext = glXGetCurrentContext();

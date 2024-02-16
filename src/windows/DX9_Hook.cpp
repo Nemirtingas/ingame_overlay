@@ -103,7 +103,7 @@ void DX9_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplDX9_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -159,7 +159,7 @@ void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         Windows_Hook::Inst()->SetInitialWindowSize(destWindow);
 
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(destWindow))

@@ -81,7 +81,7 @@ void Vulkan_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplVulkan_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();

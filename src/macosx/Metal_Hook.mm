@@ -77,7 +77,7 @@ void Metal_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplMetal_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
@@ -101,7 +101,7 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
         ImGui_ImplMetal_Init(_MetalDevice);
         
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
     
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(render_pass.descriptor))

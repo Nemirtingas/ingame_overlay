@@ -82,7 +82,7 @@ void OpenGL_Hook::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(false);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL2_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
@@ -101,7 +101,7 @@ void OpenGL_Hook::_PrepareForOverlay()
         ImGui_ImplOpenGL2_Init();
 
         _Initialized = true;
-        OverlayHookReady(true);
+        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
     }
 
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
