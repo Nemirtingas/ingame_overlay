@@ -88,7 +88,9 @@ void OpenGLX_Hook::_ResetRenderState()
 
         ImGui_ImplOpenGL3_Shutdown();
         X11_Hook::Inst()->ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
+
+        _ImageResources.clear();
 
         glXDestroyContext(_Display, _Context);
         _Display = nullptr;
@@ -101,7 +103,9 @@ void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 {
     if( !_Initialized )
     {
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplOpenGL3_Init();
 
         //int attributes[] = { //can't be const b/c X11 doesn't like it.  Not sure if that's intentional or just stupid.

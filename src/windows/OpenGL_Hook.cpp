@@ -86,7 +86,9 @@ void OpenGL_Hook::_ResetRenderState()
 
         ImGui_ImplOpenGL3_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
+
+        _ImageResources.clear();
 
         _LastWindow = nullptr;
         _Initialized = false;
@@ -103,7 +105,9 @@ void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
 
     if (!_Initialized)
     {
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplOpenGL3_Init();
 
         _LastWindow = hWnd;

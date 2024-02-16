@@ -203,7 +203,7 @@ void DX12_Hook::_ResetRenderState()
 
         ImGui_ImplDX12_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
 
         OverlayFrames.clear();
 
@@ -325,7 +325,9 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
 
         auto shaderRessourceView = _GetFreeShaderRessourceView();
 
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplDX12_Init(pDevice, bufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr,
             shaderRessourceView.CpuHandle,
             shaderRessourceView.GpuHandle);

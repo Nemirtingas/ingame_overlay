@@ -113,6 +113,7 @@ void DX11_Hook::_ResetRenderState()
         Windows_Hook::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
+        _ImageResources.clear();
         SafeRelease(mainRenderTargetView);
         SafeRelease(pContext);
         SafeRelease(pDevice);

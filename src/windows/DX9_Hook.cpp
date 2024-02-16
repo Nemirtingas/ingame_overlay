@@ -107,8 +107,9 @@ void DX9_Hook::_ResetRenderState()
 
         ImGui_ImplDX9_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
 
+        _ImageResources.clear();
         SafeRelease(_pDevice);
         
         _LastWindow = nullptr;
@@ -151,7 +152,9 @@ void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         pDevice->AddRef();
         _pDevice = pDevice;
 
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplDX9_Init(pDevice);
 
         _LastWindow = destWindow;

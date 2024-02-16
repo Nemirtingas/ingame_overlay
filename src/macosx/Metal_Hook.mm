@@ -81,7 +81,9 @@ void Metal_Hook::_ResetRenderState()
 
         ImGui_ImplMetal_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
+
+        _ImageResources.clear();
 
         _MetalDevice = nil;
         
@@ -94,7 +96,8 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
 {
     if( !_Initialized )
     {
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if(ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         
         _MetalDevice = [render_pass.command_buffer device];
 

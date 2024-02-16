@@ -86,7 +86,9 @@ void OpenGL_Hook::_ResetRenderState()
 
         ImGui_ImplOpenGL2_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
+
+        _ImageResources.clear();
 
         _Initialized = false;
     }
@@ -97,7 +99,9 @@ void OpenGL_Hook::_PrepareForOverlay()
 {
     if( !_Initialized )
     {
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if(ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplOpenGL2_Init();
 
         _Initialized = true;

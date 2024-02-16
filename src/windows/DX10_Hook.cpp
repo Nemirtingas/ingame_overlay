@@ -101,8 +101,9 @@ void DX10_Hook::_ResetRenderState()
 
         ImGui_ImplDX10_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
 
+        _ImageResources.clear();
         SafeRelease(mainRenderTargetView);
         SafeRelease(pDevice);
 
@@ -133,7 +134,9 @@ void DX10_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &mainRenderTargetView);
         pBackBuffer->Release();
 
-        ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
         ImGui_ImplDX10_Init(pDevice);
 
         Windows_Hook::Inst()->SetInitialWindowSize(desc.OutputWindow);
