@@ -260,6 +260,18 @@ private:
             if (dx11_hooked)
             {
                 pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&pDevice)));
+                if (pDevice != nullptr)
+                {
+                    // It seems that when you are using a DX10 device, sometimes, the swapchain has a DX11 device.
+                    ID3D10Device* pD10Device = nullptr;
+                    pSwapChain->GetDevice(IID_PPV_ARGS(&pD10Device));
+                    if (pD10Device != nullptr)
+                    {
+                        pDevice->Release();
+                        pD10Device->Release();
+                        pDevice = nullptr;
+                    }
+                }
             }
             if (pDevice != nullptr)
             {
