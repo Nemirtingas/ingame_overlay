@@ -108,11 +108,10 @@ private:
 
         DX12Frame_t& operator=(DX12Frame_t&& other) noexcept
         {
-            DX12Frame_t tmp(std::move(other));
-            RenderTarget = tmp.RenderTarget;
-            pCmdAlloc = tmp.pCmdAlloc;
-            pBackBuffer = tmp.pBackBuffer;
-            tmp.Reset();
+            RenderTarget = other.RenderTarget;
+            pCmdAlloc = other.pCmdAlloc;
+            pBackBuffer = other.pBackBuffer;
+            other.Reset();
 
             return *this;
         }
@@ -160,7 +159,7 @@ private:
     static HRESULT STDMETHODCALLTYPE MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     static HRESULT STDMETHODCALLTYPE MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
     static HRESULT STDMETHODCALLTYPE MyResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
-    static void STDMETHODCALLTYPE MyExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
+    static void    STDMETHODCALLTYPE MyExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
 
     decltype(&IDXGISwapChain::Present)       Present;
     decltype(&IDXGISwapChain::ResizeBuffers) ResizeBuffers;
