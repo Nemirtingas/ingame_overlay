@@ -17,6 +17,10 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#ifndef GL_SILENCE_DEPRECATION
+#define GL_SILENCE_DEPRECATION
+#endif
+
 #include <cassert>
 
 #include <ingame_overlay/Renderer_Detector.h>
@@ -91,6 +95,8 @@ private:
     std::condition_variable stop_detection_cv;
     std::mutex stop_detection_mutex;
     
+    Method OpenGLFlushBufferMethod;
+    CGLError (*_flushBuffer)(id self);
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
 
     driver_hook_t driver_hooks[DriverCount];
@@ -145,23 +151,51 @@ private:
         return name;
     }
     
+    void _FoundOpenGLRenderer(bool useObjectiveCMethod)
+    {
+        if (useObjectiveCMethod)
+            opengl_hook->LoadFunctions(OpenGLFlushBufferMethod, nullptr);
+
+
+        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(2, 0))
+        {
+            renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(opengl_hook);
+            opengl_hook = nullptr;
+            StopHooks();
+        }
+    }
+
     static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::unique_lock<std::mutex> lk(inst->renderer_mutex, std::defer_lock);
+
+        // If the app uses the C function, hook it, else prefer the ObjectiveC method.
+        lk.try_lock();
+
         CGLError res = inst->CGLFlushDrawable(glDrawable);
         if (inst->detection_done)
             return res;
-        
-        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(2, 0))
-        {
-            inst->renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(inst->opengl_hook);
-            inst->opengl_hook = nullptr;
-            inst->StopHooks();
-        }
-        
+
+        inst->_FoundOpenGLRenderer(false);
+
         return res;
     }
+
+    static CGLError MyflushBuffer(id self)
+    {
+        auto inst = Inst();
+        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+
+        CGLError res = inst->_flushBuffer(self);
+        if (inst->detection_done)
+            return res;
+
+        inst->_FoundOpenGLRenderer(true);
+
+        return res;
+    }
+
     
     void _FoundMetalRenderer(int driver, id self, SEL sel)
     {
@@ -217,18 +251,28 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
                 return;
             }
-            
+
+            auto openGLClass = objc_getClass("NSOpenGLContext");
+            OpenGLFlushBufferMethod = class_getInstanceMethod(openGLClass, @selector(flushBuffer));
+
+            if (OpenGLFlushBufferMethod != nullptr)
+            {
+                SPDLOG_INFO("Hooked NSOpenGLContext::flushBuffer to detect OpenGL");
+
+                _flushBuffer = (decltype(_flushBuffer))method_setImplementation(OpenGLFlushBufferMethod, (IMP)MyflushBuffer);
+            }
+
             auto CGLFlushDrawable = libOpenGL.GetSymbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
             if (CGLFlushDrawable != nullptr)
             {
                 SPDLOG_INFO("Hooked CGLFlushDrawable to detect OpenGL");
-                
+
                 opengl_hooked = true;
-                
+
                 opengl_hook = OpenGL_Hook::Inst();
                 opengl_hook->LibraryName = library_path;
-                opengl_hook->LoadFunctions(CGLFlushDrawable);
-                
+                opengl_hook->LoadFunctions(nullptr, CGLFlushDrawable);
+
                 HookglFlushDrawable(CGLFlushDrawable);
             }
             else
@@ -291,6 +335,17 @@ private:
         detection_done = true;
         detection_hooks.UnhookAll();
         
+        if (opengl_hooked)
+        {
+            opengl_hooked = false;
+            if (_flushBuffer != nullptr)
+            {
+                method_setImplementation(OpenGLFlushBufferMethod, (IMP)_flushBuffer);
+                OpenGLFlushBufferMethod = nullptr;
+                _flushBuffer = nullptr;
+            }
+        }
+
         if (metal_hooked)
         {
             metal_hooked = false;

@@ -33,7 +33,7 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
 {
     if (!_Hooked)
     {
-        if (CGLFlushDrawable == nullptr)
+        if (_NSOpenGLContextFlushBufferMethod == nullptr && CGLFlushDrawable == nullptr)
         {
             SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;
@@ -47,12 +47,19 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
 
         _ImGuiFontAtlas = imgui_font_atlas;
 
-        UnhookAll();
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGL_Hook::MyCGLFlushDrawable)
-        );
-        EndHook();
+        if (_NSOpenGLContextFlushBufferMethod != nullptr)
+        {
+            NSOpenGLContextflushBuffer = (decltype(NSOpenGLContextflushBuffer))method_setImplementation(_NSOpenGLContextFlushBufferMethod, (IMP)MyflushBuffer);
+        }
+        else if (CGLFlushDrawable != nullptr)
+        {
+            UnhookAll();
+            BeginHook();
+            HookFuncs(
+                std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGL_Hook::MyCGLFlushDrawable)
+            );
+            EndHook();
+        }
     }
     return true;
 }
@@ -124,6 +131,12 @@ void OpenGL_Hook::_PrepareForOverlay()
     }
 }
 
+CGLError OpenGL_Hook::MyflushBuffer(id self)
+{
+    OpenGL_Hook::Inst()->_PrepareForOverlay();
+    return OpenGL_Hook::Inst()->NSOpenGLContextflushBuffer(self);
+}
+
 CGLError OpenGL_Hook::MyCGLFlushDrawable(CGLContextObj glDrawable)
 {
     OpenGL_Hook::Inst()->_PrepareForOverlay();
@@ -134,6 +147,8 @@ OpenGL_Hook::OpenGL_Hook():
     _Initialized(false),
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
+    _NSOpenGLContextFlushBufferMethod(nullptr),
+    NSOpenGLContextflushBuffer(nullptr),
     CGLFlushDrawable(nullptr)
 {
     
@@ -165,8 +180,9 @@ std::string OpenGL_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void OpenGL_Hook::LoadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
+void OpenGL_Hook::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
 {
+    _NSOpenGLContextFlushBufferMethod = openGLFlushBufferMethod;
     CGLFlushDrawable = pfnCGLFlushDrawable;
 }
 
