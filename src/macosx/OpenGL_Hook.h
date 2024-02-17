@@ -19,11 +19,17 @@
 
 #pragma once
 
+#ifndef GL_SILENCE_DEPRECATION
+#define GL_SILENCE_DEPRECATION
+#endif
+
 #include <ingame_overlay/Renderer_Hook.h>
 
 #include "../internal_includes.h"
 
 #include <OpenGL/OpenGL.h>
+
+#include <objc/runtime.h>
 
 //struct CGLDrawable_t;
 //extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
@@ -51,11 +57,14 @@ private:
     void _PrepareForOverlay();
 
     // Hook to render functions
+    Method _NSOpenGLContextFlushBufferMethod;
+    CGLError (*NSOpenGLContextflushBuffer)(id self);
     decltype(::CGLFlushDrawable)* CGLFlushDrawable;
 
 public:
     std::string LibraryName;
 
+    static CGLError MyflushBuffer(id self);
     static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable);
 
     virtual ~OpenGL_Hook();
@@ -66,7 +75,7 @@ public:
     virtual bool IsStarted();
     static OpenGL_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions(decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
+    void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

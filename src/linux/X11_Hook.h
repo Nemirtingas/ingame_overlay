@@ -45,6 +45,13 @@ private:
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
     std::function<void()> _KeyCombinationCallback;
     std::set<uint32_t> _NativeKeyCombination;
+    Window _SavedRoot;
+    Window _SavedChild;
+    int _SavedCursorRX;
+    int _SavedCursorRY;
+    int _SavedCursorX;
+    int _SavedCursorY;
+    unsigned int _SavedMask;
     bool _KeyCombinationPushed;
     bool _ApplicationInputsHidden;
     bool _OverlayInputsHidden;
@@ -54,9 +61,11 @@ private:
     int _CheckForOverlay(Display *d, int num_events);
 
     // Hook to X11 window messages
-    decltype(::XEventsQueued)* XEventsQueued;
-    decltype(::XPending)* XPending;
+    decltype(::XQueryPointer)* _XQueryPointer;
+    decltype(::XEventsQueued)* _XEventsQueued;
+    decltype(::XPending)* _XPending;
 
+    static Bool MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return);
     static int MyXEventsQueued(Display * display, int mode);
     static int MyXPending(Display* display);
 
