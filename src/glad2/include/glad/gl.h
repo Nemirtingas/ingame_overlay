@@ -25447,7 +25447,14 @@ static int glad_gl_find_core_gl(void) {
     int major = 0;
     int minor = 0;
     version = (const char*) glad_glGetString(GL_VERSION);
-    if (!version) return 0;
+    if (!version) {
+#if defined(__APPLE__)
+        // MacOS is stuck at OpenGL 4.1.0 (with a bridge to Metal)
+        version = "4.1.0";
+#else
+        return 0;
+#endif
+    }
     for (i = 0;  prefixes[i];  i++) {
         const size_t length = strlen(prefixes[i]);
         if (strncmp(version, prefixes[i], length) == 0) {
