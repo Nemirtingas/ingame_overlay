@@ -106,8 +106,9 @@ bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::
             void* hook_ptr;
             const char* func_name;
         } hook_array[] = {
-            { (void**)&XEventsQueued, (void*)&X11_Hook::MyXEventsQueued, "XEventsQueued"},
-            { (void**)&XPending     , (void*)&X11_Hook::MyXPending     , "XPending"      },
+            { (void**)&_XEventsQueued, (void*)&X11_Hook::MyXEventsQueued, "XEventsQueued" },
+            { (void**)&_XPending     , (void*)&X11_Hook::MyXPending     , "XPending"      },
+            { (void**)&_XQueryPointer, (void*)&X11_Hook::MyXQueryPointer, "XQueryPointer" },
         };
 
         for (auto& entry : hook_array)
@@ -193,7 +194,7 @@ bool X11_Hook::PrepareForOverlay(Display *display, Window wnd)
 
     if (!_Initialized)
     {
-        ImGui_ImplX11_Init(display, (void*)wnd);
+        ImGui_ImplX11_Init(display, (void*)wnd, (void*)_XQueryPointer);
         _GameWnd = wnd;
 
         //XSelectInput(display,
@@ -235,8 +236,6 @@ bool IgnoreEvent(XEvent &event)
 
 int X11_Hook::_CheckForOverlay(Display *d, int num_events)
 {
-    X11_Hook* inst = Inst();
-
     char szKey[32];
 
     if( _Initialized )
@@ -245,8 +244,8 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
         XEvent* pNextEvent;
         while(num_events)
         {
-            bool hide_app_inputs = inst->_ApplicationInputsHidden;
-            bool hide_overlay_inputs = inst->_OverlayInputsHidden;
+            bool hide_app_inputs = _ApplicationInputsHidden;
+            bool hide_overlay_inputs = _OverlayInputsHidden;
 
             XPeekEvent(d, &event);
 
@@ -269,30 +268,36 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
             {
                 XQueryKeymap(d, szKey);
                 int key_count = 0;
-                for (auto const& key : inst->_NativeKeyCombination)
+                for (auto const& key : _NativeKeyCombination)
                 {
                     if (GetKeyState(d, key, szKey))
                         ++key_count;
                 }
 
-                if (key_count == inst->_NativeKeyCombination.size())
+                if (key_count == _NativeKeyCombination.size())
                 {// All shortcut keys are pressed
-                    if (!inst->_KeyCombinationPushed)
+                    if (!_KeyCombinationPushed)
                     {
-                        inst->_KeyCombinationCallback();
+                        _KeyCombinationCallback();
 
-                        if (inst->_OverlayInputsHidden)
+                        if (_OverlayInputsHidden)
                             hide_overlay_inputs = true;
 
-                        if (inst->_ApplicationInputsHidden)
+                        if (_ApplicationInputsHidden)
+                        {
                             hide_app_inputs = true;
 
-                        inst->_KeyCombinationPushed = true;
+                            // Save the last known cursor pos when opening the overlay
+                            // so we can spoof the XQueryPointer return value.
+                            _XQueryPointer(d, _GameWnd, &_SavedRoot, &_SavedChild, &_SavedCursorRX, &_SavedCursorRY, &_SavedCursorX, &_SavedCursorY, &_SavedMask);
+                        }
+
+                        _KeyCombinationPushed = true;
                     }
                 }
                 else
                 {
-                    inst->_KeyCombinationPushed = false;
+                    _KeyCombinationPushed = false;
                 }
             }
 
@@ -320,11 +325,30 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
     return num_events;
 }
 
+Bool X11_Hook::MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return)
+{
+    X11_Hook* inst = X11_Hook::Inst();
+
+    Bool res = inst->_XQueryPointer(display, w, root_return, child_return, root_x_return, root_y_return, win_x_return, win_y_return, mask_return);
+    if (inst->_Initialized && inst->_ApplicationInputsHidden)
+    {
+        if (root_return   != nullptr) *root_return   = inst->_SavedRoot;
+        if (child_return  != nullptr) *child_return  = inst->_SavedChild;
+        if (root_x_return != nullptr) *root_x_return = inst->_SavedCursorRX;
+        if (root_y_return != nullptr) *root_y_return = inst->_SavedCursorRY;
+        if (win_x_return  != nullptr) *win_x_return  = inst->_SavedCursorX;
+        if (win_y_return  != nullptr) *win_y_return  = inst->_SavedCursorY;
+        if (mask_return   != nullptr) *mask_return   = inst->_SavedMask;
+    }
+
+    return res;
+}
+
 int X11_Hook::MyXEventsQueued(Display *display, int mode)
 {
     X11_Hook* inst = X11_Hook::Inst();
 
-    int res = inst->XEventsQueued(display, mode);
+    int res = inst->_XEventsQueued(display, mode);
 
     if( res )
     {
@@ -336,7 +360,7 @@ int X11_Hook::MyXEventsQueued(Display *display, int mode)
 
 int X11_Hook::MyXPending(Display* display)
 {
-    int res = Inst()->XPending(display);
+    int res = Inst()->_XPending(display);
 
     if( res )
     {
@@ -355,8 +379,9 @@ X11_Hook::X11_Hook() :
     _KeyCombinationPushed(false),
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
-    XEventsQueued(nullptr),
-    XPending(nullptr)
+    _XQueryPointer(nullptr),
+    _XEventsQueued(nullptr),
+    _XPending(nullptr)
 {
 }
 
@@ -381,4 +406,3 @@ std::string X11_Hook::GetLibraryName() const
 {
     return LibraryName;
 }
-
