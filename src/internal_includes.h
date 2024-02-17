@@ -30,7 +30,7 @@
 
 #endif
 
-#ifdef USE_SPDLOG
+#ifdef INGAMEOVERLAY_USE_SPDLOG
 #define SPDLOG_ACTIVE_LEVEL 0
 #include <spdlog/spdlog.h>
 #endif

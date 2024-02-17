@@ -110,8 +110,8 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(BUILD_INGAMEOVERLAY_TESTS "Build tests." OFF)
-option(USE_SPDLOG "Enable logs with SPDLOG." OFF)
+option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
+option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 
 find_package(Threads REQUIRED)
 
@@ -162,7 +162,7 @@ target_link_libraries(ingame_overlay
   System::System
   MiniDetour::MiniDetour
 
-  $<$<BOOL:${USE_SPDLOG}>:spdlog::spdlog>
+  $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog>
 
   $<$<BOOL:${WIN32}>:opengl32>
   $<$<BOOL:${UNIX}>:dl>
@@ -188,7 +188,7 @@ target_include_directories(ingame_overlay
 target_compile_definitions(ingame_overlay
   PRIVATE
   IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS
-  $<$<BOOL:${USE_SPDLOG}>:USE_SPDLOG>
+  $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:INGAMEOVERLAY_USE_SPDLOG>
   $<BUILD_INTERFACE:${IMGUI_USER_CONFIG_VALUE}>
   $<BUILD_INTERFACE:IMGUI_DISABLE_DEMO_WINDOWS>
   PUBLIC
@@ -204,7 +204,7 @@ target_compile_definitions(ingame_overlay
 add_library(InGameOverlay::InGameOverlay ALIAS ingame_overlay)
 set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
-if(${BUILD_INGAMEOVERLAY_TESTS})
+if(${INGAMEOVERLAY_BUILD_TESTS})
 
   if(WIN32)
     add_executable(dx9_app
