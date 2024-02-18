@@ -112,6 +112,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
+option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
 
 find_package(Threads REQUIRED)
 
@@ -138,8 +139,13 @@ set(INGAMEOVERLAY_IMGUI_HEADERS
   $<$<BOOL:${IMGUI_USER_CONFIG}>:${IMGUI_USER_CONFIG}>
 )
 
-add_subdirectory(deps/System EXCLUDE_FROM_ALL)
-add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
+if(NOT ${INGAMEOVERLAY_USE_SYSTEM_LIBRARIES})
+  add_subdirectory(deps/System EXCLUDE_FROM_ALL)
+  add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
+else()
+  find_package(MiniDetour CONFIG REQUIRED)
+  find_package(System CONFIG REQUIRED)
+endif()
 
 add_library(ingame_overlay
   ${INGAMEOVERLAY_SOURCES}
@@ -159,8 +165,8 @@ set_target_properties(ingame_overlay PROPERTIES
 target_link_libraries(ingame_overlay
   PUBLIC
 
-  System::System
-  MiniDetour::MiniDetour
+  Nemirtingas::System
+  Nemirtingas::MiniDetour
 
   $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog>
 
@@ -201,7 +207,7 @@ target_compile_definitions(ingame_overlay
   IMGUI_DISABLE_APPLE_GAMEPAD
 )
 
-add_library(InGameOverlay::InGameOverlay ALIAS ingame_overlay)
+add_library(Nemirtingas::InGameOverlay ALIAS ingame_overlay)
 set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
 if(${INGAMEOVERLAY_BUILD_TESTS})
@@ -529,7 +535,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
   target_link_libraries(overlay_example
     PRIVATE
-    InGameOverlay::InGameOverlay
+    Nemirtingas::InGameOverlay
     Threads::Threads
   )
   
@@ -560,6 +566,6 @@ install(FILES ${INGAMEOVERLAY_IMGUI_HEADERS}
 install(
   EXPORT InGameOverlayTargets
   FILE InGameOverlayConfig.cmake
-  NAMESPACE InGameOverlay::
+  NAMESPACE Nemirtingas::
   DESTINATION lib/cmake/InGameOverlay
 )
