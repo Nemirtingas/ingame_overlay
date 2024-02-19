@@ -972,7 +972,9 @@ private:
             auto vkCreateInstance = libVulkan.GetSymbol<decltype(::vkCreateInstance)>("vkCreateInstance");
             auto vkDestroyInstance = libVulkan.GetSymbol<decltype(::vkDestroyInstance)>("vkDestroyInstance");
             auto vkGetInstanceProcAddr = libVulkan.GetSymbol<decltype(::vkGetInstanceProcAddr)>("vkGetInstanceProcAddr");
+            auto vkEnumerateInstanceExtensionProperties = libVulkan.GetSymbol<decltype(::vkEnumerateInstanceExtensionProperties)>("vkEnumerateInstanceExtensionProperties");
 
+            decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass = nullptr;
             decltype(::vkQueuePresentKHR)* vkQueuePresentKHR = nullptr;
             decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR = nullptr;
             decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR = nullptr;
@@ -1032,6 +1034,10 @@ private:
 
             if (pDevice != nullptr)
             {
+                // Due to how Vulkan work (layers), its very hard to find the tail of the device list, theses pointers will most likely point to the wrong implementation.
+                // For example: Steam's layer, Epic Games' layer, AMD, Intel Graphics, NVidia, OBS, ...
+                // The loader code should help: https://github.com/KhronosGroup/Vulkan-Loader/
+                vkCmdEndRenderPass = (decltype(::vkCmdEndRenderPass)*)vkGetDeviceProcAddr(pDevice, "vkCmdEndRenderPass");
                 vkQueuePresentKHR = (decltype(::vkQueuePresentKHR)*)vkGetDeviceProcAddr(pDevice, "vkQueuePresentKHR");
                 vkAcquireNextImageKHR = (decltype(::vkAcquireNextImageKHR)*)vkGetDeviceProcAddr(pDevice, "vkAcquireNextImageKHR");
                 vkAcquireNextImage2KHR = (decltype(::vkAcquireNextImage2KHR)*)vkGetDeviceProcAddr(pDevice, "vkAcquireNextImage2KHR");
@@ -1047,7 +1053,12 @@ private:
 
                 vulkan_hook = Vulkan_Hook::Inst();
                 vulkan_hook->LibraryName = library_path;
-                vulkan_hook->LoadFunctions(vkQueuePresentKHR);
+                vulkan_hook->LoadFunctions(
+                    vkCreateInstance,
+                    vkDestroyInstance,
+                    vkGetInstanceProcAddr,
+                    vkEnumerateInstanceExtensionProperties,
+                    vkCmdEndRenderPass);
 
                 HookvkQueuePresentKHR(vkQueuePresentKHR);
             }

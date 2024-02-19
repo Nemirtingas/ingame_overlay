@@ -23,15 +23,35 @@
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
+static bool _IsExtensionAvailable(const std::vector<VkExtensionProperties>& properties, const char* extension)
+{
+    for (const VkExtensionProperties& p : properties)
+        if (strcmp(p.extensionName, extension) == 0)
+            return true;
+
+    return false;
+}
+
+static void _CheckVkResult(VkResult err)
+{
+    if (err == VkResult::VK_SUCCESS)
+        return;
+
+    SPDLOG_ERROR("[vulkan] Error: VkResult = {}", (int)err);
+}
+
 Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
 
 bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
-    return false;
+    
     if (!_Hooked)
     {
-        if (vkQueuePresentKHR == nullptr)
+        if (_vkCreateInstance == nullptr ||
+            _vkDestroyInstance == nullptr ||
+            _vkGetInstanceProcAddr == nullptr ||
+            _vkEnumerateInstanceExtensionProperties == nullptr)
         {
             SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
@@ -49,7 +69,7 @@ bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std:
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)vkQueuePresentKHR, &Vulkan_Hook::MyvkQueuePresentKHR)
+            std::make_pair<void**, void*>(&(PVOID&)_vkCmdEndRenderPass, &Vulkan_Hook::MyvkCmdEndRenderPass)
         );
         EndHook();
     }
@@ -93,25 +113,344 @@ void Vulkan_Hook::_ResetRenderState()
     }
 }
 
-// Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void Vulkan_Hook::_PrepareForOverlay()
+PFN_vkVoidFunction Vulkan_Hook::_LoadVulkanFunction(const char* functionName, void* userData)
 {
-    
+    return reinterpret_cast<Vulkan_Hook*>(userData)->_LoadVulkanFunction(functionName);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+PFN_vkVoidFunction Vulkan_Hook::_LoadVulkanFunction(const char* functionName)
+{
+    return _vkGetInstanceProcAddr(_VulkanInstance, functionName);
+}
+
+void Vulkan_Hook::_FreeVulkanRessources()
+{
+    if (_VulkanDescriptorPool != nullptr)
+    {
+        auto vkDestroyDescriptorPool = (decltype(::vkDestroyDescriptorPool)*)_LoadVulkanFunction("vkDestroyDescriptorPool");
+        vkDestroyDescriptorPool(_VulkanDevice, _VulkanDescriptorPool, nullptr);
+        _VulkanDescriptorPool = nullptr;
+    }
+
+    if (_VulkanDevice != nullptr)
+    {
+        auto vkDestroyDevice = (decltype(::vkDestroyDevice)*)_LoadVulkanFunction("vkDestroyDevice");
+        vkDestroyDevice(_VulkanDevice, nullptr);
+        _VulkanDevice = nullptr;
+        _VulkanQueue = nullptr;
+    }
+
+    if (_VulkanInstance != nullptr)
+    {
+        _vkDestroyInstance(_VulkanInstance, nullptr);
+        _VulkanInstance = nullptr;
+        _VulkanPhysicalDevice = nullptr;
+    }
+}
+
+bool Vulkan_Hook::_FindApplicationHWND()
+{
+    struct
+    {
+        DWORD pid;
+        std::vector<HWND> windows;
+    } windowParams{
+        GetCurrentProcessId()
+    };
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+    {
+        if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+            return TRUE;
+
+        DWORD processId;
+        GetWindowThreadProcessId(hwnd, &processId);
+
+        auto params = reinterpret_cast<decltype(windowParams)*>(lParam);
+
+        if (processId == params->pid)
+            params->windows.emplace_back(hwnd);
+
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&windowParams));
+
+    if (windowParams.windows.empty())
+        return false;
+
+    _MainWindow = windowParams.windows[0];
+    return true;
+}
+
+bool Vulkan_Hook::_CreateVulkanInstance()
+{
+    VkInstanceCreateInfo instanceInfos{};
+    uint32_t propertiesCount;
+    std::vector<VkExtensionProperties> properties;
+    std::vector<const char*> instanceExtensions;
+
+    _vkEnumerateInstanceExtensionProperties(nullptr, &propertiesCount, nullptr);
+    properties.resize(propertiesCount);
+    auto err = _vkEnumerateInstanceExtensionProperties(nullptr, &propertiesCount, properties.data());
+
+    for (auto const& extension : { VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME })
+    {
+        if (_IsExtensionAvailable(properties, extension))
+            instanceExtensions.emplace_back(extension);
+    }
+
+    // Create Vulkan Instance
+    instanceInfos.enabledExtensionCount = (uint32_t)instanceExtensions.size();
+    instanceInfos.ppEnabledExtensionNames = instanceExtensions.data();
+
+    instanceInfos.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    return _vkCreateInstance(&instanceInfos, nullptr, &_VulkanInstance) == VkResult::VK_SUCCESS && _VulkanInstance != nullptr;
+}
+
+int32_t Vulkan_Hook::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice, decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* vkGetPhysicalDeviceQueueFamilyProperties)
+{
+    uint32_t count;
+    std::vector<VkQueueFamilyProperties> queues;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
+    queues.resize(count);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            return i;
+    }
+
+    return -1;
+}
+
+bool Vulkan_Hook::_GetPhysicalDeviceAndCreateLogicalDevice()
+{
+    std::vector<VkPhysicalDevice> physicalDevices;
+    std::vector<uint32_t> preferedPhysicalDevicesIndex;
+    std::vector<VkExtensionProperties> extensionProperties;
+    std::vector<VkQueueFamilyProperties> queuesFamilyProperties;
+    VkPhysicalDeviceProperties physicalDevicesProperties;
+    VkDevice vulkanDevice;
+    VkQueue vulkanQueue;
+    VkDeviceCreateInfo deviceCreateInfo{};
+    int queueFamilyIndex = -1;
+    uint32_t count = 0;
+
+    auto vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)_LoadVulkanFunction("vkEnumerateDeviceExtensionProperties");
+    auto vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)_LoadVulkanFunction("vkEnumeratePhysicalDevices");
+    auto vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceProperties");
+    auto vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceQueueFamilyProperties");
+    auto vkCreateDevice = (decltype(::vkCreateDevice)*)_LoadVulkanFunction("vkCreateDevice");
+    auto vkGetDeviceQueue = (decltype(::vkGetDeviceQueue)*)_LoadVulkanFunction("vkGetDeviceQueue");
+
+    vkEnumeratePhysicalDevices(_VulkanInstance, &count, nullptr);
+    physicalDevices.resize(count);
+    vkEnumeratePhysicalDevices(_VulkanInstance, &count, physicalDevices.data());
+
+    for (uint32_t i = 0; i < physicalDevices.size();)
+    {
+        vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDevicesProperties);
+        if (physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+            physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+        {
+            physicalDevices.erase(physicalDevices.begin() + i);
+            continue;
+        }
+
+        if (physicalDevicesProperties.deviceType == VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            preferedPhysicalDevicesIndex.insert(preferedPhysicalDevicesIndex.begin(), i);
+        else
+            preferedPhysicalDevicesIndex.emplace_back(i);
+
+        ++i;
+    }
+
+    for (auto deviceIndex : preferedPhysicalDevicesIndex)
+    {
+        vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, nullptr);
+        extensionProperties.resize(count);
+        vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, extensionProperties.data());
+    
+        for (auto& extension : extensionProperties)
+        {
+            if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
+                continue;
+    
+            queueFamilyIndex = _GetPhysicalDeviceFirstGraphicsQueue(physicalDevices[deviceIndex], vkGetPhysicalDeviceQueueFamilyProperties);
+            if (queueFamilyIndex < 0)
+                continue;
+    
+            auto vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceQueueFamilyProperties");
+            std::vector<VkQueueFamilyProperties> queues;
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, nullptr);
+            queues.resize(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, queues.data());
+            for (uint32_t i = 0; i < count; i++)
+            {
+                if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                {
+                    queueFamilyIndex = i;
+                    break;
+                }
+            }
+
+            deviceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            deviceCreateInfo.enabledExtensionCount = 1;
+            const char* str = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+            deviceCreateInfo.ppEnabledExtensionNames = &str;
+
+            const float queue_priority[] = { 1.0f };
+            VkDeviceQueueCreateInfo queue_info[1] = {};
+            queue_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_info[0].queueFamilyIndex = queueFamilyIndex;
+            queue_info[0].queueCount = 1;
+            queue_info[0].pQueuePriorities = queue_priority;
+
+            deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+            deviceCreateInfo.queueCreateInfoCount = sizeof(queue_info) / sizeof(queue_info[0]);
+            deviceCreateInfo.pQueueCreateInfos = queue_info;
+
+            if (vkCreateDevice(physicalDevices[deviceIndex], &deviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
+            {
+                vkGetDeviceQueue(vulkanDevice, queueFamilyIndex, 0, &vulkanQueue);
+            
+                _QueueFamilyIndex = queueFamilyIndex;
+                _VulkanPhysicalDevice = physicalDevices[deviceIndex];
+                _VulkanDevice = vulkanDevice;
+                _VulkanQueue = vulkanQueue;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool Vulkan_Hook::_CreateDescriptorPool()
+{
+    VkDescriptorPool vulkanDescriptorPool;
+    auto vkCreateDescriptorPool = (decltype(::vkCreateDescriptorPool)*)_LoadVulkanFunction("vkCreateDescriptorPool");
+
+    VkDescriptorPoolSize poolSizes[] =
+    {
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
+    };
+    VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+    descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    descriptorPoolCreateInfo.maxSets = 1;
+    descriptorPoolCreateInfo.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(poolSizes[0]));
+    descriptorPoolCreateInfo.pPoolSizes = poolSizes;
+    if (vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == nullptr)
+        return false;
+
+    _VulkanDescriptorPool = vulkanDescriptorPool;
+    return true;
+}
+
+// Try to make this function and overlay's proc as short as possible or it might affect game's fps.
+void Vulkan_Hook::_PrepareForOverlay(VkCommandBuffer commandBuffer)
+{
+    if (!_Initialized)
+    {
+        if (!_FindApplicationHWND())
+            return;
+
+        if (!_CreateVulkanInstance())
+        {
+            _FreeVulkanRessources();
+            return;
+        }
+
+        if (!_GetPhysicalDeviceAndCreateLogicalDevice())
+        {
+            _FreeVulkanRessources();
+            return;
+        }
+
+        if (!_CreateDescriptorPool())
+        {
+            _FreeVulkanRessources();
+            return;
+        }
+
+        ImGui_ImplVulkan_LoadFunctions(_LoadVulkanFunction, this);
+
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = _VulkanInstance;
+        init_info.PhysicalDevice = _VulkanPhysicalDevice;
+        init_info.Device = _VulkanDevice;
+        init_info.QueueFamily = _QueueFamilyIndex;
+        init_info.Queue = _VulkanQueue;
+        init_info.DescriptorPool = _VulkanDescriptorPool;
+        init_info.Subpass = 0;
+        init_info.MinImageCount = 2;
+        init_info.ImageCount = 2;
+        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        init_info.CheckVkResultFn = _CheckVkResult;
+
+        if (ImGui::GetCurrentContext() == nullptr)
+            ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
+        ImGui_ImplVulkan_Init(&init_info);
+
+        Windows_Hook::Inst()->SetInitialWindowSize(_MainWindow);
+
+        _Initialized = true;
+    }
+
+    if (ImGui_ImplVulkan_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(_MainWindow))
+    {
+        ImGui::NewFrame();
+
+        OverlayProc();
+
+        ImGui::Render();
+
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL Vulkan_Hook::MyvkCmdEndRenderPass(VkCommandBuffer commandBuffer)
 {
     auto inst = Vulkan_Hook::Inst();
-    inst->_PrepareForOverlay();
-    return inst->vkQueuePresentKHR(queue, pPresentInfo);
+    inst->_PrepareForOverlay(commandBuffer);
+    inst->_vkCmdEndRenderPass(commandBuffer);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
+{
+    auto inst = Vulkan_Hook::Inst();
+    inst->_VulkanDevice = device;
+    if (inst->_VulkanDevice != nullptr && inst->_VulkanDevice != device)
+    {
+        SPDLOG_INFO("Device changed ?");
+    }
+    return inst->_vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
+{
+    auto inst = Vulkan_Hook::Inst();
+    inst->_VulkanDevice = device;
+    if (inst->_VulkanDevice != nullptr && inst->_VulkanDevice != device)
+    {
+        SPDLOG_INFO("Device changed ?");
+    }
+    return inst->_vkAcquireNextImage2KHR(device, pAcquireInfo, pImageIndex);
 }
 
 Vulkan_Hook::Vulkan_Hook():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
+    _VulkanDevice(nullptr),
     _ImGuiFontAtlas(nullptr),
-    vkQueuePresentKHR(nullptr)
+    _vkCreateInstance(nullptr),
+    _vkDestroyInstance(nullptr),
+    _vkGetInstanceProcAddr(nullptr),
+    _vkAcquireNextImageKHR(nullptr),
+    _vkAcquireNextImage2KHR(nullptr),
+    _vkCmdEndRenderPass(nullptr)
 {
 }
 
@@ -142,9 +481,18 @@ std::string Vulkan_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void Vulkan_Hook::LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
+void Vulkan_Hook::LoadFunctions(
+    decltype(::vkCreateInstance)* vkCreateInstance,
+    decltype(::vkDestroyInstance)* vkDestroyInstance,
+    decltype(::vkGetInstanceProcAddr)* vkGetInstanceProcAddr,
+    decltype(::vkEnumerateInstanceExtensionProperties)* vkEnumerateInstanceExtensionProperties,
+    decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass)
 {
-    vkQueuePresentKHR = _vkQueuePresentKHR;
+    _vkCreateInstance = vkCreateInstance;
+    _vkDestroyInstance = vkDestroyInstance;
+    _vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    _vkEnumerateInstanceExtensionProperties = vkEnumerateInstanceExtensionProperties;
+    _vkCmdEndRenderPass = vkCmdEndRenderPass;
 }
 
 std::weak_ptr<uint64_t> Vulkan_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

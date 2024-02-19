@@ -39,6 +39,13 @@ private:
     bool _Hooked;
     bool _WindowsHooked;
     bool _Initialized;
+    HWND _MainWindow;
+    VkPhysicalDevice _VulkanPhysicalDevice;
+    VkInstance _VulkanInstance;
+    VkDevice _VulkanDevice;
+    uint32_t _QueueFamilyIndex;
+    VkQueue _VulkanQueue;
+    VkDescriptorPool _VulkanDescriptorPool;
     // std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
@@ -46,12 +53,29 @@ private:
     Vulkan_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay();
+    void _PrepareForOverlay(VkCommandBuffer commandBuffer);
+
+    static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
+    PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);
+    void _FreeVulkanRessources();
+    bool _FindApplicationHWND();
+    bool _CreateVulkanInstance();
+    int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice, decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* vkGetPhysicalDeviceQueueFamilyProperties);
+    bool _GetPhysicalDeviceAndCreateLogicalDevice();
+    bool _CreateDescriptorPool();
 
     // Hook to render functions
-    static VKAPI_ATTR VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
+    static VKAPI_ATTR void VKAPI_CALL MyvkCmdEndRenderPass(VkCommandBuffer commandBuffer);
+    static VKAPI_ATTR VkResult VKAPI_CALL MyvkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex);
+    static VKAPI_ATTR VkResult VKAPI_CALL MyvkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex);
 
-    decltype(::vkQueuePresentKHR)* vkQueuePresentKHR;
+    decltype(::vkCreateInstance)* _vkCreateInstance;
+    decltype(::vkDestroyInstance)* _vkDestroyInstance;
+    decltype(::vkGetInstanceProcAddr)* _vkGetInstanceProcAddr;
+    decltype(::vkEnumerateInstanceExtensionProperties)* _vkEnumerateInstanceExtensionProperties;
+    decltype(::vkAcquireNextImageKHR)* _vkAcquireNextImageKHR;
+    decltype(::vkAcquireNextImage2KHR)* _vkAcquireNextImage2KHR;
+    decltype(::vkCmdEndRenderPass)* _vkCmdEndRenderPass;
 
 public:
     std::string LibraryName;
@@ -64,7 +88,12 @@ public:
     virtual bool IsStarted();
     static Vulkan_Hook* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR);
+    void LoadFunctions(
+        decltype(::vkCreateInstance)* vkCreateInstance,
+        decltype(::vkDestroyInstance)* vkDestroyInstance,
+        decltype(::vkGetInstanceProcAddr)* vkGetInstanceProcAddr,
+        decltype(::vkEnumerateInstanceExtensionProperties)* vkEnumerateInstanceExtensionProperties,
+        decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
