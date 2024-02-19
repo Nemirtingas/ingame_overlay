@@ -48,10 +48,7 @@ bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std:
     
     if (!_Hooked)
     {
-        if (_vkCreateInstance == nullptr ||
-            _vkDestroyInstance == nullptr ||
-            _vkGetInstanceProcAddr == nullptr ||
-            _vkEnumerateInstanceExtensionProperties == nullptr)
+        if (_vkCmdEndRenderPass == nullptr || _VulkanFunctionLoader == nullptr)
         {
             SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
@@ -123,31 +120,6 @@ PFN_vkVoidFunction Vulkan_Hook::_LoadVulkanFunction(const char* functionName)
     return _vkGetInstanceProcAddr(_VulkanInstance, functionName);
 }
 
-void Vulkan_Hook::_FreeVulkanRessources()
-{
-    if (_VulkanDescriptorPool != nullptr)
-    {
-        auto vkDestroyDescriptorPool = (decltype(::vkDestroyDescriptorPool)*)_LoadVulkanFunction("vkDestroyDescriptorPool");
-        vkDestroyDescriptorPool(_VulkanDevice, _VulkanDescriptorPool, nullptr);
-        _VulkanDescriptorPool = nullptr;
-    }
-
-    if (_VulkanDevice != nullptr)
-    {
-        auto vkDestroyDevice = (decltype(::vkDestroyDevice)*)_LoadVulkanFunction("vkDestroyDevice");
-        vkDestroyDevice(_VulkanDevice, nullptr);
-        _VulkanDevice = nullptr;
-        _VulkanQueue = nullptr;
-    }
-
-    if (_VulkanInstance != nullptr)
-    {
-        _vkDestroyInstance(_VulkanInstance, nullptr);
-        _VulkanInstance = nullptr;
-        _VulkanPhysicalDevice = nullptr;
-    }
-}
-
 bool Vulkan_Hook::_FindApplicationHWND()
 {
     struct
@@ -181,12 +153,42 @@ bool Vulkan_Hook::_FindApplicationHWND()
     return true;
 }
 
+void Vulkan_Hook::_FreeVulkanRessources()
+{
+    if (_VulkanDescriptorPool != nullptr)
+    {
+        _vkDestroyDescriptorPool(_VulkanDevice, _VulkanDescriptorPool, nullptr);
+        _VulkanDescriptorPool = nullptr;
+    }
+
+    if (_VulkanDevice != nullptr)
+    {
+        _vkDestroyDevice(_VulkanDevice, nullptr);
+        _VulkanDevice = nullptr;
+        _VulkanQueue = nullptr;
+    }
+
+    if (_VulkanInstance != nullptr)
+    {
+        _vkDestroyInstance(_VulkanInstance, nullptr);
+        _VulkanInstance = nullptr;
+        _VulkanPhysicalDevice = nullptr;
+    }
+}
+
 bool Vulkan_Hook::_CreateVulkanInstance()
 {
     VkInstanceCreateInfo instanceInfos{};
     uint32_t propertiesCount;
     std::vector<VkExtensionProperties> properties;
     std::vector<const char*> instanceExtensions;
+
+#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_VulkanFunctionLoader(#NAME)
+    LOAD_VULKAN_FUNCTION(vkCreateInstance);
+    LOAD_VULKAN_FUNCTION(vkDestroyInstance);
+    LOAD_VULKAN_FUNCTION(vkGetInstanceProcAddr);
+    LOAD_VULKAN_FUNCTION(vkEnumerateInstanceExtensionProperties);
+#undef LOAD_VULKAN_FUNCTION
 
     _vkEnumerateInstanceExtensionProperties(nullptr, &propertiesCount, nullptr);
     properties.resize(propertiesCount);
@@ -203,16 +205,33 @@ bool Vulkan_Hook::_CreateVulkanInstance()
     instanceInfos.ppEnabledExtensionNames = instanceExtensions.data();
 
     instanceInfos.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    return _vkCreateInstance(&instanceInfos, nullptr, &_VulkanInstance) == VkResult::VK_SUCCESS && _VulkanInstance != nullptr;
+    bool result = _vkCreateInstance(&instanceInfos, nullptr, &_VulkanInstance) == VkResult::VK_SUCCESS && _VulkanInstance != nullptr;
+
+    if (result)
+    {
+#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_vkGetInstanceProcAddr(_VulkanInstance, #NAME)
+        LOAD_VULKAN_FUNCTION(vkCreateDevice);
+        LOAD_VULKAN_FUNCTION(vkDestroyDevice);
+        LOAD_VULKAN_FUNCTION(vkGetDeviceQueue);
+        LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
+        LOAD_VULKAN_FUNCTION(vkDestroyDescriptorPool);
+        LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
+        LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
+        LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
+        LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
+#undef LOAD_VULKAN_FUNCTION
+    }
+
+    return result;
 }
 
-int32_t Vulkan_Hook::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice, decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* vkGetPhysicalDeviceQueueFamilyProperties)
+int32_t Vulkan_Hook::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice)
 {
     uint32_t count;
     std::vector<VkQueueFamilyProperties> queues;
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
     queues.resize(count);
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
     for (uint32_t i = 0; i < count; i++)
     {
         if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
@@ -235,20 +254,13 @@ bool Vulkan_Hook::_GetPhysicalDeviceAndCreateLogicalDevice()
     int queueFamilyIndex = -1;
     uint32_t count = 0;
 
-    auto vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)_LoadVulkanFunction("vkEnumerateDeviceExtensionProperties");
-    auto vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)_LoadVulkanFunction("vkEnumeratePhysicalDevices");
-    auto vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceProperties");
-    auto vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceQueueFamilyProperties");
-    auto vkCreateDevice = (decltype(::vkCreateDevice)*)_LoadVulkanFunction("vkCreateDevice");
-    auto vkGetDeviceQueue = (decltype(::vkGetDeviceQueue)*)_LoadVulkanFunction("vkGetDeviceQueue");
-
-    vkEnumeratePhysicalDevices(_VulkanInstance, &count, nullptr);
+    _vkEnumeratePhysicalDevices(_VulkanInstance, &count, nullptr);
     physicalDevices.resize(count);
-    vkEnumeratePhysicalDevices(_VulkanInstance, &count, physicalDevices.data());
+    _vkEnumeratePhysicalDevices(_VulkanInstance, &count, physicalDevices.data());
 
     for (uint32_t i = 0; i < physicalDevices.size();)
     {
-        vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDevicesProperties);
+        _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDevicesProperties);
         if (physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
         {
@@ -266,24 +278,23 @@ bool Vulkan_Hook::_GetPhysicalDeviceAndCreateLogicalDevice()
 
     for (auto deviceIndex : preferedPhysicalDevicesIndex)
     {
-        vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, nullptr);
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, nullptr);
         extensionProperties.resize(count);
-        vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, extensionProperties.data());
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, extensionProperties.data());
     
         for (auto& extension : extensionProperties)
         {
             if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
                 continue;
     
-            queueFamilyIndex = _GetPhysicalDeviceFirstGraphicsQueue(physicalDevices[deviceIndex], vkGetPhysicalDeviceQueueFamilyProperties);
+            queueFamilyIndex = _GetPhysicalDeviceFirstGraphicsQueue(physicalDevices[deviceIndex]);
             if (queueFamilyIndex < 0)
                 continue;
     
-            auto vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_LoadVulkanFunction("vkGetPhysicalDeviceQueueFamilyProperties");
             std::vector<VkQueueFamilyProperties> queues;
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, nullptr);
+            _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, nullptr);
             queues.resize(count);
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, queues.data());
+            _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, queues.data());
             for (uint32_t i = 0; i < count; i++)
             {
                 if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
@@ -309,9 +320,9 @@ bool Vulkan_Hook::_GetPhysicalDeviceAndCreateLogicalDevice()
             deviceCreateInfo.queueCreateInfoCount = sizeof(queue_info) / sizeof(queue_info[0]);
             deviceCreateInfo.pQueueCreateInfos = queue_info;
 
-            if (vkCreateDevice(physicalDevices[deviceIndex], &deviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
+            if (_vkCreateDevice(physicalDevices[deviceIndex], &deviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
             {
-                vkGetDeviceQueue(vulkanDevice, queueFamilyIndex, 0, &vulkanQueue);
+                _vkGetDeviceQueue(vulkanDevice, queueFamilyIndex, 0, &vulkanQueue);
             
                 _QueueFamilyIndex = queueFamilyIndex;
                 _VulkanPhysicalDevice = physicalDevices[deviceIndex];
@@ -328,7 +339,6 @@ bool Vulkan_Hook::_GetPhysicalDeviceAndCreateLogicalDevice()
 bool Vulkan_Hook::_CreateDescriptorPool()
 {
     VkDescriptorPool vulkanDescriptorPool;
-    auto vkCreateDescriptorPool = (decltype(::vkCreateDescriptorPool)*)_LoadVulkanFunction("vkCreateDescriptorPool");
 
     VkDescriptorPoolSize poolSizes[] =
     {
@@ -340,7 +350,7 @@ bool Vulkan_Hook::_CreateDescriptorPool()
     descriptorPoolCreateInfo.maxSets = 1;
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(poolSizes[0]));
     descriptorPoolCreateInfo.pPoolSizes = poolSizes;
-    if (vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == nullptr)
+    if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == nullptr)
         return false;
 
     _VulkanDescriptorPool = vulkanDescriptorPool;
@@ -417,40 +427,31 @@ VKAPI_ATTR void VKAPI_CALL Vulkan_Hook::MyvkCmdEndRenderPass(VkCommandBuffer com
     inst->_vkCmdEndRenderPass(commandBuffer);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
-{
-    auto inst = Vulkan_Hook::Inst();
-    inst->_VulkanDevice = device;
-    if (inst->_VulkanDevice != nullptr && inst->_VulkanDevice != device)
-    {
-        SPDLOG_INFO("Device changed ?");
-    }
-    return inst->_vkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
-}
-
-VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
-{
-    auto inst = Vulkan_Hook::Inst();
-    inst->_VulkanDevice = device;
-    if (inst->_VulkanDevice != nullptr && inst->_VulkanDevice != device)
-    {
-        SPDLOG_INFO("Device changed ?");
-    }
-    return inst->_vkAcquireNextImage2KHR(device, pAcquireInfo, pImageIndex);
-}
-
 Vulkan_Hook::Vulkan_Hook():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
+    _VulkanPhysicalDevice(nullptr),
+    _VulkanInstance(nullptr),
     _VulkanDevice(nullptr),
+    _QueueFamilyIndex(0),
+    _VulkanQueue(nullptr),
+    _VulkanDescriptorPool(nullptr),
     _ImGuiFontAtlas(nullptr),
     _vkCreateInstance(nullptr),
     _vkDestroyInstance(nullptr),
     _vkGetInstanceProcAddr(nullptr),
-    _vkAcquireNextImageKHR(nullptr),
-    _vkAcquireNextImage2KHR(nullptr),
-    _vkCmdEndRenderPass(nullptr)
+    _vkEnumerateInstanceExtensionProperties(nullptr),
+    _vkCreateDevice(nullptr),
+    _vkGetDeviceQueue(nullptr),
+    _vkDestroyDevice(nullptr),
+    _vkCreateDescriptorPool(nullptr),
+    _vkDestroyDescriptorPool(nullptr),
+    _vkCmdEndRenderPass(nullptr),
+    _vkEnumerateDeviceExtensionProperties(nullptr),
+    _vkEnumeratePhysicalDevices(nullptr),
+    _vkGetPhysicalDeviceProperties(nullptr),
+    _vkGetPhysicalDeviceQueueFamilyProperties(nullptr)
 {
 }
 
@@ -481,18 +482,10 @@ std::string Vulkan_Hook::GetLibraryName() const
     return LibraryName;
 }
 
-void Vulkan_Hook::LoadFunctions(
-    decltype(::vkCreateInstance)* vkCreateInstance,
-    decltype(::vkDestroyInstance)* vkDestroyInstance,
-    decltype(::vkGetInstanceProcAddr)* vkGetInstanceProcAddr,
-    decltype(::vkEnumerateInstanceExtensionProperties)* vkEnumerateInstanceExtensionProperties,
-    decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass)
+void Vulkan_Hook::LoadFunctions(decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass, std::function<void* (const char*)> vulkanFunctionLoader)
 {
-    _vkCreateInstance = vkCreateInstance;
-    _vkDestroyInstance = vkDestroyInstance;
-    _vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-    _vkEnumerateInstanceExtensionProperties = vkEnumerateInstanceExtensionProperties;
     _vkCmdEndRenderPass = vkCmdEndRenderPass;
+    _VulkanFunctionLoader = std::move(vulkanFunctionLoader);
 }
 
 std::weak_ptr<uint64_t> Vulkan_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
