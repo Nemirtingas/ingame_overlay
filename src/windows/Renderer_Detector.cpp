@@ -960,7 +960,6 @@ private:
     void hook_vulkan(std::string const& library_path)
     {
         // Vulkan hook disabled until proper implementation.
-        return;
         if (!vulkan_hooked)
         {
             System::Library::Library libVulkan;

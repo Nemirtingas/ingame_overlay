@@ -220,8 +220,11 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx9.h
       deps/ImGui/backends/imgui_impl_dx9.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.h
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
 
@@ -257,8 +260,11 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx10.h
       deps/ImGui/backends/imgui_impl_dx10.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.h
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
 
@@ -294,8 +300,11 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx11.h
       deps/ImGui/backends/imgui_impl_dx11.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.h
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
 
@@ -331,8 +340,11 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_dx12.h
       deps/ImGui/backends/imgui_impl_dx12.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
+      deps/ImGui/backends/imgui_win_shader_blobs.h
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
 
@@ -369,7 +381,9 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl3.h
       deps/ImGui/backends/imgui_impl_opengl3.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
     )
 
@@ -398,6 +412,49 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     set_property(TARGET windows_opengl3_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+    add_executable(windows_vulkan_app
+      tests/windows_vulkan/main.cpp
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_glfw.h
+      deps/ImGui/backends/imgui_impl_glfw.cpp
+      deps/ImGui/backends/imgui_impl_vulkan.h
+      deps/ImGui/backends/imgui_impl_vulkan.cpp
+      deps/ImGui/backends/imgui_impl_win32.h
+      deps/ImGui/backends/imgui_impl_win32.cpp
+    )
+
+    target_include_directories(windows_vulkan_app
+      PRIVATE
+      deps/ImGui
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/include>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/vulkansdk/include>
+    )
+
+    target_link_libraries(windows_vulkan_app
+      PRIVATE
+      user32
+	  shell32.lib
+	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/lib-vc2010-64/glfw3.lib
+	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/vulkansdk/lib/vulkan-1.lib
+    )
+
+    target_compile_definitions(windows_vulkan_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_DISABLE_OBSOLETE_KEYIO
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_DISABLE_APPLE_GAMEPAD
+    )
+
+    set_property(TARGET windows_vulkan_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
   elseif(APPLE)
 
