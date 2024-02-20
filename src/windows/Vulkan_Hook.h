@@ -64,6 +64,7 @@ private:
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
     bool _GetPhysicalDeviceAndCreateLogicalDevice();
     bool _CreateDescriptorPool();
+    bool _SetupVulkanRenderer();
 
     // Hook to render functions
     static VKAPI_ATTR void VKAPI_CALL MyvkCmdEndRenderPass(VkCommandBuffer commandBuffer);

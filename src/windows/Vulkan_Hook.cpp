@@ -357,6 +357,20 @@ bool Vulkan_Hook::_CreateDescriptorPool()
     return true;
 }
 
+bool Vulkan_Hook::_SetupVulkanRenderer()
+{
+    if (!_CreateVulkanInstance())
+        return false;
+
+    if (!_GetPhysicalDeviceAndCreateLogicalDevice())
+        return false;
+
+    if (!_CreateDescriptorPool())
+        return false;
+
+    return true;
+}
+
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void Vulkan_Hook::_PrepareForOverlay(VkCommandBuffer commandBuffer)
 {
@@ -365,19 +379,7 @@ void Vulkan_Hook::_PrepareForOverlay(VkCommandBuffer commandBuffer)
         if (!_FindApplicationHWND())
             return;
 
-        if (!_CreateVulkanInstance())
-        {
-            _FreeVulkanRessources();
-            return;
-        }
-
-        if (!_GetPhysicalDeviceAndCreateLogicalDevice())
-        {
-            _FreeVulkanRessources();
-            return;
-        }
-
-        if (!_CreateDescriptorPool())
+        if (!_SetupVulkanRenderer())
         {
             _FreeVulkanRessources();
             return;
