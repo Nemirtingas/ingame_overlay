@@ -35,6 +35,17 @@ public:
 private:
     static Vulkan_Hook* _inst;
 
+    struct VulkanFrame_t
+    {
+        VkImageView RenderTarget = nullptr;
+        VkImage BackBuffer = nullptr;
+        VkFramebuffer Framebuffer = nullptr;
+        VkCommandPool CommandPool = nullptr;
+        VkCommandBuffer CommandBuffer = nullptr;
+        VkSemaphore Semaphore = nullptr;
+        VkFence Fence = nullptr;
+    };
+
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
@@ -44,9 +55,11 @@ private:
     VkPhysicalDevice _VulkanPhysicalDevice;
     VkInstance _VulkanInstance;
     VkDevice _VulkanDevice;
-    uint32_t _QueueFamilyIndex;
     VkQueue _VulkanQueue;
+    uint32_t _QueueFamilyIndex;
     VkDescriptorPool _VulkanDescriptorPool;
+    VkRenderPass _VulkanRenderPass;
+    std::vector<VulkanFrame_t> _Frames;
     // std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
@@ -54,7 +67,8 @@ private:
     Vulkan_Hook();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(VkCommandBuffer commandBuffer);
+    void _InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain, uint32_t frameIndex);
+    VulkanFrame_t* _PrepareForOverlay(uint32_t frameIndex);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
     PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);
@@ -62,30 +76,53 @@ private:
     void _FreeVulkanRessources();
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
-    bool _GetPhysicalDeviceAndCreateLogicalDevice();
+    bool _GetPhysicalDevice();
     bool _CreateDescriptorPool();
-    bool _SetupVulkanRenderer();
+    bool _CreateRenderPass();
+    bool _CreateRenderTargets(VkImage* backBuffers, uint32_t backBufferCount);
+    bool _SetupVulkanRenderer(VkSwapchainKHR swapChain);
 
     // Hook to render functions
-    static VKAPI_ATTR void VKAPI_CALL MyvkCmdEndRenderPass(VkCommandBuffer commandBuffer);
     static VKAPI_ATTR VkResult VKAPI_CALL MyvkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex);
-    static VKAPI_ATTR VkResult VKAPI_CALL MyvkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex);
+    static VKAPI_ATTR VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
 
-    decltype(::vkCmdEndRenderPass)* _vkCmdEndRenderPass;
+    decltype(::vkAcquireNextImageKHR)                    *_vkAcquireNextImageKHR;
+    decltype(::vkQueuePresentKHR)                        *_vkQueuePresentKHR;
 
     decltype(::vkCreateInstance)                         *_vkCreateInstance;
     decltype(::vkDestroyInstance)                        *_vkDestroyInstance;
     decltype(::vkGetInstanceProcAddr)                    *_vkGetInstanceProcAddr;
     decltype(::vkEnumerateInstanceExtensionProperties)   *_vkEnumerateInstanceExtensionProperties;
-    decltype(::vkCreateDevice)                           *_vkCreateDevice;
     decltype(::vkGetDeviceQueue)                         *_vkGetDeviceQueue;
-    decltype(::vkDestroyDevice)                          *_vkDestroyDevice;
+    decltype(::vkQueueSubmit)                            *_vkQueueSubmit;
+    decltype(::vkCreateRenderPass)                       *_vkCreateRenderPass;
+    decltype(::vkCmdBeginRenderPass)                     *_vkCmdBeginRenderPass;
+    decltype(::vkCmdEndRenderPass)                       *_vkCmdEndRenderPass;
+    decltype(::vkDestroyRenderPass)                      *_vkDestroyRenderPass;
+    decltype(::vkCreateSemaphore)                        *_vkCreateSemaphore;
+    decltype(::vkDestroySemaphore)                       *_vkDestroySemaphore;
+    decltype(::vkCreateCommandPool)                      *_vkCreateCommandPool;
+    decltype(::vkResetCommandPool)                       *_vkResetCommandPool;
+    decltype(::vkDestroyCommandPool)                     *_vkDestroyCommandPool;
+    decltype(::vkCreateImageView)                        *_vkCreateImageView;
+    decltype(::vkDestroyImageView)                       *_vkDestroyImageView;
+    decltype(::vkAllocateCommandBuffers)                 *_vkAllocateCommandBuffers;
+    decltype(::vkBeginCommandBuffer)                     *_vkBeginCommandBuffer;
+    decltype(::vkEndCommandBuffer)                       *_vkEndCommandBuffer;
+    decltype(::vkFreeCommandBuffers)                     *_vkFreeCommandBuffers;
+    decltype(::vkCreateFramebuffer)                      *_vkCreateFramebuffer;
+    decltype(::vkDestroyFramebuffer)                     *_vkDestroyFramebuffer;
+    decltype(::vkCreateFence)                            *_vkCreateFence;
+    decltype(::vkWaitForFences)                          *_vkWaitForFences;
+    decltype(::vkResetFences)                            *_vkResetFences;
+    decltype(::vkDestroyFence)                           *_vkDestroyFence;
     decltype(::vkCreateDescriptorPool)                   *_vkCreateDescriptorPool;
     decltype(::vkDestroyDescriptorPool)                  *_vkDestroyDescriptorPool;
     decltype(::vkEnumerateDeviceExtensionProperties)     *_vkEnumerateDeviceExtensionProperties;
     decltype(::vkEnumeratePhysicalDevices)               *_vkEnumeratePhysicalDevices;
     decltype(::vkGetPhysicalDeviceProperties)            *_vkGetPhysicalDeviceProperties;
     decltype(::vkGetPhysicalDeviceQueueFamilyProperties) *_vkGetPhysicalDeviceQueueFamilyProperties;
+    decltype(::vkGetSwapchainImagesKHR)                  *_vkGetSwapchainImagesKHR;
 
 public:
     std::string LibraryName;
@@ -99,7 +136,8 @@ public:
     static Vulkan_Hook* Inst();
     virtual std::string GetLibraryName() const;
     void LoadFunctions(
-        decltype(::vkCmdEndRenderPass)* vkCmdEndRenderPass,
+        decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR,
+        decltype(::vkQueuePresentKHR)* vkQueuePresentKHR,
         std::function<void*(const char*)> vulkanFunctionLoader);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
