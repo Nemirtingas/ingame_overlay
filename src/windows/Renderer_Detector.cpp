@@ -731,27 +731,33 @@ private:
         vulkanPhysicalDevices.resize(count);
         vulkanDriver.vkEnumeratePhysicalDevices(vulkanInstance, &count, vulkanPhysicalDevices.data());
 
-        for (auto& device : vulkanPhysicalDevices)
+        for (const auto &preferredType : {
+            VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
+            VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU,
+        })
         {
-            vulkanDriver.vkGetPhysicalDeviceProperties(device, &props);
-            if (props.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && props.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-                continue;
-
-            vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
-            vulkanExtensionProperties.resize(count);
-            vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, vulkanExtensionProperties.data());
-
-            for (auto& ext : vulkanExtensionProperties)
+            for (auto& device : vulkanPhysicalDevices)
             {
-                if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
+                vulkanDriver.vkGetPhysicalDeviceProperties(device, &props);
+                if (props.deviceType != preferredType)
                     continue;
 
-                vulkanDeviceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-                vulkanDeviceCreateInfo.enabledExtensionCount = 1;
-                const char* str = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-                vulkanDeviceCreateInfo.ppEnabledExtensionNames = &str;
-                if (vulkanDriver.vkCreateDevice(device, &vulkanDeviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
-                    return vulkanDevice;
+                vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+                vulkanExtensionProperties.resize(count);
+                vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, vulkanExtensionProperties.data());
+
+                for (auto& ext : vulkanExtensionProperties)
+                {
+                    if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
+                        continue;
+
+                    vulkanDeviceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+                    vulkanDeviceCreateInfo.enabledExtensionCount = 1;
+                    const char* str = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+                    vulkanDeviceCreateInfo.ppEnabledExtensionNames = &str;
+                    if (vulkanDriver.vkCreateDevice(device, &vulkanDeviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
+                        return vulkanDevice;
+                }
             }
         }
 
