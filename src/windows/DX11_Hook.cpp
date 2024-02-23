@@ -23,6 +23,11 @@
 #include <imgui.h>
 #include <backends/imgui_impl_dx11.h>
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, &DX11_Hook::My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX11_Hook* DX11_Hook::_inst = nullptr;
 
 template<typename T>
@@ -60,24 +65,19 @@ bool DX11_Hook::StartHook(std::function<void()> key_combination_callback, std::s
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(Present);
+        TRY_HOOK_FUNCTION(ResizeTarget);
+        TRY_HOOK_FUNCTION(ResizeBuffers);
+
+        if (Present1 != nullptr)
+            TRY_HOOK_FUNCTION(Present1);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 11");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Present      , &DX11_Hook::MyPresent),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeTarget , &DX11_Hook::MyResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers, &DX11_Hook::MyResizeBuffers)
-        );
-        if (Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX11_Hook::MyPresent1)
-            );
-        }
-        EndHook();
     }
     return true;
 }

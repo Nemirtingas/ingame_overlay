@@ -40,15 +40,16 @@ void Base_Hook::EndHook()
     //mini_detour::transaction_commit();
 }
 
-void Base_Hook::HookFunc(std::pair<void**, void*> hook)
+bool Base_Hook::HookFunc(std::pair<void**, void*> hook)
 {
     mini_detour::hook md_hook;
     void* res = md_hook.hook_func(*hook.first, hook.second);
-    if (res != nullptr)
-    {
-        _hooked_funcs.emplace_back(std::move(md_hook));
-        *hook.first = res;
-    }
+    if (res == nullptr)
+        return false;
+
+    _hooked_funcs.emplace_back(std::move(md_hook));
+    *hook.first = res;
+    return true;
 }
 
 void Base_Hook::UnhookAll()

@@ -23,6 +23,11 @@
 #include <imgui.h>
 #include <backends/imgui_impl_dx10.h>
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, &DX10_Hook::My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX10_Hook* DX10_Hook::_inst = nullptr;
 
 template<typename T>
@@ -50,24 +55,18 @@ bool DX10_Hook::StartHook(std::function<void()> key_combination_callback, std::s
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(Present);
+        TRY_HOOK_FUNCTION(ResizeTarget);
+        TRY_HOOK_FUNCTION(ResizeBuffers);
+
+        if (Present1 != nullptr)
+            TRY_HOOK_FUNCTION(Present1);
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 10");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Present      , &DX10_Hook::MyPresent),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeTarget , &DX10_Hook::MyResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers, &DX10_Hook::MyResizeBuffers)
-        );
-        if (Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX10_Hook::MyPresent1)
-            );
-        }
-        EndHook();
     }
     return true;
 }

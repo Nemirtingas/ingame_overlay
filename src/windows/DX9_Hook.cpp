@@ -24,6 +24,11 @@
 #include <imgui.h>
 #include <backends/imgui_impl_dx9.h>
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, &DX9_Hook::My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX9_Hook* DX9_Hook::_inst = nullptr;
 
 template<typename T>
@@ -51,29 +56,21 @@ bool DX9_Hook::StartHook(std::function<void()> key_combination_callback, std::se
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(Reset);
+        TRY_HOOK_FUNCTION(Present);
+
+        if (PresentEx != nullptr)
+            TRY_HOOK_FUNCTION(PresentEx);
+        
+        if (SwapChainPresent != nullptr)
+            TRY_HOOK_FUNCTION(SwapChainPresent);
+        
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 9");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Reset, &DX9_Hook::MyReset),
-            std::make_pair<void**, void*>(&(PVOID&)Present, &DX9_Hook::MyPresent)
-        );
-        if (PresentEx != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)PresentEx, &DX9_Hook::MyPresentEx)
-            );
-        }
-        if (SwapChainPresent != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)SwapChainPresent, &DX9_Hook::MySwapChainPresent)
-            );
-        }
-        EndHook();
     }
     return true;
 }
@@ -298,7 +295,7 @@ std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, ui
             {
                 for (int32_t j = 0; j < width; ++j)
                 {
-                    // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader
+                    // RGBA to BGRA Conversion, DX9 doesn't have a RGBA loader
                     uint32_t color = *pixels++;
                     reinterpret_cast<uint32_t*>(texture_bits)[j] = ((color & 0xff) << 16) | (color & 0xff00) | ((color & 0xff0000) >> 16) | (color & 0xff000000);
                 }

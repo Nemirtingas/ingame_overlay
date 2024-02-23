@@ -25,6 +25,11 @@
 
 #include <glad/gl.h>
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, &OpenGL_Hook::My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
 
 bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
@@ -42,17 +47,13 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
 
         _WindowsHooked = true;
 
-        SPDLOG_INFO("Hooked OpenGL");
-
-        _Hooked = true;
-
-        _ImGuiFontAtlas = imgui_font_atlas;
-
         BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)wglSwapBuffers, &OpenGL_Hook::MywglSwapBuffers)
-        );
+        TRY_HOOK_FUNCTION(wglSwapBuffers);
         EndHook();
+
+        SPDLOG_INFO("Hooked OpenGL");
+        _Hooked = true;
+        _ImGuiFontAtlas = imgui_font_atlas;
     }
     return true;
 }

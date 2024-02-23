@@ -142,7 +142,7 @@ private:
 
     // Functions
     DX12_Hook();
-    
+    void _ReleaseDX12Ressources();
     bool _AllocShaderRessourceViewHeap();
     ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
     ShaderRessourceView_t _GetFreeShaderRessourceView();

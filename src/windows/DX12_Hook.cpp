@@ -23,6 +23,11 @@
 #include <imgui.h>
 #include <backends/imgui_impl_dx12.h>
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, &DX12_Hook::My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX12_Hook* DX12_Hook::_inst = nullptr;
 
 template<typename T>
@@ -65,31 +70,23 @@ bool DX12_Hook::StartHook(std::function<void()> key_combination_callback, std::s
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(Present);
+        TRY_HOOK_FUNCTION(ResizeTarget);
+        TRY_HOOK_FUNCTION(ResizeBuffers);
+        TRY_HOOK_FUNCTION(ExecuteCommandLists);
+
+        if (Present1 != nullptr)
+            TRY_HOOK_FUNCTION(Present1);
+
+        if (ResizeBuffers1 != nullptr)
+            TRY_HOOK_FUNCTION(ResizeBuffers1);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 12");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Present            , &DX12_Hook::MyPresent),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeTarget       , &DX12_Hook::MyResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers      , &DX12_Hook::MyResizeBuffers),
-            std::make_pair<void**, void*>(&(PVOID&)ExecuteCommandLists, &DX12_Hook::MyExecuteCommandLists)
-        );
-        if (Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX12_Hook::MyPresent1)
-            );
-        }
-        if (ResizeBuffers1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers1, &DX12_Hook::MyResizeBuffers1)
-            );
-        }
-        EndHook();
     }
     return true;
 }
@@ -113,6 +110,14 @@ void DX12_Hook::HideOverlayInputs(bool hide)
 bool DX12_Hook::IsStarted()
 {
     return _Hooked;
+}
+
+void DX12_Hook::_ReleaseDX12Ressources()
+{
+    ShaderRessourceViewHeaps.clear();
+    ShaderRessourceViewHeapDescriptors.clear();
+    SafeRelease(pRtvDescHeap);
+    SafeRelease(pDevice);
 }
 
 bool DX12_Hook::_AllocShaderRessourceViewHeap()
@@ -208,10 +213,7 @@ void DX12_Hook::_ResetRenderState()
         OverlayFrames.clear();
 
         _ImageResources.clear();
-        ShaderRessourceViewHeaps.clear();
-        ShaderRessourceViewHeapDescriptors.clear();
-        SafeRelease(pRtvDescHeap);
-        SafeRelease(pDevice);
+        _ReleaseDX12Ressources();
 
         _Initialized = false;
     }
@@ -255,9 +257,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
             desc.NodeMask = 1;
             if (pDevice->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&pRtvDescHeap)) != S_OK)
             {
-                ShaderRessourceViewHeaps.clear();
-                ShaderRessourceViewHeapDescriptors.clear();
-                pDevice->Release();
+                _ReleaseDX12Ressources();
                 pSwapChain3->Release();
                 return;
             }
@@ -275,10 +275,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
                 if (pDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCmdAlloc)) != S_OK || pCmdAlloc == nullptr)
                 {
                     OverlayFrames.clear();
-                    ShaderRessourceViewHeaps.clear();
-                    ShaderRessourceViewHeapDescriptors.clear();
-                    pRtvDescHeap->Release();
-                    pDevice->Release();
+                    _ReleaseDX12Ressources();
                     pSwapChain3->Release();
                     return;
                 }
@@ -291,10 +288,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
                         OverlayFrames.clear();
                         SafeRelease(pCmdList);
                         pCmdAlloc->Release();
-                        ShaderRessourceViewHeaps.clear();
-                        ShaderRessourceViewHeapDescriptors.clear();
-                        pRtvDescHeap->Release();
-                        pDevice->Release();
+                        _ReleaseDX12Ressources();
                         pSwapChain3->Release();
                         return;
                     }
@@ -305,10 +299,7 @@ void DX12_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueu
                     OverlayFrames.clear();
                     pCmdList->Release();
                     pCmdAlloc->Release();
-                    ShaderRessourceViewHeaps.clear();
-                    ShaderRessourceViewHeapDescriptors.clear();
-                    pRtvDescHeap->Release();
-                    pDevice->Release();
+                    _ReleaseDX12Ressources();
                     pSwapChain3->Release();
                     return;
                 }
