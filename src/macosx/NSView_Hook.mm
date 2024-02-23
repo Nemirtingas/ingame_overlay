@@ -337,7 +337,7 @@ NSView_Hook* NSView_Hook::Inst()
     return _inst;
 }
 
-std::string NSView_Hook::GetLibraryName() const
+const std::string& NSView_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

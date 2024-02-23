@@ -198,7 +198,7 @@ OpenGLX_Hook* OpenGLX_Hook::Inst()
     return _inst;
 }
 
-std::string OpenGLX_Hook::GetLibraryName() const
+const std::string& OpenGLX_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

@@ -178,7 +178,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static DX12_Hook* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(
         decltype(Present) PresentFcn,

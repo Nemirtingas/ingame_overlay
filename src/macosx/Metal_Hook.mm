@@ -196,7 +196,7 @@ Metal_Hook* Metal_Hook::Inst()
     return _inst;
 }
 
-std::string Metal_Hook::GetLibraryName() const
+const std::string& Metal_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

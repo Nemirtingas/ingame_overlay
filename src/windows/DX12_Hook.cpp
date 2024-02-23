@@ -464,7 +464,7 @@ DX12_Hook* DX12_Hook::Inst()
     return _inst;
 }
 
-std::string DX12_Hook::GetLibraryName() const
+const std::string& DX12_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

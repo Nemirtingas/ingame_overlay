@@ -134,7 +134,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static Vulkan_Hook* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
     void LoadFunctions(
         decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR,
         decltype(::vkQueuePresentKHR)* vkQueuePresentKHR,

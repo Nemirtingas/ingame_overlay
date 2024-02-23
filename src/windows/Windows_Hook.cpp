@@ -608,7 +608,7 @@ Windows_Hook* Windows_Hook::Inst()
     return _inst;
 }
 
-std::string Windows_Hook::GetLibraryName() const
+const std::string& Windows_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

@@ -254,7 +254,7 @@ DX9_Hook* DX9_Hook::Inst()
     return _inst;
 }
 
-std::string DX9_Hook::GetLibraryName() const
+const std::string& DX9_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

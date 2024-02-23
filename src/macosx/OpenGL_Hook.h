@@ -74,7 +74,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static OpenGL_Hook* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);

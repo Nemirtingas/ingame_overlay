@@ -227,7 +227,7 @@ DX10_Hook* DX10_Hook::Inst()
     return _inst;
 }
 
-std::string DX10_Hook::GetLibraryName() const
+const std::string& DX10_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

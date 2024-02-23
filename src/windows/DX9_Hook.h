@@ -71,7 +71,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static DX9_Hook* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(PresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn);
 

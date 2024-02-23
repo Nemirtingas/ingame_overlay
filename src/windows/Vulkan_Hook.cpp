@@ -298,7 +298,6 @@ bool Vulkan_Hook::_GetPhysicalDevice()
     std::vector<VkExtensionProperties> extensionProperties;
     std::vector<VkQueueFamilyProperties> queuesFamilyProperties;
     VkPhysicalDeviceProperties physicalDevicesProperties;
-    VkDevice vulkanDevice;
     VkQueue vulkanQueue;
     VkDeviceCreateInfo deviceCreateInfo{};
     int queueFamilyIndex = -1;
@@ -763,7 +762,7 @@ Vulkan_Hook* Vulkan_Hook::Inst()
     return _inst;
 }
 
-std::string Vulkan_Hook::GetLibraryName() const
+const std::string& Vulkan_Hook::GetLibraryName() const
 {
     return LibraryName;
 }

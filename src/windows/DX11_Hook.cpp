@@ -264,7 +264,7 @@ DX11_Hook* DX11_Hook::Inst()
     return _inst;
 }
 
-std::string DX11_Hook::GetLibraryName() const
+const std::string& DX11_Hook::GetLibraryName() const
 {
     return LibraryName;
 }
