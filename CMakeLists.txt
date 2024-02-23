@@ -415,6 +415,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(windows_vulkan_app
       tests/windows_vulkan/main.cpp
+      tests/windows_vulkan/imgui_impl_vulkan.h
+      tests/windows_vulkan/imgui_impl_vulkan.cpp
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
@@ -422,8 +424,6 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_widgets.cpp
       deps/ImGui/backends/imgui_impl_glfw.h
       deps/ImGui/backends/imgui_impl_glfw.cpp
-      deps/ImGui/backends/imgui_impl_vulkan.h
-      deps/ImGui/backends/imgui_impl_vulkan.cpp
       deps/ImGui/backends/imgui_impl_win32.h
       deps/ImGui/backends/imgui_impl_win32.cpp
     )
