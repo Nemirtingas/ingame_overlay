@@ -1,2 +1,5 @@
 /deps/ImGui
+/deps/spdlog
 /OUT
+/tests/windows_vulkan/glfw
+/tests/windows_vulkan/vulkansdk
