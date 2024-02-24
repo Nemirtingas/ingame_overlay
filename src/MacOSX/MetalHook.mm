@@ -93,9 +93,9 @@ void MetalHook_t::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void MetalHook_t::_PrepareForOverlay(render_pass_t& renderPass)
+void MetalHook_t::_PrepareForOverlay(RendePass_t& renderPass)
 {
-    if( !_Initialized )
+    if (!_Initialized)
     {
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -168,15 +168,15 @@ MetalHook_t::~MetalHook_t()
 {
     SPDLOG_INFO("Metal Hook removed");
 
-    if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod != nil && MTLCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
+    if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod != nil && _MTLCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
     {
-        method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)MTLCommandBufferRenderCommandEncoderWithDescriptor);
-        MTLCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
+        method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)_MTLCommandBufferRenderCommandEncoderWithDescriptor);
+        _MTLCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
     }
-    if (_MTLRenderCommandEncoderEndEncodingMethod != nil && MTLRenderCommandEncoderEndEncoding != nullptr)
+    if (_MTLRenderCommandEncoderEndEncodingMethod != nil && _MTLRenderCommandEncoderEndEncoding != nullptr)
     {
-        method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)MTLRenderCommandEncoderEndEncoding);
-        MTLRenderCommandEncoderEndEncoding = nullptr;
+        method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)_MTLRenderCommandEncoderEndEncoding);
+        _MTLRenderCommandEncoderEndEncoding = nullptr;
     }
 
     if (_Initialized)
