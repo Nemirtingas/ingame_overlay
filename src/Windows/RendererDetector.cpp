@@ -1231,7 +1231,8 @@ RendererDetector_t* RendererDetector_t::_Instance = nullptr;
 static inline void SetupSpdLog()
 {   
     static std::once_flag once;
-    std::call_once(once, []() {
+    std::call_once(once, []()
+    {
         auto sinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
 
 #if defined(SYSTEM_OS_WINDOWS) && defined(_DEBUG)

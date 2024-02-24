@@ -65,6 +65,7 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
         // Try to detect Renderer for an infinite amount of time.
         auto future = InGameOverlay::DetectRenderer();
+        InGameOverlay::StopRendererDetection();
         // Try to detect Renderer for at most 4 seconds.
         auto future2 = InGameOverlay::DetectRenderer(4s);
         auto future3 = InGameOverlay::DetectRenderer(4s);
@@ -83,13 +84,12 @@ void shared_library_load(void* hmodule)
                 future = InGameOverlay::DetectRenderer(4s);
                 future.wait();
                 if (future.valid())
-                {
                     OverlayData->Renderer = future.get();
-                }
-
-                if (OverlayData->Renderer == nullptr)
-                    return;
             }
+
+            InGameOverlay::FreeDetector();
+            if (OverlayData->Renderer == nullptr)
+                return;
 
             // overlay_proc is called  when the process wants to swap buffers.
             OverlayData->Renderer->OverlayProc = []()

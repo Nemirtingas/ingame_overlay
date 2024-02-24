@@ -36,6 +36,13 @@
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
     SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
 
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+#endif
+
 namespace InGameOverlay {
 
 class RendererDetector_t
@@ -295,8 +302,35 @@ public:
 
 RendererDetector_t* RendererDetector_t::_Instance = nullptr;
 
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+
+static inline void SetupSpdLog()
+{
+    static std::once_flag once;
+    std::call_once(once, []() 
+    {
+        auto sinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
+
+        sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+
+        auto logger = std::make_shared<spdlog::logger>("RendererDetectorDebugLogger", sinks);
+
+        spdlog::register_logger(logger);
+
+        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
+        spdlog::set_level(spdlog::level::trace);
+        logger->flush_on(spdlog::level::trace);
+        spdlog::set_default_logger(logger);
+    });
+}
+
+#endif
+
 std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
 {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
     return RendererDetector_t::Inst()->DetectRenderer(timeout);
 }
 
