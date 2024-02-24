@@ -1,0 +1,197 @@
+/*
+ * Copyright (C) Nemirtingas
+ * This file is part of the ingame overlay project
+ *
+ * The ingame overlay project is free software; you can redistribute it
+ * and/or modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 3 of the License, or (at your option) any later version.
+ * 
+ * The ingame overlay project is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with the ingame overlay project; if not, see
+ * <http://www.gnu.org/licenses/>.
+ */
+
+#pragma once
+
+#include <InGameOverlay/RendererHook.h>
+
+#include "../InternalIncludes.h"
+
+#include <d3d12.h>
+#include <dxgi1_4.h>
+
+namespace InGameOverlay {
+
+class DX12Hook_t : 
+    public RendererHook_t,
+    public BaseHook_t
+{
+public:
+    static constexpr const char *DLL_NAME = "d3d12.dll";
+
+private:
+    static DX12Hook_t* _Instance;
+
+    struct ID3D12DescriptorHeapWrapper_t
+    {
+        ID3D12DescriptorHeap* Heap;
+
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeap* heap):Heap(heap) {}
+
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeapWrapper_t&& other) noexcept
+        {
+            Heap = other.Heap;
+            other.Heap = nullptr;
+        }
+
+        inline ID3D12DescriptorHeapWrapper_t& operator=(ID3D12DescriptorHeapWrapper_t&& other) noexcept
+        {
+            Heap = other.Heap;
+            other.Heap = nullptr;
+            return *this;
+        }
+
+        inline ID3D12DescriptorHeapWrapper_t(ID3D12DescriptorHeapWrapper_t const&) = delete;
+        inline ID3D12DescriptorHeapWrapper_t& operator=(ID3D12DescriptorHeapWrapper_t const&) = delete;
+
+        inline ~ID3D12DescriptorHeapWrapper_t() { if (Heap != nullptr) Heap->Release(); }
+    };
+
+    struct ShaderRessourceViewHeap_t
+    {
+        static constexpr uint32_t HeapSize = 1024;
+        std::array<bool, HeapSize> HeapBitmap;
+        uint32_t UsedHeap;
+
+        inline ShaderRessourceViewHeap_t()
+            : HeapBitmap{}, UsedHeap{}
+        {}
+    };
+
+    struct ShaderRessourceView_t
+    {
+        static constexpr uint32_t InvalidId = 0xffffffff;
+
+        D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle;
+        D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle;
+        uint32_t Id;
+    };
+
+    struct DX12Frame_t
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE RenderTarget = {};
+        ID3D12CommandAllocator* pCmdAlloc = nullptr;
+        ID3D12Resource* pBackBuffer = nullptr;
+
+        inline void Reset()
+        {
+            pCmdAlloc = nullptr;
+            pBackBuffer = nullptr;
+        }
+
+        DX12Frame_t(DX12Frame_t const&) = delete;
+        DX12Frame_t& operator=(DX12Frame_t const&) = delete;
+
+        DX12Frame_t(D3D12_CPU_DESCRIPTOR_HANDLE RenderTarget, ID3D12CommandAllocator* pCmdAlloc, ID3D12Resource* pBackBuffer):
+            RenderTarget(RenderTarget), pCmdAlloc(pCmdAlloc), pBackBuffer(pBackBuffer)
+        {}
+
+        DX12Frame_t(DX12Frame_t&& other) noexcept:
+            RenderTarget(other.RenderTarget), pCmdAlloc(other.pCmdAlloc), pBackBuffer(other.pBackBuffer)
+        {
+            other.Reset();
+        }
+
+        DX12Frame_t& operator=(DX12Frame_t&& other) noexcept
+        {
+            RenderTarget = other.RenderTarget;
+            pCmdAlloc = other.pCmdAlloc;
+            pBackBuffer = other.pBackBuffer;
+            other.Reset();
+
+            return *this;
+        }
+
+        ~DX12Frame_t()
+        {
+            if (pCmdAlloc != nullptr) pCmdAlloc->Release();
+            if (pBackBuffer != nullptr) pBackBuffer->Release();
+        }
+    };
+
+    // Variables
+    bool _Hooked;
+    bool _WindowsHooked;
+    bool _Initialized;
+
+    size_t _CommandQueueOffset;
+    ID3D12CommandQueue* _CommandQueue;
+    ID3D12Device* _Device;
+    std::vector<DX12Frame_t> _OverlayFrames;
+    std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderRessourceViewHeapDescriptors;
+    std::vector<ShaderRessourceViewHeap_t> _ShaderRessourceViewHeaps;
+    ID3D12GraphicsCommandList* _CommandList;
+    // Render Target View heap
+    ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
+    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    void* _ImGuiFontAtlas;
+
+    // Functions
+    DX12Hook_t();
+    
+    bool _AllocShaderRessourceViewHeap();
+    ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
+    ShaderRessourceView_t _GetFreeShaderRessourceView();
+    void _ReleaseShaderRessourceView(uint32_t id);
+
+    ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
+
+    void _ResetRenderState();
+    void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
+
+    // Hook to render functions
+    decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;
+    decltype(&IDXGISwapChain::ResizeBuffers)           _IDXGISwapChainResizeBuffers;
+    decltype(&IDXGISwapChain::ResizeTarget)            _IDXGISwapChainResizeTarget;
+    decltype(&IDXGISwapChain1::Present1)               _IDXGISwapChain1Present1;
+    decltype(&IDXGISwapChain3::ResizeBuffers1)         _IDXGISwapChain3ResizeBuffers1;
+    decltype(&ID3D12CommandQueue::ExecuteCommandLists) _ID3D12CommandQueueExecuteCommandLists;
+
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
+    static void    STDMETHODCALLTYPE _MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
+
+public:
+    std::string LibraryName;
+
+    virtual ~DX12Hook_t();
+
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual void HideAppInputs(bool hide);
+    virtual void HideOverlayInputs(bool hide);
+    virtual bool IsStarted();
+    static DX12Hook_t* Inst();
+    virtual std::string GetLibraryName() const;
+
+    void LoadFunctions(
+        decltype(_IDXGISwapChainPresent) presentFcn,
+        decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
+        decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
+        decltype(_IDXGISwapChain1Present1) present1Fcn1,
+        decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
+        decltype(_ID3D12CommandQueueExecuteCommandLists) xecuteCommandListsFcn);
+
+    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
+    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+};
+
+}// namespace InGameOverlay
