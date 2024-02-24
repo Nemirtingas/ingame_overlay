@@ -27,9 +27,9 @@ extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 
 namespace InGameOverlay {
 
-constexpr decltype(X11_Hook::DLL_NAME) X11_Hook::DLL_NAME;
+constexpr decltype(X11Hook_t::DLL_NAME) X11Hook_t::DLL_NAME;
 
-X11_Hook* X11_Hook::_inst = nullptr;
+X11Hook_t* X11Hook_t::_inst = nullptr;
 
 uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
@@ -71,7 +71,7 @@ bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
-bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
+bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -108,9 +108,9 @@ bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::
             void* hook_ptr;
             const char* func_name;
         } hook_array[] = {
-            { (void**)&_XEventsQueued, (void*)&X11_Hook::MyXEventsQueued, "XEventsQueued" },
-            { (void**)&_XPending     , (void*)&X11_Hook::MyXPending     , "XPending"      },
-            { (void**)&_XQueryPointer, (void*)&X11_Hook::MyXQueryPointer, "XQueryPointer" },
+            { (void**)&_XEventsQueued, (void*)&X11Hook_t::MyXEventsQueued, "XEventsQueued" },
+            { (void**)&_XPending     , (void*)&X11Hook_t::MyXPending     , "XPending"      },
+            { (void**)&_XQueryPointer, (void*)&X11Hook_t::MyXQueryPointer, "XQueryPointer" },
         };
 
         for (auto& entry : hook_array)
@@ -150,17 +150,17 @@ bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::
     return true;
 }
 
-void X11_Hook::HideAppInputs(bool hide)
+void X11Hook_t::HideAppInputs(bool hide)
 {
     _ApplicationInputsHidden = hide;
 }
 
-void X11_Hook::HideOverlayInputs(bool hide)
+void X11Hook_t::HideOverlayInputs(bool hide)
 {
     _OverlayInputsHidden = hide;
 }
 
-void X11_Hook::ResetRenderState()
+void X11Hook_t::ResetRenderState()
 {
     if (_Initialized)
     {
@@ -174,7 +174,7 @@ void X11_Hook::ResetRenderState()
     }
 }
 
-void X11_Hook::SetInitialWindowSize(Display* display, Window wnd)
+void X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
 {
     unsigned int width, height;
     Window unused_window;
@@ -186,7 +186,7 @@ void X11_Hook::SetInitialWindowSize(Display* display, Window wnd)
     ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
 }
 
-bool X11_Hook::PrepareForOverlay(Display *display, Window wnd)
+bool X11Hook_t::PrepareForOverlay(Display *display, Window wnd)
 {
     if(!_Hooked)
         return false;
@@ -236,7 +236,7 @@ bool IgnoreEvent(XEvent &event)
     return false;
 }
 
-int X11_Hook::_CheckForOverlay(Display *d, int num_events)
+int X11Hook_t::_CheckForOverlay(Display *d, int num_events)
 {
     char szKey[32];
 
@@ -327,9 +327,9 @@ int X11_Hook::_CheckForOverlay(Display *d, int num_events)
     return num_events;
 }
 
-Bool X11_Hook::MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return)
+Bool X11Hook_t::MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return)
 {
-    X11_Hook* inst = X11_Hook::Inst();
+    X11Hook_t* inst = X11Hook_t::Inst();
 
     Bool res = inst->_XQueryPointer(display, w, root_return, child_return, root_x_return, root_y_return, win_x_return, win_y_return, mask_return);
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
@@ -346,9 +346,9 @@ Bool X11_Hook::MyXQueryPointer(Display* display, Window w, Window* root_return, 
     return res;
 }
 
-int X11_Hook::MyXEventsQueued(Display *display, int mode)
+int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 {
-    X11_Hook* inst = X11_Hook::Inst();
+    X11Hook_t* inst = X11Hook_t::Inst();
 
     int res = inst->_XEventsQueued(display, mode);
 
@@ -360,7 +360,7 @@ int X11_Hook::MyXEventsQueued(Display *display, int mode)
     return res;
 }
 
-int X11_Hook::MyXPending(Display* display)
+int X11Hook_t::MyXPending(Display* display)
 {
     int res = Inst()->_XPending(display);
 
@@ -374,7 +374,7 @@ int X11_Hook::MyXPending(Display* display)
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-X11_Hook::X11_Hook() :
+X11Hook_t::X11Hook_t() :
     _Initialized(false),
     _Hooked(false),
     _GameWnd(0),
@@ -387,7 +387,7 @@ X11_Hook::X11_Hook() :
 {
 }
 
-X11_Hook::~X11_Hook()
+X11Hook_t::~X11Hook_t()
 {
     SPDLOG_INFO("X11 Hook removed");
 
@@ -396,15 +396,15 @@ X11_Hook::~X11_Hook()
     _inst = nullptr;
 }
 
-X11_Hook* X11_Hook::Inst()
+X11Hook_t* X11Hook_t::Inst()
 {
     if (_inst == nullptr)
-        _inst = new X11_Hook;
+        _inst = new X11Hook_t;
 
     return _inst;
 }
 
-std::string X11_Hook::GetLibraryName() const
+std::string X11Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }

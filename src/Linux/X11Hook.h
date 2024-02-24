@@ -29,14 +29,14 @@
 
 namespace InGameOverlay {
 
-class X11_Hook :
-    public Base_Hook
+class X11Hook_t :
+    public BaseHook_t
 {
 public:
     static constexpr const char* DLL_NAME = "libX11.so";
 
 private:
-    static X11_Hook* _inst;
+    static X11Hook_t* _inst;
 
     // Variables
     bool _Hooked;
@@ -59,7 +59,7 @@ private:
     bool _OverlayInputsHidden;
 
     // Functions
-    X11_Hook();
+    X11Hook_t();
     int _CheckForOverlay(Display *d, int num_events);
 
     // Hook to X11 window messages
@@ -74,7 +74,7 @@ private:
 public:
     std::string LibraryName;
 
-    virtual ~X11_Hook();
+    virtual ~X11Hook_t();
 
     void ResetRenderState();
     void SetInitialWindowSize(Display* display, Window wnd);
@@ -85,7 +85,7 @@ public:
     bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
-    static X11_Hook* Inst();
+    static X11Hook_t* Inst();
     virtual std::string GetLibraryName() const;
 };
 
