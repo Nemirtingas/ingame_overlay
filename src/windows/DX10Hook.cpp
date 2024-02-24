@@ -17,13 +17,15 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "DX10_Hook.h"
-#include "Windows_Hook.h"
+#include "DX10Hook.h"
+#include "WindowsHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx10.h>
 
-DX10_Hook* DX10_Hook::_inst = nullptr;
+namespace InGameOverlay {
+
+DX10Hook_t* DX10Hook_t::_Instance = nullptr;
 
 template<typename T>
 static inline void SafeRelease(T*& pUnk)
@@ -35,11 +37,11 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX10_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX10Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
-        if (Present == nullptr || ResizeTarget == nullptr || ResizeBuffers == nullptr)
+        if (_IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
         {
             SPDLOG_WARN("Failed to hook DirectX 11: Rendering functions missing.");
             return false;
@@ -57,14 +59,14 @@ bool DX10_Hook::StartHook(std::function<void()> key_combination_callback, std::s
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Present      , &DX10_Hook::MyPresent),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeTarget , &DX10_Hook::MyResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)ResizeBuffers, &DX10_Hook::MyResizeBuffers)
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent      , &DX10Hook_t::_MyIDXGISwapChainPresent),
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX10Hook_t::_MyIDXGISwapChainResizeTarget),
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX10Hook_t::_MyIDXGISwapChainResizeBuffers)
         );
-        if (Present1 != nullptr)
+        if (_IDXGISwapChain1Present1 != nullptr)
         {
             HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)Present1, &DX10_Hook::MyPresent1)
+                std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChain1Present1, &DX10Hook_t::_MyIDXGISwapChain1Present1)
             );
         }
         EndHook();
@@ -72,7 +74,7 @@ bool DX10_Hook::StartHook(std::function<void()> key_combination_callback, std::s
     return true;
 }
 
-void DX10_Hook::HideAppInputs(bool hide)
+void DX10Hook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -80,7 +82,7 @@ void DX10_Hook::HideAppInputs(bool hide)
     }
 }
 
-void DX10_Hook::HideOverlayInputs(bool hide)
+void DX10Hook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -88,38 +90,38 @@ void DX10_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool DX10_Hook::IsStarted()
+bool DX10Hook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void DX10_Hook::_ResetRenderState()
+void DX10Hook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplDX10_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
-        SafeRelease(mainRenderTargetView);
-        SafeRelease(pDevice);
+        SafeRelease(_MainRenderTargetView);
+        SafeRelease(_Device);
 
         _Initialized = false;
     }
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX10_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
+void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
 {
     DXGI_SWAP_CHAIN_DESC desc;
     pSwapChain->GetDesc(&desc);
 
     if (!_Initialized)
     {
-        if (FAILED(pSwapChain->GetDevice(IID_PPV_ARGS(&pDevice))))
+        if (FAILED(pSwapChain->GetDevice(IID_PPV_ARGS(&_Device))))
             return;
 
         ID3D10Texture2D* pBackBuffer = nullptr;
@@ -127,22 +129,22 @@ void DX10_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
         if (pBackBuffer == nullptr)
         {
-            pDevice->Release();
+            _Device->Release();
             return;
         }
 
-        pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &mainRenderTargetView);
+        _Device->CreateRenderTargetView(pBackBuffer, nullptr, &_MainRenderTargetView);
         pBackBuffer->Release();
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        ImGui_ImplDX10_Init(pDevice);
+        ImGui_ImplDX10_Init(_Device);
 
         Windows_Hook::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX10_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(desc.OutputWindow))
@@ -153,54 +155,54 @@ void DX10_Hook::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
 
         ImGui::Render();
 
-        pDevice->OMSetRenderTargets(1, &mainRenderTargetView, nullptr);
+        _Device->OMSetRenderTargets(1, &_MainRenderTargetView, nullptr);
         ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
     }
 }
 
-HRESULT STDMETHODCALLTYPE DX10_Hook::MyPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
+HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
-    auto inst= DX10_Hook::Inst();
+    auto inst= DX10Hook_t::Inst();
     inst->_PrepareForOverlay(_this);
-    return (_this->*inst->Present)(SyncInterval, Flags);
+    return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
 
-HRESULT STDMETHODCALLTYPE DX10_Hook::MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
+HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
-    auto inst= DX10_Hook::Inst();
+    auto inst= DX10Hook_t::Inst();
     inst->_ResetRenderState();
-    return (_this->*inst->ResizeTarget)(pNewTargetParameters);
+    return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 
-HRESULT STDMETHODCALLTYPE DX10_Hook::MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
+HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
-    auto inst= DX10_Hook::Inst();
+    auto inst = DX10Hook_t::Inst();
     inst->_ResetRenderState();
-    return (_this->*inst->ResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
 }
 
-HRESULT STDMETHODCALLTYPE DX10_Hook::MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
-    auto inst = DX10_Hook::Inst();
+    auto inst = DX10Hook_t::Inst();
     inst->_PrepareForOverlay(_this);
-    return (_this->*inst->Present1)(SyncInterval, Flags, pPresentParameters);
+    return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
 }
 
-DX10_Hook::DX10_Hook():
+DX10Hook_t::DX10Hook_t():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
     _ImGuiFontAtlas(nullptr),
-    pDevice(nullptr),
-    mainRenderTargetView(nullptr),
-    Present(nullptr),
-    ResizeBuffers(nullptr),
-    ResizeTarget(nullptr),
-    Present1(nullptr)
+    _Device(nullptr),
+    _MainRenderTargetView(nullptr),
+    _IDXGISwapChainPresent(nullptr),
+    _IDXGISwapChainResizeBuffers(nullptr),
+    _IDXGISwapChainResizeTarget(nullptr),
+    _IDXGISwapChain1Present1(nullptr)
 {
 }
 
-DX10_Hook::~DX10_Hook()
+DX10Hook_t::~DX10Hook_t()
 {
     //SPDLOG_INFO("DX10 Hook removed");
 
@@ -209,7 +211,7 @@ DX10_Hook::~DX10_Hook()
 
     if (_Initialized)
     {
-        mainRenderTargetView->Release();
+        _MainRenderTargetView->Release();
 
         ImGui_ImplDX10_InvalidateDeviceObjects();
         ImGui::DestroyContext();
@@ -217,35 +219,35 @@ DX10_Hook::~DX10_Hook()
         _Initialized = false;
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-DX10_Hook* DX10_Hook::Inst()
+DX10Hook_t* DX10Hook_t::Inst()
 {
-    if (_inst == nullptr)   
-        _inst = new DX10_Hook;
+    if (_Instance == nullptr)   
+        _Instance = new DX10Hook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string DX10_Hook::GetLibraryName() const
+std::string DX10Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void DX10_Hook::LoadFunctions(
-    decltype(Present) PresentFcn,
-    decltype(ResizeBuffers) ResizeBuffersFcn,
-    decltype(ResizeTarget) ResizeTargetFcn,
-    decltype(Present1) Present1Fcn)
+void DX10Hook_t::LoadFunctions(
+    decltype(_IDXGISwapChainPresent) presentFcn,
+    decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
+    decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
+    decltype(_IDXGISwapChain1Present1) present1Fcn)
 {
-    Present = PresentFcn;
-    ResizeBuffers = ResizeBuffersFcn;
-    ResizeTarget = ResizeTargetFcn;
-    Present1 = Present1Fcn;
+    _IDXGISwapChainPresent = presentFcn;
+    _IDXGISwapChainResizeBuffers = resizeBuffersFcn;
+    _IDXGISwapChainResizeTarget = resizeTargetFcn;
+    _IDXGISwapChain1Present1 = present1Fcn;
 }
 
-std::weak_ptr<uint64_t> DX10_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> DX10Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     ID3D10ShaderResourceView** resource = new ID3D10ShaderResourceView*(nullptr);
 
@@ -266,7 +268,7 @@ std::weak_ptr<uint64_t> DX10_Hook::CreateImageResource(const void* image_data, u
     subResource.pSysMem = image_data;
     subResource.SysMemPitch = desc.Width * 4;
     subResource.SysMemSlicePitch = 0;
-    pDevice->CreateTexture2D(&desc, &subResource, &pTexture);
+    _Device->CreateTexture2D(&desc, &subResource, &pTexture);
 
     if (pTexture != nullptr)
     {
@@ -277,7 +279,7 @@ std::weak_ptr<uint64_t> DX10_Hook::CreateImageResource(const void* image_data, u
         srvDesc.Texture2D.MipLevels = desc.MipLevels;
         srvDesc.Texture2D.MostDetailedMip = 0;
 
-        pDevice->CreateShaderResourceView(pTexture, &srvDesc, resource);
+        _Device->CreateShaderResourceView(pTexture, &srvDesc, resource);
         // Release Texure, the shader resource increases the reference count.
         pTexture->Release();
     }
@@ -300,7 +302,7 @@ std::weak_ptr<uint64_t> DX10_Hook::CreateImageResource(const void* image_data, u
     return ptr;
 }
 
-void DX10_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void DX10Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -310,3 +312,5 @@ void DX10_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

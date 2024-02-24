@@ -1,29 +1,31 @@
+cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0091 NEW)
 project(ingame_overlay)
 cmake_minimum_required(VERSION 3.15)
 
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
-    src/Base_Hook.cpp
-    src/windows/Renderer_Detector.cpp
-    src/windows/DX9_Hook.cpp
-    src/windows/DX10_Hook.cpp
-    src/windows/DX11_Hook.cpp
-    src/windows/DX12_Hook.cpp
-    src/windows/OpenGL_Hook.cpp
-    src/windows/Vulkan_Hook.cpp
-    src/windows/Windows_Hook.cpp
+    src/BaseHook.cpp
+    src/Windows/RendererDetector.cpp
+    src/Windows/DX9Hook.cpp
+    src/Windows/DX10Hook.cpp
+    src/Windows/DX11Hook.cpp
+    src/Windows/DX12Hook.cpp
+    src/Windows/OpenGLHook.cpp
+    src/Windows/VulkanHook.cpp
+    src/Windows/WindowsHook.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/Base_Hook.h
-    src/windows/DX9_Hook.h
-    src/windows/DX10_Hook.h
-    src/windows/DX11_Hook.h
-    src/windows/DX12_Hook.h
-    src/windows/OpenGL_Hook.h
-    src/windows/Vulkan_Hook.h
-    src/windows/Windows_Hook.h
+    src/InternalIncludes.h
+    src/BaseHook.h
+    src/Windows/DX9Hook.h
+    src/Windows/DX10Hook.h
+    src/Windows/DX11Hook.h
+    src/Windows/DX12Hook.h
+    src/Windows/OpenGLHook.h
+    src/Windows/VulkanHook.h
+    src/Windows/WindowsHook.h
   )
 
   set(IMGUI_SOURCES
@@ -31,13 +33,21 @@ if(WIN32) # Setup some variables for Windows build
     deps/ImGui/imgui_draw.cpp
     deps/ImGui/imgui_tables.cpp
     deps/ImGui/imgui_widgets.cpp
+    deps/ImGui/backends/imgui_impl_dx9.h
     deps/ImGui/backends/imgui_impl_dx9.cpp
+    deps/ImGui/backends/imgui_impl_dx10.h
     deps/ImGui/backends/imgui_impl_dx10.cpp
+    deps/ImGui/backends/imgui_impl_dx11.h
     deps/ImGui/backends/imgui_impl_dx11.cpp
+    deps/ImGui/backends/imgui_impl_dx12.h
     deps/ImGui/backends/imgui_impl_dx12.cpp
+    deps/ImGui/backends/imgui_impl_opengl3.h
     deps/ImGui/backends/imgui_impl_opengl3.cpp
+    deps/ImGui/backends/imgui_impl_vulkan.h
     deps/ImGui/backends/imgui_impl_vulkan.cpp
+    deps/ImGui/backends/imgui_impl_win32.h
     deps/ImGui/backends/imgui_impl_win32.cpp
+    deps/ImGui/backends/imgui_win_shader_blobs.h
     deps/ImGui/backends/imgui_win_shader_blobs.cpp
   )
 
@@ -49,18 +59,19 @@ elseif(APPLE)
   link_libraries("-framework AppKit -framework Carbon -framework Metal -framework MetalKit")
 
   set(INGAMEOVERLAY_SOURCES
-    src/Base_Hook.cpp
-    src/macosx/Renderer_Detector.mm
-    src/macosx/NSView_Hook.mm
-    src/macosx/OpenGL_Hook.mm
-    src/macosx/Metal_Hook.mm
+    src/BaseHook.cpp
+    src/MacOSX/RendererDetector.mm
+    src/MacOSX/NSViewHook.mm
+    src/MacOSX/OpenGLHook.mm
+    src/MacOSX/MetalHook.mm
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/Base_Hook.h
-    src/macosx/NSView_Hook.h
-    src/macosx/OpenGL_Hook.h
-    src/macosx/Metal_Hook.h
+    src/InternalIncludes.h
+    src/BaseHook.h
+    src/MacOSX/NSViewHook.h
+    src/MacOSX/OpenGLHook.h
+    src/MacOSX/MetalHook.h
   )
 
   set(IMGUI_SOURCES
@@ -68,24 +79,28 @@ elseif(APPLE)
     deps/ImGui/imgui_draw.cpp
     deps/ImGui/imgui_tables.cpp
     deps/ImGui/imgui_widgets.cpp
+    deps/ImGui/backends/imgui_impl_opengl2.h
     deps/ImGui/backends/imgui_impl_opengl2.cpp
+    deps/ImGui/backends/imgui_impl_metal.h
     deps/ImGui/backends/imgui_impl_metal.mm
+    deps/ImGui/backends/imgui_impl_osx.h
     deps/ImGui/backends/imgui_impl_osx.mm
   )
 
 elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
-    src/Base_Hook.cpp
-    src/linux/Renderer_Detector.cpp
-    src/linux/OpenGLX_Hook.cpp
-    src/linux/X11_Hook.cpp
+    src/BaseHook.cpp
+    src/Linux/RendererDetector.cpp
+    src/Linux/OpenGLXHook.cpp
+    src/Linux/X11Hook.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/Base_Hook.h
-    src/linux/OpenGLX_Hook.h
-    src/linux/X11_Hook.h
+    src/InternalIncludes.h
+    src/BaseHook.h
+    src/Linux/OpenGLXHook.h
+    src/Linux/X11Hook.h
   )
 
   set(IMGUI_SOURCES
@@ -93,8 +108,11 @@ elseif(UNIX)
     deps/ImGui/imgui_draw.cpp
     deps/ImGui/imgui_tables.cpp
     deps/ImGui/imgui_widgets.cpp
+    deps/ImGui/backends/imgui_impl_vulkan.h
     deps/ImGui/backends/imgui_impl_vulkan.cpp
+    deps/ImGui/backends/imgui_impl_opengl3.h
     deps/ImGui/backends/imgui_impl_opengl3.cpp
+    deps/ImGui/backends/imgui_impl_x11.h
     deps/ImGui/backends/imgui_impl_x11.cpp
   )
 
@@ -125,8 +143,8 @@ else()
 endif()
 
 set(INGAMEOVERLAY_HEADERS
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/ingame_overlay/Renderer_Hook.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/ingame_overlay/Renderer_Detector.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/RendererHook.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/RendererDetector.h
 )
 
 set(INGAMEOVERLAY_IMGUI_HEADERS
@@ -140,6 +158,7 @@ set(INGAMEOVERLAY_IMGUI_HEADERS
 )
 
 if(NOT ${INGAMEOVERLAY_USE_SYSTEM_LIBRARIES})
+  add_subdirectory(deps/spdlog EXCLUDE_FROM_ALL)
   add_subdirectory(deps/System EXCLUDE_FROM_ALL)
   add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
 else()
@@ -150,6 +169,7 @@ endif()
 add_library(ingame_overlay
   ${INGAMEOVERLAY_SOURCES}
   ${IMGUI_SOURCES}
+  ${INGAMEOVERLAY_IMGUI_HEADERS}
   ${INGAMEOVERLAY_HEADERS}
   ${PRIVATE_INGAMEOVERLAY_HEADERS}
 )
@@ -168,7 +188,7 @@ target_link_libraries(ingame_overlay
   Nemirtingas::System
   Nemirtingas::MiniDetour
 
-  $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog>
+  $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog_header_only>
 
   $<$<BOOL:${WIN32}>:opengl32>
   $<$<BOOL:${UNIX}>:dl>
@@ -185,7 +205,7 @@ target_include_directories(ingame_overlay
   PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/deps/ImGui>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan_sdk/include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/VulkanSDK/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
 
   $<INSTALL_INTERFACE:include>
@@ -555,11 +575,11 @@ install(TARGETS ingame_overlay EXPORT InGameOverlayTargets
 )
 
 install(FILES ${INGAMEOVERLAY_HEADERS}
-  DESTINATION include/ingame_overlay
+  DESTINATION include/InGameOverlay
 )
 
 install(FILES ${INGAMEOVERLAY_IMGUI_HEADERS}
-  DESTINATION include/ingame_overlay/ImGui
+  DESTINATION include/InGameOverlay/ImGui
 )
 
 # Export targets

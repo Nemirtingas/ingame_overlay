@@ -17,7 +17,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "Windows_Hook.h"
+#include "WindowsHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_win32.h>
@@ -25,32 +25,34 @@
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+namespace InGameOverlay {
+
 constexpr decltype(Windows_Hook::DLL_NAME) Windows_Hook::DLL_NAME;
 
 Windows_Hook* Windows_Hook::_inst = nullptr;
 
-static int ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
+static int ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
-        ingame_overlay::ToggleKey lib_key;
+        InGameOverlay::ToggleKey lib_key;
         int native_key;
     } mapping[] = {
-        { ingame_overlay::ToggleKey::ALT  , VK_MENU    },
-        { ingame_overlay::ToggleKey::CTRL , VK_CONTROL },
-        { ingame_overlay::ToggleKey::SHIFT, VK_SHIFT   },
-        { ingame_overlay::ToggleKey::TAB  , VK_TAB     },
-        { ingame_overlay::ToggleKey::F1   , VK_F1      },
-        { ingame_overlay::ToggleKey::F2   , VK_F2      },
-        { ingame_overlay::ToggleKey::F3   , VK_F3      },
-        { ingame_overlay::ToggleKey::F4   , VK_F4      },
-        { ingame_overlay::ToggleKey::F5   , VK_F5      },
-        { ingame_overlay::ToggleKey::F6   , VK_F6      },
-        { ingame_overlay::ToggleKey::F7   , VK_F7      },
-        { ingame_overlay::ToggleKey::F8   , VK_F8      },
-        { ingame_overlay::ToggleKey::F9   , VK_F9      },
-        { ingame_overlay::ToggleKey::F10  , VK_F10     },
-        { ingame_overlay::ToggleKey::F11  , VK_F11     },
-        { ingame_overlay::ToggleKey::F12  , VK_F12     },
+        { InGameOverlay::ToggleKey::ALT  , VK_MENU    },
+        { InGameOverlay::ToggleKey::CTRL , VK_CONTROL },
+        { InGameOverlay::ToggleKey::SHIFT, VK_SHIFT   },
+        { InGameOverlay::ToggleKey::TAB  , VK_TAB     },
+        { InGameOverlay::ToggleKey::F1   , VK_F1      },
+        { InGameOverlay::ToggleKey::F2   , VK_F2      },
+        { InGameOverlay::ToggleKey::F3   , VK_F3      },
+        { InGameOverlay::ToggleKey::F4   , VK_F4      },
+        { InGameOverlay::ToggleKey::F5   , VK_F5      },
+        { InGameOverlay::ToggleKey::F6   , VK_F6      },
+        { InGameOverlay::ToggleKey::F7   , VK_F7      },
+        { InGameOverlay::ToggleKey::F8   , VK_F8      },
+        { InGameOverlay::ToggleKey::F9   , VK_F9      },
+        { InGameOverlay::ToggleKey::F10  , VK_F10     },
+        { InGameOverlay::ToggleKey::F11  , VK_F11     },
+        { InGameOverlay::ToggleKey::F12  , VK_F12     },
     };
 
     for (auto const& item : mapping)
@@ -62,7 +64,7 @@ static int ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
     return 0;
 }
 
-bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
+bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -101,19 +103,19 @@ bool Windows_Hook::StartHook(std::function<void()>& _key_combination_callback, s
             { (void**)&_TranslateMessage , nullptr                                  , "TranslateMessage"  },
             { (void**)&_DefWindowProcA   , nullptr                                  , "DefWindowProcA"    },
             { (void**)&_DefWindowProcW   , nullptr                                  , "DefWindowProcW"    },
-            { (void**)&_GetRawInputBuffer, (void*)&Windows_Hook::MyGetRawInputBuffer, "GetRawInputBuffer" },
-            { (void**)&_GetRawInputData  , (void*)&Windows_Hook::MyGetRawInputData  , "GetRawInputData"   },
-            { (void**)&_GetKeyState      , (void*)&Windows_Hook::MyGetKeyState      , "GetKeyState"       },
-            { (void**)&_GetAsyncKeyState , (void*)&Windows_Hook::MyGetAsyncKeyState , "GetAsyncKeyState"  },
-            { (void**)&_GetKeyboardState , (void*)&Windows_Hook::MyGetKeyboardState , "GetKeyboardState"  },
-            { (void**)&_GetCursorPos     , (void*)&Windows_Hook::MyGetCursorPos     , "GetCursorPos"      },
-            { (void**)&_SetCursorPos     , (void*)&Windows_Hook::MySetCursorPos     , "SetCursorPos"      },
-            { (void**)&_GetClipCursor    , (void*)&Windows_Hook::MyGetClipCursor    , "GetClipCursor"     },
-            { (void**)&_ClipCursor       , (void*)&Windows_Hook::MyClipCursor       , "ClipCursor"        },
-            { (void**)&_GetMessageA      , (void*)&Windows_Hook::MyGetMessageA      , "GetMessageA"       },
-            { (void**)&_GetMessageW      , (void*)&Windows_Hook::MyGetMessageW      , "GetMessageW"       },
-            { (void**)&_PeekMessageA     , (void*)&Windows_Hook::MyPeekMessageA     , "PeekMessageA"      },
-            { (void**)&_PeekMessageW     , (void*)&Windows_Hook::MyPeekMessageW     , "PeekMessageW"      },
+            { (void**)&_GetRawInputBuffer, (void*)&Windows_Hook::_MyGetRawInputBuffer, "GetRawInputBuffer" },
+            { (void**)&_GetRawInputData  , (void*)&Windows_Hook::_MyGetRawInputData  , "GetRawInputData"   },
+            { (void**)&_GetKeyState      , (void*)&Windows_Hook::_MyGetKeyState      , "GetKeyState"       },
+            { (void**)&_GetAsyncKeyState , (void*)&Windows_Hook::_MyGetAsyncKeyState , "GetAsyncKeyState"  },
+            { (void**)&_GetKeyboardState , (void*)&Windows_Hook::_MyGetKeyboardState , "GetKeyboardState"  },
+            { (void**)&_GetCursorPos     , (void*)&Windows_Hook::_MyGetCursorPos     , "GetCursorPos"      },
+            { (void**)&_SetCursorPos     , (void*)&Windows_Hook::_MySetCursorPos     , "SetCursorPos"      },
+            { (void**)&_GetClipCursor    , (void*)&Windows_Hook::_MyGetClipCursor    , "GetClipCursor"     },
+            { (void**)&_ClipCursor       , (void*)&Windows_Hook::_MyClipCursor       , "ClipCursor"        },
+            { (void**)&_GetMessageA      , (void*)&Windows_Hook::_MyGetMessageA      , "GetMessageA"       },
+            { (void**)&_GetMessageW      , (void*)&Windows_Hook::_MyGetMessageW      , "GetMessageW"       },
+            { (void**)&_PeekMessageA     , (void*)&Windows_Hook::_MyPeekMessageA     , "PeekMessageA"      },
+            { (void**)&_PeekMessageW     , (void*)&Windows_Hook::_MyPeekMessageW     , "PeekMessageW"      },
         };
 
         for (auto& entry : hook_array)
@@ -365,7 +367,7 @@ bool Windows_Hook::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
     return false;
 }
 
-UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
+UINT WINAPI Windows_Hook::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     int res = inst->_GetRawInputBuffer(pData, pcbSize, cbSizeHeader);
@@ -387,7 +389,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UI
     return 0;
 }
 
-UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
+UINT WINAPI Windows_Hook::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     auto res = inst->_GetRawInputData(hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
@@ -405,7 +407,7 @@ UINT WINAPI Windows_Hook::MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand,
     return 0;
 }
 
-SHORT WINAPI Windows_Hook::MyGetKeyState(int nVirtKey)
+SHORT WINAPI Windows_Hook::_MyGetKeyState(int nVirtKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
@@ -415,7 +417,7 @@ SHORT WINAPI Windows_Hook::MyGetKeyState(int nVirtKey)
     return inst->_GetKeyState(nVirtKey);
 }
 
-SHORT WINAPI Windows_Hook::MyGetAsyncKeyState(int vKey)
+SHORT WINAPI Windows_Hook::_MyGetAsyncKeyState(int vKey)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
@@ -425,7 +427,7 @@ SHORT WINAPI Windows_Hook::MyGetAsyncKeyState(int vKey)
     return inst->_GetAsyncKeyState(vKey);
 }
 
-BOOL WINAPI Windows_Hook::MyGetKeyboardState(PBYTE lpKeyState)
+BOOL WINAPI Windows_Hook::_MyGetKeyboardState(PBYTE lpKeyState)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
@@ -435,7 +437,7 @@ BOOL WINAPI Windows_Hook::MyGetKeyboardState(PBYTE lpKeyState)
     return inst->_GetKeyboardState(lpKeyState);
 }
 
-BOOL  WINAPI Windows_Hook::MyGetCursorPos(LPPOINT lpPoint)
+BOOL  WINAPI Windows_Hook::_MyGetCursorPos(LPPOINT lpPoint)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     
@@ -448,7 +450,7 @@ BOOL  WINAPI Windows_Hook::MyGetCursorPos(LPPOINT lpPoint)
     return res;
 }
 
-BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
+BOOL WINAPI Windows_Hook::_MySetCursorPos(int X, int Y)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
 
@@ -458,7 +460,7 @@ BOOL WINAPI Windows_Hook::MySetCursorPos(int X, int Y)
     return TRUE;
 }
 
-BOOL WINAPI Windows_Hook::MyGetClipCursor(RECT* lpRect)
+BOOL WINAPI Windows_Hook::_MyGetClipCursor(RECT* lpRect)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     if (lpRect == nullptr || !inst->_Initialized || !inst->_ApplicationInputsHidden)
@@ -468,7 +470,7 @@ BOOL WINAPI Windows_Hook::MyGetClipCursor(RECT* lpRect)
     return TRUE;
 }
 
-BOOL WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
+BOOL WINAPI Windows_Hook::_MyClipCursor(CONST RECT* lpRect)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     CONST RECT* v = lpRect == nullptr ? &inst->_DefaultClipCursor : lpRect;
@@ -481,7 +483,7 @@ BOOL WINAPI Windows_Hook::MyClipCursor(CONST RECT* lpRect)
     return inst->_ClipCursor(&inst->_DefaultClipCursor);
 }
 
-BOOL WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
+BOOL WINAPI Windows_Hook::_MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -502,7 +504,7 @@ BOOL WINAPI Windows_Hook::MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterM
     return res;
 }
 
-BOOL WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
+BOOL WINAPI Windows_Hook::_MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -523,7 +525,7 @@ BOOL WINAPI Windows_Hook::MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterM
     return res;
 }
 
-BOOL WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
+BOOL WINAPI Windows_Hook::_MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -550,7 +552,7 @@ BOOL WINAPI Windows_Hook::MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilter
     return res;
 }
 
-BOOL WINAPI Windows_Hook::MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
+BOOL WINAPI Windows_Hook::_MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     Windows_Hook* inst = Windows_Hook::Inst();
     // Force filters to 0 ?
@@ -612,3 +614,5 @@ std::string Windows_Hook::GetLibraryName() const
 {
     return LibraryName;
 }
+
+}//namespace InGameOverlay

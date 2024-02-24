@@ -17,41 +17,18 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "Base_Hook.h"
+#pragma once
 
-#include <algorithm>
-#include <mini_detour/mini_detour.h>
+#include <future>
+#include <chrono>
+#include <memory>
 
-Base_Hook::Base_Hook()
-{}
+#include "RendererHook.h"
 
-Base_Hook::~Base_Hook()
-{
-    UnhookAll();
-}
+namespace InGameOverlay {
 
-void Base_Hook::BeginHook()
-{
-    //mini_detour::transaction_begin();
-}
+std::future<RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 });
+void StopRendererDetection();
+void FreeDetector();
 
-void Base_Hook::EndHook()
-{
-    //mini_detour::transaction_commit();
-}
-
-void Base_Hook::HookFunc(std::pair<void**, void*> hook)
-{
-    mini_detour::hook md_hook;
-    void* res = md_hook.hook_func(*hook.first, hook.second);
-    if (res != nullptr)
-    {
-        _hooked_funcs.emplace_back(std::move(md_hook));
-        *hook.first = res;
-    }
-}
-
-void Base_Hook::UnhookAll()
-{
-    _hooked_funcs.clear();
 }

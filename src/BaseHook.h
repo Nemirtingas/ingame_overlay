@@ -24,25 +24,25 @@
 #include <utility>
 #include <mini_detour/mini_detour.h>
 
-class Base_Hook
+class BaseHook_t
 {
 protected:
-    std::vector<mini_detour::hook> _hooked_funcs;
+    std::vector<mini_detour::hook> _HookedFunctions;
 
-    Base_Hook(const Base_Hook&) = delete;
-    Base_Hook(Base_Hook&&) = delete;
-    Base_Hook& operator =(const Base_Hook&) = delete;
-    Base_Hook& operator =(Base_Hook&&) = delete;
+    BaseHook_t(const BaseHook_t&) = delete;
+    BaseHook_t(BaseHook_t&&) = delete;
+    BaseHook_t& operator =(const BaseHook_t&) = delete;
+    BaseHook_t& operator =(BaseHook_t&&) = delete;
 
 public:
-    Base_Hook();
-    virtual ~Base_Hook();
+    BaseHook_t();
+    virtual ~BaseHook_t();
 
     void BeginHook();
     void EndHook();
     void UnhookAll();
 
-    void HookFunc(std::pair<void**, void*> hook);
+    bool HookFunc(std::pair<void**, void*> hook);
 
     template<typename T>
     void HookFuncs(std::pair<T*, T> funcs)

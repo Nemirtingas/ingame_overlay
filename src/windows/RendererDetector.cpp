@@ -19,7 +19,7 @@
 
 #include <cassert>
 
-#include <ingame_overlay/Renderer_Detector.h>
+#include <InGameOverlay/RendererDetector.h>
 
 #include <System/Encoding.hpp>
 #include <System/String.hpp>
@@ -31,127 +31,140 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
-#include "DX12_Hook.h"
-#include "DX11_Hook.h"
-#include "DX10_Hook.h"
-#include "DX9_Hook.h"
-#include "OpenGL_Hook.h"
-#include "Vulkan_Hook.h"
+#include "DX12Hook.h"
+#include "DX11Hook.h"
+#include "DX10Hook.h"
+#include "DX9Hook.h"
+#include "OpenGLHook.h"
+#include "VulkanHook.h"
   
-#include "DirectX_VTables.h"
+#include "DirectXVTables.h"
   
 #include <random>
+
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+
+#include <spdlog/sinks/dist_sink.h>
+#include <spdlog/sinks/msvc_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+#endif
   
 #ifdef GetModuleHandle
     #undef GetModuleHandle
 #endif
 
-class Renderer_Detector
+#define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, HOOK))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
+
+namespace InGameOverlay {
+
+class RendererDetector_t
 {
-    static Renderer_Detector* instance;
+    static RendererDetector_t* _Instance;
 public:
-    static Renderer_Detector* Inst()
+    static RendererDetector_t* Inst()
     {
-        if (instance == nullptr)
+        if (_Instance == nullptr)
         {
-            instance = new Renderer_Detector;
+            _Instance = new RendererDetector_t;
         }
-        return instance;
+        return _Instance;
     }
 
-    ~Renderer_Detector()
+    ~RendererDetector_t()
     {
-        stop_detection();
+        StopDetection();
 
-        delete dx9_hook;
-        delete dx10_hook;
-        delete dx11_hook;
-        delete dx12_hook;
-        delete opengl_hook;
-        delete vulkan_hook;
+        delete _DX9Hook;
+        delete _DX10Hook;
+        delete _DX11Hook;
+        delete _DX12Hook;
+        delete _OpenGLHook;
+        delete _VulkanHook;
 
-        instance = nullptr;
+        _Instance = nullptr;
     }
 
 private:
-    std::timed_mutex detector_mutex;
-    std::mutex renderer_mutex;
+    std::timed_mutex _DetectorMutex;
+    std::mutex _RendererMutex;
 
-    Base_Hook detection_hooks;
-    ingame_overlay::Renderer_Hook* renderer_hook;
+    BaseHook_t _DetectionHooks;
+    InGameOverlay::RendererHook_t* _RendererHook;
 
-    bool detection_done;
-    uint32_t detection_count;
-    bool detection_cancelled;
-    std::condition_variable stop_detection_cv;
-    std::mutex stop_detection_mutex;
+    bool _DetectionDone;
+    uint32_t _DetectionCount;
+    bool _DetectionCancelled;
+    std::condition_variable _StopDetectionConditionVariable;
+    std::mutex _StopDetectionMutex;
 
-    decltype(&IDXGISwapChain::Present)       IDXGISwapChainPresent;
-    decltype(&IDXGISwapChain1::Present1)     IDXGISwapChainPresent1;
-    decltype(&IDirect3DDevice9::Present)     IDirect3DDevice9Present;
-    decltype(&IDirect3DDevice9Ex::PresentEx) IDirect3DDevice9ExPresentEx;
-    decltype(&IDirect3DSwapChain9::Present)  IDirect3DSwapChain9Present;
-    decltype(::SwapBuffers)* wglSwapBuffers;
-    decltype(::vkQueuePresentKHR)* vkQueuePresentKHR;
+    decltype(&IDXGISwapChain::Present)       _IDXGISwapChainPresent;
+    decltype(&IDXGISwapChain1::Present1)     _IDXGISwapChain1Present1;
+    decltype(&IDirect3DDevice9::Present)     _IDirect3DDevice9Present;
+    decltype(&IDirect3DDevice9Ex::PresentEx) _IDirect3DDevice9ExPresentEx;
+    decltype(&IDirect3DSwapChain9::Present)  _IDirect3DSwapChain9Present;
+    decltype(::SwapBuffers)* _WGLSwapBuffers;
+    decltype(::vkQueuePresentKHR)* _VkQueuePresentKHR;
 
-    bool dxgi_hooked;
-    bool dxgi1_2_hooked;
-    bool dx12_hooked;
-    bool dx11_hooked;
-    bool dx10_hooked;
-    bool dx9_hooked;
-    bool opengl_hooked;
-    bool vulkan_hooked;
+    bool _DXGIHooked;
+    bool _DXGI1_2Hooked;
+    bool _DX12Hooked;
+    bool _DX11Hooked;
+    bool _DX10Hooked;
+    bool _DX9Hooked;
+    bool _OpenGLHooked;
+    bool _VulkanHooked;
 
-    DX12_Hook* dx12_hook;
-    DX11_Hook* dx11_hook;
-    DX10_Hook* dx10_hook;
-    DX9_Hook* dx9_hook;
-    OpenGL_Hook* opengl_hook;
-    Vulkan_Hook* vulkan_hook;
+    DX12Hook_t* _DX12Hook;
+    DX11Hook_t* _DX11Hook;
+    DX10Hook_t* _DX10Hook;
+    DX9Hook_t* _DX9Hook;
+    OpenGLHook_t* _OpenGLHook;
+    VulkanHook_t* _VulkanHook;
 
-    HWND dummyWindow = nullptr;
-    std::wstring _WindowClassName;
-    std::string _SystemDir;
-    ATOM atom = 0;
+    std::string _SystemDirectory;
+    HWND _DummyWindowHandle = nullptr;
+    std::wstring _DummyWindowClassName;
+    ATOM _DummyWindowAtom = 0;
 
-    Renderer_Detector() :
-        dxgi_hooked(false),
-        dxgi1_2_hooked(false),
-        dx12_hooked(false),
-        dx11_hooked(false),
-        dx10_hooked(false),
-        dx9_hooked(false),
-        opengl_hooked(false),
-        vulkan_hooked(false),
-        renderer_hook(nullptr),
-        dx9_hook(nullptr),
-        dx10_hook(nullptr),
-        dx11_hook(nullptr),
-        dx12_hook(nullptr),
-        opengl_hook(nullptr),
-        vulkan_hook(nullptr),
-        detection_done(false),
-        detection_count(0),
-        detection_cancelled(false)
+    RendererDetector_t() :
+        _DXGIHooked(false),
+        _DXGI1_2Hooked(false),
+        _DX12Hooked(false),
+        _DX11Hooked(false),
+        _DX10Hooked(false),
+        _DX9Hooked(false),
+        _OpenGLHooked(false),
+        _VulkanHooked(false),
+        _RendererHook(nullptr),
+        _DX9Hook(nullptr),
+        _DX10Hook(nullptr),
+        _DX11Hook(nullptr),
+        _DX12Hook(nullptr),
+        _OpenGLHook(nullptr),
+        _VulkanHook(nullptr),
+        _DetectionDone(false),
+        _DetectionCount(0),
+        _DetectionCancelled(false)
     {
         std::wstring tmp(4096, L'\0');
-        tmp.resize(GetSystemDirectoryW(&tmp[0], tmp.size()));
-        _SystemDir = System::Encoding::WCharToUtf8(tmp);
+        tmp.resize(GetSystemDirectoryW(&tmp[0], static_cast<UINT>(tmp.size())));
+        _SystemDirectory = System::Encoding::WCharToUtf8(tmp);
 
-        System::String::ToLower(_SystemDir);
+        System::String::ToLower(_SystemDirectory);
 
         wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         std::random_device rd;
         std::mt19937_64 gen(rd());
 
         std::uniform_int_distribution<uint32_t> dis(0, 61);
-        _WindowClassName.resize(64);
+        _DummyWindowClassName.resize(64);
         for (int i = 0; i < 64; ++i)
-            _WindowClassName[i] = random_str[dis(gen)];
+            _DummyWindowClassName[i] = random_str[dis(gen)];
     }
 
-    std::string FindPreferedModulePath(std::string const& name)
+    std::string _FindPreferedModulePath(std::string const& name)
     {
         std::string res;
         std::string tmp;
@@ -161,7 +174,7 @@ private:
             tmp = System::String::CopyLower(item);
             if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
             {
-                if (strncmp(tmp.c_str(), _SystemDir.c_str(), _SystemDir.length()) == 0)
+                if (strncmp(tmp.c_str(), _SystemDirectory.c_str(), _SystemDirectory.length()) == 0)
                     return item;
 
                 // I don't care which one is picked if we can't find a library in the system32 folder...
@@ -172,12 +185,12 @@ private:
         return res;
     }
 
-    HWND CreateHWND()
+    HWND _CreateHWND()
     {
-        if (dummyWindow == nullptr)
+        if (_DummyWindowHandle == nullptr)
         {
             HINSTANCE hInst = GetModuleHandleW(nullptr);
-            if (atom == 0)
+            if (_DummyWindowAtom == 0)
             {
                 // Register a window class for creating our render window with.
                 WNDCLASSEXW windowClass = {};
@@ -192,17 +205,17 @@ private:
                 windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
                 windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
                 windowClass.lpszMenuName = NULL;
-                windowClass.lpszClassName = _WindowClassName.c_str();
+                windowClass.lpszClassName = _DummyWindowClassName.c_str();
                 windowClass.hIconSm = NULL;
 
-                atom = ::RegisterClassExW(&windowClass);
+                _DummyWindowAtom = ::RegisterClassExW(&windowClass);
             }
 
-            if (atom > 0)
+            if (_DummyWindowAtom > 0)
             {
-                dummyWindow = ::CreateWindowExW(
+                _DummyWindowHandle = ::CreateWindowExW(
                     NULL,
-                    _WindowClassName.c_str(),
+                    _DummyWindowClassName.c_str(),
                     L"",
                     WS_OVERLAPPEDWINDOW,
                     0,
@@ -215,49 +228,49 @@ private:
                     nullptr
                 );
 
-                assert(dummyWindow && "Failed to create window");
+                assert(_DummyWindowHandle && "Failed to create window");
             }
         }
 
-        return dummyWindow;
+        return _DummyWindowHandle;
     }
 
-    void DestroyHWND()
+    void _DestroyHWND()
     {
-        if (dummyWindow != nullptr)
+        if (_DummyWindowHandle != nullptr)
         {
-            DestroyWindow(dummyWindow);
-            UnregisterClassW(_WindowClassName.c_str(), GetModuleHandleW(nullptr));
+            DestroyWindow(_DummyWindowHandle);
+            UnregisterClassW(_DummyWindowClassName.c_str(), GetModuleHandleW(nullptr));
 
-            dummyWindow = nullptr;
-            atom = 0;
+            _DummyWindowHandle = nullptr;
+            _DummyWindowAtom = 0;
         }
     }
 
     template<typename T>
-    void HookDetected(T*& detected_renderer)
+    void _HookDetected(T*& detected_renderer)
     {
-        detection_hooks.UnhookAll();
-        renderer_hook = static_cast<ingame_overlay::Renderer_Hook*>(detected_renderer);
+        _DetectionHooks.UnhookAll();
+        _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(detected_renderer);
         detected_renderer = nullptr;
-        detection_done = true;
-        DestroyHWND();
+        _DetectionDone = true;
+        _DestroyHWND();
     }
 
-    void DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
+    void _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
     {
         IUnknown* pDevice = nullptr;
-        if (Inst()->dx12_hooked)
+        if (Inst()->_DX12Hooked)
         {
             pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D12Device**>(&pDevice)));
         }
         if (pDevice != nullptr)
         {
-            HookDetected(dx12_hook);
+            _HookDetected(_DX12Hook);
         }
         else
         {
-            if (dx11_hooked)
+            if (_DX11Hooked)
             {
                 pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&pDevice)));
                 if (pDevice != nullptr)
@@ -275,17 +288,17 @@ private:
             }
             if (pDevice != nullptr)
             {
-                HookDetected(dx11_hook);
+                _HookDetected(_DX11Hook);
             }
             else
             {
-                if (dx10_hooked)
+                if (_DX10Hooked)
                 {
                     pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D10Device**>(&pDevice)));
                 }
                 if (pDevice != nullptr)
                 {
-                    HookDetected(dx10_hook);
+                    _HookDetected(_DX10Hook);
                 }
             }
         }
@@ -295,152 +308,148 @@ private:
         }
     }
 
-    static HRESULT STDMETHODCALLTYPE MyIDXGISwapChain_Present(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags)
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags)
     {
         auto inst = Inst();
         HRESULT res;
-        bool locked;
-        std::unique_lock<std::mutex> lk(inst->renderer_mutex, std::defer_lock);
-
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        locked = lk.try_lock();
-        res = (_this->*inst->IDXGISwapChainPresent)(SyncInterval, Flags);
-        if (!locked || inst->detection_done)
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+
+        res = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->DeduceDXVersionFromSwapChain(_this);
+        inst->_DeduceDXVersionFromSwapChain(_this);
 
         return res;
     }
 
-    static HRESULT STDMETHODCALLTYPE MyIDXGISwapChain_Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
     {
         auto inst = Inst();
         HRESULT res;
-        bool locked;
-        std::unique_lock<std::mutex> lk(inst->renderer_mutex, std::defer_lock);
-
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        locked = lk.try_lock();
-        res = (_this->*inst->IDXGISwapChainPresent1)(SyncInterval, Flags, pPresentParameters);
-        if (!locked || inst->detection_done)
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+
+        res = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->DeduceDXVersionFromSwapChain(_this);
+        inst->_DeduceDXVersionFromSwapChain(_this);
 
         return res;
     }
 
-    static HRESULT STDMETHODCALLTYPE MyDX9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
+    static HRESULT STDMETHODCALLTYPE _MyDX9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        auto res = (_this->*inst->IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-        if (inst->detection_done)
+        auto res = (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->HookDetected(inst->dx9_hook);
+        inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
 
-    static HRESULT STDMETHODCALLTYPE MyDX9PresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+    static HRESULT STDMETHODCALLTYPE _MyDX9PresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        auto res = (_this->*inst->IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->detection_done)
+        auto res = (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->HookDetected(inst->dx9_hook);
+        inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
 
-    static HRESULT STDMETHODCALLTYPE MyDX9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+    static HRESULT STDMETHODCALLTYPE _MyDX9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        auto res = (_this->*inst->IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->detection_done)
+        auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->HookDetected(inst->dx9_hook);
+        inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
 
-    static BOOL WINAPI MywglSwapBuffers(HDC hDC)
+    static BOOL WINAPI _MyWGLSwapBuffers(HDC hDC)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        auto res = inst->wglSwapBuffers(hDC);
-        if (inst->detection_done)
+        auto res = inst->_WGLSwapBuffers(hDC);
+        if (inst->_DetectionDone)
             return res;
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
         {
-            inst->HookDetected(inst->opengl_hook);
+            inst->_HookDetected(inst->_OpenGLHook);
         }
 
         return res;
     }
 
-    static VkResult VKAPI_CALL MyvkQueuePresentKHR(VkQueue Queue, const VkPresentInfoKHR* pPresentInfo)
+    static VkResult VKAPI_CALL _MyVkQueuePresentKHR(VkQueue Queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->renderer_mutex);
+        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        auto res = inst->vkQueuePresentKHR(Queue, pPresentInfo);
-        if (inst->detection_done)
+        auto res = inst->_VkQueuePresentKHR(Queue, pPresentInfo);
+        if (inst->_DetectionDone)
             return res;
 
-        inst->HookDetected(inst->vulkan_hook);
+        inst->_HookDetected(inst->_VulkanHook);
 
         return res;
     }
 
-    void HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
+    void _HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
     {
         void** vTable = *reinterpret_cast<void***>(pSwapChain);
         (void*&)pfnPresent = vTable[(int)IDXGISwapChainVTable::Present];
         (void*&)pfnResizeBuffers = vTable[(int)IDXGISwapChainVTable::ResizeBuffers];
         (void*&)pfnResizeTarget = vTable[(int)IDXGISwapChainVTable::ResizeTarget];
 
-        if (!dxgi_hooked)
+        if (!_DXGIHooked)
         {
-            dxgi_hooked = true;
+            _DXGIHooked = true;
 
-            (void*&)IDXGISwapChainPresent = vTable[(int)IDXGISwapChainVTable::Present];
-            detection_hooks.BeginHook();
-            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDXGISwapChainPresent, (void*)&MyIDXGISwapChain_Present});
-            detection_hooks.EndHook();
+            (void*&)_IDXGISwapChainPresent = vTable[(int)IDXGISwapChainVTable::Present];
+            _DetectionHooks.BeginHook();
+            TRY_HOOK_FUNCTION(_IDXGISwapChainPresent, &RendererDetector_t::_MyIDXGISwapChainPresent);
+            _DetectionHooks.EndHook();
         }
     }
 
-    void HookDXGIPresent1(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain1::Present1)& pfnPresent1)
+    void _HookDXGIPresent1(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain1::Present1)& pfnPresent1)
     {
         void** vTable = *reinterpret_cast<void***>(pSwapChain1);
         (void*&)pfnPresent1 = vTable[(int)IDXGISwapChainVTable::Present1];
 
-        if (!dxgi1_2_hooked)
+        if (!_DXGI1_2Hooked)
         {
-            dxgi1_2_hooked = true;
+            _DXGI1_2Hooked = true;
 
-            (void*&)IDXGISwapChainPresent1 = vTable[(int)IDXGISwapChainVTable::Present1];
-            detection_hooks.BeginHook();
-            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDXGISwapChainPresent1, (void*)&MyIDXGISwapChain_Present1});
-            detection_hooks.EndHook();
+            (void*&)_IDXGISwapChain1Present1 = vTable[(int)IDXGISwapChainVTable::Present1];
+            _DetectionHooks.BeginHook();
+            TRY_HOOK_FUNCTION(_IDXGISwapChain1Present1, &RendererDetector_t::_MyIDXGISwapChainPresent1);
+            _DetectionHooks.EndHook();
         }
     }
 
-    void GetDXGISwapChain3Methods(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain3::ResizeBuffers1)& pfnResizeBuffer1)
+    void _GetDXGISwapChain3Methods(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain3::ResizeBuffers1)& pfnResizeBuffer1)
     {
         IDXGISwapChain3* pSwapChain3;
 
@@ -453,7 +462,7 @@ private:
         }
     }
 
-    void HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
+    void _HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
         void*& pfnPresent,
         void*& pfnReset,
         void*& pfnPresentEx,
@@ -463,36 +472,36 @@ private:
         pfnPresent = vTable[(int)IDirect3DDevice9VTable::Present];
         pfnReset = vTable[(int)IDirect3DDevice9VTable::Reset];
 
-        (void*&)IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
+        (void*&)_IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
 
-        detection_hooks.BeginHook();
-        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9Present, (void*)&MyDX9Present });
-        detection_hooks.EndHook();
+        _DetectionHooks.BeginHook();
+        TRY_HOOK_FUNCTION(_IDirect3DDevice9Present, &RendererDetector_t::_MyDX9Present);
+        _DetectionHooks.EndHook();
 
         if (ex)
         {
             pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
-            (void*&)IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
+            (void*&)_IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
 
-            detection_hooks.BeginHook();
-            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DDevice9ExPresentEx, (void*)&MyDX9PresentEx });
-            detection_hooks.EndHook();
+            _DetectionHooks.BeginHook();
+            TRY_HOOK_FUNCTION(_IDirect3DDevice9ExPresentEx, &RendererDetector_t::_MyDX9PresentEx);
+            _DetectionHooks.EndHook();
         }
         else
         {
             pfnPresentEx = nullptr;
-            IDirect3DDevice9ExPresentEx = nullptr;
+            _IDirect3DDevice9ExPresentEx = nullptr;
         }
 
         if (pSwapChain != nullptr)
         {
             vTable = *reinterpret_cast<void***>(pSwapChain);
             pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
-            (void*&)IDirect3DSwapChain9Present = vTable[(int)IDirect3DSwapChain9VTable::Present];
+            (void*&)_IDirect3DSwapChain9Present = vTable[(int)IDirect3DSwapChain9VTable::Present];
 
-            detection_hooks.BeginHook();
-            detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&IDirect3DSwapChain9Present, (void*)&MyDX9SwapChainPresent });
-            detection_hooks.EndHook();
+            _DetectionHooks.BeginHook();
+            TRY_HOOK_FUNCTION(_IDirect3DSwapChain9Present, &RendererDetector_t::_MyDX9SwapChainPresent);
+            _DetectionHooks.EndHook();
         }
         else
         {
@@ -500,29 +509,29 @@ private:
         }
     }
 
-    void HookwglSwapBuffers(decltype(::SwapBuffers)* _wglSwapBuffers)
+    void _HookWGLSwapBuffers(decltype(::SwapBuffers)* __WGLSwapBuffers)
     {
-        wglSwapBuffers = _wglSwapBuffers;
+        _WGLSwapBuffers = __WGLSwapBuffers;
 
-        detection_hooks.BeginHook();
-        detection_hooks.HookFunc(std::pair<void**, void*>{ (void**)&wglSwapBuffers, (void*)&MywglSwapBuffers });
-        detection_hooks.EndHook();
+        _DetectionHooks.BeginHook();
+        TRY_HOOK_FUNCTION(_WGLSwapBuffers, &RendererDetector_t::_MyWGLSwapBuffers);
+        _DetectionHooks.EndHook();
     }
 
-    void HookvkQueuePresentKHR(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
+    void _HookVkQueuePresentKHR(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
     {
-        vkQueuePresentKHR = _vkQueuePresentKHR;
+        _VkQueuePresentKHR = _vkQueuePresentKHR;
 
-        detection_hooks.BeginHook();
-        detection_hooks.HookFuncs(
-            std::pair<void**, void*>{ (void**)&vkQueuePresentKHR, (void*)&MyvkQueuePresentKHR }
+        _DetectionHooks.BeginHook();
+        _DetectionHooks.HookFuncs(
+            std::pair<void**, void*>{ (void**)&_VkQueuePresentKHR, (void*)&_MyVkQueuePresentKHR }
         );
-        detection_hooks.EndHook();
+        _DetectionHooks.EndHook();
     }
 
-    void hook_dx9(std::string const& library_path)
+    void _HookDX9(std::string const& library_path)
     {
-        if (!dx9_hooked)
+        if (!_DX9Hooked)
         {
             System::Library::Library libD3d9;
             if (!libD3d9.OpenLibrary(library_path, false))
@@ -540,7 +549,7 @@ private:
             D3DPRESENT_PARAMETERS params = {};
             params.BackBufferWidth = 1;
             params.BackBufferHeight = 1;
-            params.hDeviceWindow = dummyWindow;
+            params.hDeviceWindow = _DummyWindowHandle;
             params.BackBufferCount = 1;
             params.Windowed = TRUE;
             params.SwapEffect = D3DSWAPEFFECT_DISCARD;
@@ -567,7 +576,7 @@ private:
             {
                 SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
 
-                dx9_hooked = true;
+                _DX9Hooked = true;
 
                 pDevice->GetSwapChain(0, &pSwapChain);
 
@@ -576,11 +585,11 @@ private:
                 decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
                 decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
 
-                HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnSwapChainPresent);
+                _HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnSwapChainPresent);
 
-                dx9_hook = DX9_Hook::Inst();
-                dx9_hook->LibraryName = library_path;
-                dx9_hook->LoadFunctions(pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
+                _DX9Hook = DX9Hook_t::Inst();
+                _DX9Hook->LibraryName = library_path;
+                _DX9Hook->LoadFunctions(pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
             }
             else
             {
@@ -593,9 +602,9 @@ private:
         }
     }
 
-    void hook_dx10(std::string const& library_path)
+    void _HookDX10(std::string const& library_path)
     {
-        if (!dx10_hooked)
+        if (!_DX10Hooked)
         {
             System::Library::Library libD3d10;
             if (!libD3d10.OpenLibrary(library_path, false))
@@ -603,7 +612,7 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX10", library_path);
                 return;
             }
-            std::string dxgi_path = FindPreferedModulePath("dxgi.dll");
+            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
 
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D10Device* pDevice = nullptr;
@@ -639,7 +648,7 @@ private:
                                 SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
                                 SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 
-                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, dummyWindow, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
+                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
                             }
                         }
                     }
@@ -669,7 +678,7 @@ private:
                     SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
                     SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
                     SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = dummyWindow;
+                    SwapChainDesc.OutputWindow = _DummyWindowHandle;
                     SwapChainDesc.SampleDesc.Count = 1;
                     SwapChainDesc.SampleDesc.Quality = 0;
                     SwapChainDesc.Windowed = TRUE;
@@ -682,22 +691,22 @@ private:
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
-                dx10_hooked = true;
+                _DX10Hooked = true;
 
                 decltype(&IDXGISwapChain::Present) pfnPresent;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
 
-                HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
+                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 if (version > 0)
                 {
-                    HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
+                    _HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
                 }
 
-                dx10_hook = DX10_Hook::Inst();
-                dx10_hook->LibraryName = library_path;
-                dx10_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX10Hook = DX10Hook_t::Inst();
+                _DX10Hook->LibraryName = library_path;
+                _DX10Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -708,9 +717,9 @@ private:
         }
     }
 
-    void hook_dx11(std::string const& library_path)
+    void _HookDX11(std::string const& library_path)
     {
-        if (!dx11_hooked)
+        if (!_DX11Hooked)
         {
             System::Library::Library libD3d11;
             if (!libD3d11.OpenLibrary(library_path, false))
@@ -718,7 +727,7 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX11", library_path);
                 return;
             }
-            std::string dxgi_path = FindPreferedModulePath("dxgi.dll");
+            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
 
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D11Device* pDevice = nullptr;
@@ -754,7 +763,7 @@ private:
                                 SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
                                 SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 
-                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, dummyWindow, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
+                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
                             }
                         }
                     }
@@ -784,7 +793,7 @@ private:
                     SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
                     SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
                     SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = dummyWindow;
+                    SwapChainDesc.OutputWindow = _DummyWindowHandle;
                     SwapChainDesc.SampleDesc.Count = 1;
                     SwapChainDesc.SampleDesc.Quality = 0;
                     SwapChainDesc.Windowed = TRUE;
@@ -797,22 +806,22 @@ private:
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
-                dx11_hooked = true;
+                _DX11Hooked = true;
 
                 decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
 
-                HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
+                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 if (version > 0)
                 {
-                    HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
+                    _HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
                 }
 
-                dx11_hook = DX11_Hook::Inst();
-                dx11_hook->LibraryName = library_path;
-                dx11_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX11Hook = DX11Hook_t::Inst();
+                _DX11Hook->LibraryName = library_path;
+                _DX11Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -824,9 +833,9 @@ private:
         }
     }
 
-    void hook_dx12(std::string const& library_path)
+    void _HookDX12(std::string const& library_path)
     {
-        if (!dx12_hooked)
+        if (!_DX12Hooked)
         {
             System::Library::Library libD3d12;
             if (!libD3d12.OpenLibrary(library_path, false))
@@ -834,7 +843,7 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
                 return;
             }
-            std::string dxgi_path = FindPreferedModulePath("dxgi.dll");
+            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
             if (dxgi_path.empty())
             {
                 SPDLOG_WARN("Failed to load dxgi.dll to detect DX12");
@@ -882,7 +891,7 @@ private:
                                 CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
                                 if (pDXGIFactory != nullptr)
                                 {
-                                    pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, dummyWindow, &SwapChainDesc, NULL, NULL, &pSwapChain);
+                                    pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, &pSwapChain);
                                 }
                             }
                         }
@@ -894,7 +903,7 @@ private:
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
-                dx12_hooked = true;
+                _DX12Hooked = true;
 
                 decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
@@ -902,17 +911,17 @@ private:
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
                 decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1 = nullptr;
 
-                HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
-                HookDXGIPresent1(pSwapChain, pfnPresent1);
-                GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
+                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
+                _HookDXGIPresent1(pSwapChain, pfnPresent1);
+                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
 
                 void** vTable = *reinterpret_cast<void***>(pCommandQueue);
                 decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists;
                 (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
 
-                dx12_hook = DX12_Hook::Inst();
-                dx12_hook->LibraryName = library_path;
-                dx12_hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
+                _DX12Hook = DX12Hook_t::Inst();
+                _DX12Hook->LibraryName = library_path;
+                _DX12Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
             }
             else
             {
@@ -926,9 +935,9 @@ private:
         }
     }
 
-    void hook_opengl(std::string const& library_path)
+    void _HookOpenGL(std::string const& library_path)
     {
-        if (!opengl_hooked)
+        if (!_OpenGLHooked)
         {
             System::Library::Library libOpenGL;
             if (!libOpenGL.OpenLibrary(library_path, false))
@@ -937,31 +946,31 @@ private:
                 return;
             }
 
-            auto wglSwapBuffers = libOpenGL.GetSymbol<decltype(::SwapBuffers)>("wglSwapBuffers");
-            if (wglSwapBuffers != nullptr)
+            auto _WGLSwapBuffers = libOpenGL.GetSymbol<decltype(::SwapBuffers)>("wglSwapBuffers");
+            if (_WGLSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
+                SPDLOG_INFO("Hooked _WGLSwapBuffers to detect OpenGL");
 
-                opengl_hooked = true;
+                _OpenGLHooked = true;
 
-                opengl_hook = OpenGL_Hook::Inst();
-                opengl_hook->LibraryName = library_path;
-                opengl_hook->LoadFunctions(wglSwapBuffers);
+                _OpenGLHook = OpenGLHook_t::Inst();
+                _OpenGLHook->LibraryName = library_path;
+                _OpenGLHook->LoadFunctions(_WGLSwapBuffers);
 
-                HookwglSwapBuffers(wglSwapBuffers);
+                _HookWGLSwapBuffers(_WGLSwapBuffers);
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
+                SPDLOG_WARN("Failed to Hook _WGLSwapBuffers to detect OpenGL");
             }
         }
     }
 
-    void hook_vulkan(std::string const& library_path)
+    void _HookVulkan(std::string const& library_path)
     {
         // Vulkan hook disabled until proper implementation.
         return;
-        if (!vulkan_hooked)
+        if (!_VulkanHooked)
         {
             System::Library::Library libVulkan;
             if (!libVulkan.OpenLibrary(library_path, false))
@@ -1016,11 +1025,11 @@ private:
 
                         for (auto& ext : ext_props)
                         {
-                            if (strcmp(ext.extensionName, "VK_KHR_swapchain") == 0)
+                            if (strcmp(ext.extensionName, "Vk_KHR_swapchain") == 0)
                             {
                                 create_info.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
                                 create_info.enabledExtensionCount = 1;
-                                const char* str = "VK_KHR_swapchain";
+                                const char* str = "Vk_KHR_swapchain";
                                 create_info.ppEnabledExtensionNames = &str;
                                 vkCreateDevice(device, &create_info, nullptr, &pDevice);
                                 if (pDevice != nullptr)
@@ -1044,13 +1053,13 @@ private:
             {
                 SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
 
-                vulkan_hooked = true;
+                _VulkanHooked = true;
 
-                vulkan_hook = Vulkan_Hook::Inst();
-                vulkan_hook->LibraryName = library_path;
-                vulkan_hook->LoadFunctions(vkQueuePresentKHR);
+                _VulkanHook = VulkanHook_t::Inst();
+                _VulkanHook->LibraryName = library_path;
+                _VulkanHook->LoadFunctions(vkQueuePresentKHR);
 
-                HookvkQueuePresentKHR(vkQueuePresentKHR);
+                _HookVkQueuePresentKHR(vkQueuePresentKHR);
             }
             else
             {
@@ -1059,69 +1068,69 @@ private:
         }
     }
 
-    bool EnterDetection()
+    bool _EnterDetection()
     {
-        return CreateHWND() != nullptr;
+        return _CreateHWND() != nullptr;
     }
 
-    void ExitDetection()
+    void _ExitDetection()
     {
-        DestroyHWND();
+        _DestroyHWND();
 
-        detection_done = true;
-        detection_hooks.UnhookAll();
+        _DetectionDone = true;
+        _DetectionHooks.UnhookAll();
 
-        dxgi_hooked    = false;
-        dxgi1_2_hooked = false;
-        dx12_hooked    = false;
-        dx11_hooked    = false;
-        dx10_hooked    = false;
-        dx9_hooked     = false;
-        opengl_hooked  = false;
-        vulkan_hooked  = false;
+        _DXGIHooked    = false;
+        _DXGI1_2Hooked = false;
+        _DX12Hooked    = false;
+        _DX11Hooked    = false;
+        _DX10Hooked    = false;
+        _DX9Hooked     = false;
+        _OpenGLHooked  = false;
+        _VulkanHooked  = false;
 
-        delete dx9_hook   ; dx9_hook    = nullptr;
-        delete dx10_hook  ; dx10_hook   = nullptr;
-        delete dx11_hook  ; dx11_hook   = nullptr;
-        delete dx12_hook  ; dx12_hook   = nullptr;
-        delete opengl_hook; opengl_hook = nullptr;
-        delete vulkan_hook; vulkan_hook = nullptr;
+        delete _DX9Hook   ; _DX9Hook    = nullptr;
+        delete _DX10Hook  ; _DX10Hook   = nullptr;
+        delete _DX11Hook  ; _DX11Hook   = nullptr;
+        delete _DX12Hook  ; _DX12Hook   = nullptr;
+        delete _OpenGLHook; _OpenGLHook = nullptr;
+        delete _VulkanHook; _VulkanHook = nullptr;
     }
 
 public:
-    std::future<ingame_overlay::Renderer_Hook*> detect_renderer(std::chrono::milliseconds timeout)
+    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
     {
-        std::lock_guard<std::mutex> lk(stop_detection_mutex);
+        std::lock_guard<std::mutex> lk(_StopDetectionMutex);
 
-        if (detection_count == 0)
+        if (_DetectionCount == 0)
         {// If we have no detections in progress, restart detection.
-            detection_cancelled = false;
+            _DetectionCancelled = false;
         }
 
-        ++detection_count;
+        ++_DetectionCount;
 
-        return std::async(std::launch::async, [this, timeout]() -> ingame_overlay::Renderer_Hook*
+        return std::async(std::launch::async, [this, timeout]() -> InGameOverlay::RendererHook_t*
         {
-            std::unique_lock<std::timed_mutex> detection_lock(detector_mutex, std::defer_lock);
+            std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
             constexpr std::chrono::milliseconds infinite_timeout{ -1 };
         
             if (!detection_lock.try_lock_for(timeout))
             {
-                --detection_count;
+                --_DetectionCount;
                 return nullptr;
             }
 
             bool cancel = false;
             {
-                System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
+                System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
 
-                if (!detection_cancelled)
+                if (!_DetectionCancelled)
                 {
-                    if (detection_done)
+                    if (_DetectionDone)
                     {
-                        if (renderer_hook == nullptr)
+                        if (_RendererHook == nullptr)
                         {// Renderer detection was run but we didn't find it, restart the detection
-                            detection_done = false;
+                            _DetectionDone = false;
                         }
                         else
                         {// Renderer already detected, cancel detection and return the renderer.
@@ -1129,7 +1138,7 @@ public:
                         }
                     }
 
-                    if (!EnterDetection())
+                    if (!_EnterDetection())
                         cancel = true;
                 }
                 else
@@ -1140,98 +1149,126 @@ public:
 
             if (cancel)
             {
-                --detection_count;
-                stop_detection_cv.notify_all();
-                return renderer_hook;
+                --_DetectionCount;
+                _StopDetectionConditionVariable.notify_all();
+                return _RendererHook;
             }
 
             SPDLOG_TRACE("Started renderer detection.");
 
-            std::pair<std::string, void(Renderer_Detector::*)(std::string const&)> libraries[]{
-                { OpenGL_Hook::DLL_NAME, &Renderer_Detector::hook_opengl },
-                { Vulkan_Hook::DLL_NAME, &Renderer_Detector::hook_vulkan },
-                {   DX12_Hook::DLL_NAME, &Renderer_Detector::hook_dx12   },
-                {   DX11_Hook::DLL_NAME, &Renderer_Detector::hook_dx11   },
-                {   DX10_Hook::DLL_NAME, &Renderer_Detector::hook_dx10   },
-                {    DX9_Hook::DLL_NAME, &Renderer_Detector::hook_dx9    },
+            std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
+                { OpenGLHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGL },
+                { VulkanHook_t::DLL_NAME, &RendererDetector_t::_HookVulkan },
+                {   DX12Hook_t::DLL_NAME, &RendererDetector_t::_HookDX12   },
+                {   DX11Hook_t::DLL_NAME, &RendererDetector_t::_HookDX11   },
+                {   DX10Hook_t::DLL_NAME, &RendererDetector_t::_HookDX10   },
+                {    DX9Hook_t::DLL_NAME, &RendererDetector_t::_HookDX9    },
             };
             std::string name;
 
             auto start_time = std::chrono::steady_clock::now();
             do
             {
-                std::unique_lock<std::mutex> lck(stop_detection_mutex);
-                if (detection_cancelled || detection_done)
+                std::unique_lock<std::mutex> lck(_StopDetectionMutex);
+                if (_DetectionCancelled || _DetectionDone)
                     break;
 
                 for (auto const& library : libraries)
                 {
-                    std::string lib_path = FindPreferedModulePath(library.first);
+                    std::string lib_path = _FindPreferedModulePath(library.first);
                     if (!lib_path.empty())
                     {
                         void* lib_handle = System::Library::GetLibraryHandle(lib_path.c_str());
                         if (lib_handle != nullptr)
                         {
-                            std::lock_guard<std::mutex> lk(renderer_mutex);
+                            std::lock_guard<std::mutex> lk(_RendererMutex);
                             (this->*library.second)(System::Library::GetLibraryPath(lib_handle));
                         }
                     }
                 }
 
-                stop_detection_cv.wait_for(lck, std::chrono::milliseconds{ 100 });
+                _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
             } while (timeout == infinite_timeout || (std::chrono::steady_clock::now() - start_time) <= timeout);
 
             {
-                System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
+                System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
                 
-                ExitDetection();
+                _ExitDetection();
 
-                --detection_count;
+                --_DetectionCount;
             }
-            stop_detection_cv.notify_all();
+            _StopDetectionConditionVariable.notify_all();
 
-            SPDLOG_TRACE("Renderer detection done {}.", (void*)renderer_hook);
+            SPDLOG_TRACE("Renderer detection done {}.", (void*)_RendererHook);
 
-            return renderer_hook;
+            return _RendererHook;
         });
     }
 
-    void stop_detection()
+    void StopDetection()
     {
         {
-            std::lock_guard<std::mutex> lk(stop_detection_mutex);
-            if (detection_count == 0)
+            std::lock_guard<std::mutex> lk(_StopDetectionMutex);
+            if (_DetectionCount == 0)
                 return;
         }
         {
-            System::scoped_lock lk(renderer_mutex, stop_detection_mutex);
-            detection_cancelled = true;
+            System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
+            _DetectionCancelled = true;
         }
-        stop_detection_cv.notify_all();
+        _StopDetectionConditionVariable.notify_all();
         {
-            std::unique_lock<std::mutex> lk(stop_detection_mutex);
-            stop_detection_cv.wait(lk, [&]() { return detection_count == 0; });
+            std::unique_lock<std::mutex> lk(_StopDetectionMutex);
+            _StopDetectionConditionVariable.wait(lk, [&]() { return _DetectionCount == 0; });
         }
     }
 };
 
-Renderer_Detector* Renderer_Detector::instance = nullptr;
+RendererDetector_t* RendererDetector_t::_Instance = nullptr;
 
-namespace ingame_overlay {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
 
-std::future<ingame_overlay::Renderer_Hook*> DetectRenderer(std::chrono::milliseconds timeout)
+static inline void SetupSpdLog()
+{   
+    static std::once_flag once;
+    std::call_once(once, []() {
+        auto sinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
+
+#if defined(SYSTEM_OS_WINDOWS) && defined(_DEBUG)
+        sinks->add_sink(std::make_shared<spdlog::sinks::msvc_sink_mt>());
+#endif
+
+        sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+
+        auto logger = std::make_shared<spdlog::logger>("emu_logger", sinks);
+
+        spdlog::register_logger(logger);
+
+        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
+        spdlog::set_level(spdlog::level::trace);
+        logger->flush_on(spdlog::level::trace);
+        spdlog::set_default_logger(logger);
+    });
+}
+
+#endif
+
+std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
 {
-    return Renderer_Detector::Inst()->detect_renderer(timeout);
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+    return RendererDetector_t::Inst()->DetectRenderer(timeout);
 }
 
 void StopRendererDetection()
 {
-    Renderer_Detector::Inst()->stop_detection();
+    RendererDetector_t::Inst()->StopDetection();
 }
 
 void FreeDetector()
 {
-    delete Renderer_Detector::Inst();
+    delete RendererDetector_t::Inst();
 }
 
-}
+}// namespace InGameOverlay

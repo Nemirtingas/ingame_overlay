@@ -19,12 +19,14 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
+
+namespace InGameOverlay {
 
 class Windows_Hook :
-    public Base_Hook
+    public BaseHook_t
 {
 public:
     static constexpr const char* DLL_NAME = "user32.dll";
@@ -72,19 +74,19 @@ private:
     decltype(::PeekMessageA)      *_PeekMessageA;
     decltype(::PeekMessageW)      *_PeekMessageW;
 
-    static UINT  WINAPI MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader);
-    static UINT  WINAPI MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
-    static SHORT WINAPI MyGetKeyState(int nVirtKey);
-    static SHORT WINAPI MyGetAsyncKeyState(int vKey);
-    static BOOL  WINAPI MyGetKeyboardState(PBYTE lpKeyState);
-    static BOOL  WINAPI MyGetCursorPos(LPPOINT lpPoint);
-    static BOOL  WINAPI MySetCursorPos(int X, int Y);
-    static BOOL  WINAPI MyGetClipCursor(RECT* lpRect);
-    static BOOL  WINAPI MyClipCursor(CONST RECT* lpRect);
-    static BOOL  WINAPI MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
-    static BOOL  WINAPI MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
-    static BOOL  WINAPI MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
-    static BOOL  WINAPI MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
+    static UINT  WINAPI _MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader);
+    static UINT  WINAPI _MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
+    static SHORT WINAPI _MyGetKeyState(int nVirtKey);
+    static SHORT WINAPI _MyGetAsyncKeyState(int vKey);
+    static BOOL  WINAPI _MyGetKeyboardState(PBYTE lpKeyState);
+    static BOOL  WINAPI _MyGetCursorPos(LPPOINT lpPoint);
+    static BOOL  WINAPI _MySetCursorPos(int X, int Y);
+    static BOOL  WINAPI _MyGetClipCursor(RECT* lpRect);
+    static BOOL  WINAPI _MyClipCursor(CONST RECT* lpRect);
+    static BOOL  WINAPI _MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
+    static BOOL  WINAPI _MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
+    static BOOL  WINAPI _MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
+    static BOOL  WINAPI _MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
 
     static short ImGuiGetKeyState(int nVirtKey);
 public:
@@ -96,9 +98,11 @@ public:
     void SetInitialWindowSize(HWND hWnd);
     bool PrepareForOverlay(HWND hWnd);
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static Windows_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };
+
+}//namespace InGameOverlay

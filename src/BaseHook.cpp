@@ -17,36 +17,42 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include "BaseHook.h"
 
-#include "Base_Hook.h"
+#include <algorithm>
+#include <mini_detour/mini_detour.h>
 
-#if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
+BaseHook_t::BaseHook_t()
+{}
 
-#include <windows.h>
-#ifdef GetModuleHandle
-#undef GetModuleHandle
-#endif
+BaseHook_t::~BaseHook_t()
+{
+    UnhookAll();
+}
 
-#endif
+void BaseHook_t::BeginHook()
+{
+    //mini_detour::transaction_begin();
+}
 
-#ifdef INGAMEOVERLAY_USE_SPDLOG
-#define SPDLOG_ACTIVE_LEVEL 0
-#include <spdlog/spdlog.h>
-#endif
+void BaseHook_t::EndHook()
+{
+    //mini_detour::transaction_commit();
+}
 
-#ifndef SPDLOG_TRACE
-#define SPDLOG_TRACE(...)
-#endif
-#ifndef SPDLOG_DEBUG
-#define SPDLOG_DEBUG(...)
-#endif
-#ifndef SPDLOG_INFO
-#define SPDLOG_INFO(...)
-#endif
-#ifndef SPDLOG_WARN
-#define SPDLOG_WARN(...)
-#endif
-#ifndef SPDLOG_ERROR
-#define SPDLOG_ERROR(...)
-#endif
+bool BaseHook_t::HookFunc(std::pair<void**, void*> hook)
+{
+    mini_detour::hook md_hook;
+    void* res = md_hook.hook_func(*hook.first, hook.second);
+    if (res == nullptr)
+        return false;
+
+    _HookedFunctions.emplace_back(std::move(md_hook));
+    *hook.first = res;
+    return true;
+}
+
+void BaseHook_t::UnhookAll()
+{
+    _HookedFunctions.clear();
+}

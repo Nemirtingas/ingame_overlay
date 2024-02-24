@@ -19,22 +19,24 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
 
-class DX12_Hook : 
-    public ingame_overlay::Renderer_Hook,
-    public Base_Hook
+namespace InGameOverlay {
+
+class DX12Hook_t : 
+    public RendererHook_t,
+    public BaseHook_t
 {
 public:
     static constexpr const char *DLL_NAME = "d3d12.dll";
 
 private:
-    static DX12_Hook* _inst;
+    static DX12Hook_t* _Instance;
 
     struct ID3D12DescriptorHeapWrapper_t
     {
@@ -128,20 +130,20 @@ private:
     bool _WindowsHooked;
     bool _Initialized;
 
-    size_t CommandQueueOffset;
-    ID3D12CommandQueue* pCmdQueue;
-    ID3D12Device* pDevice;
-    std::vector<DX12Frame_t> OverlayFrames;
-    std::vector<ID3D12DescriptorHeapWrapper_t> ShaderRessourceViewHeapDescriptors;
-    std::vector<ShaderRessourceViewHeap_t> ShaderRessourceViewHeaps;
-    ID3D12GraphicsCommandList* pCmdList;
+    size_t _CommandQueueOffset;
+    ID3D12CommandQueue* _CommandQueue;
+    ID3D12Device* _Device;
+    std::vector<DX12Frame_t> _OverlayFrames;
+    std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderRessourceViewHeapDescriptors;
+    std::vector<ShaderRessourceViewHeap_t> _ShaderRessourceViewHeaps;
+    ID3D12GraphicsCommandList* _CommandList;
     // Render Target View heap
-    ID3D12DescriptorHeap* pRtvDescHeap;
+    ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
-    DX12_Hook();
+    DX12Hook_t();
     
     bool _AllocShaderRessourceViewHeap();
     ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
@@ -154,40 +156,42 @@ private:
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
 
     // Hook to render functions
-    static HRESULT STDMETHODCALLTYPE MyPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
-    static HRESULT STDMETHODCALLTYPE MyResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
-    static HRESULT STDMETHODCALLTYPE MyResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
-    static HRESULT STDMETHODCALLTYPE MyPresent1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
-    static HRESULT STDMETHODCALLTYPE MyResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
-    static void    STDMETHODCALLTYPE MyExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
+    decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;
+    decltype(&IDXGISwapChain::ResizeBuffers)           _IDXGISwapChainResizeBuffers;
+    decltype(&IDXGISwapChain::ResizeTarget)            _IDXGISwapChainResizeTarget;
+    decltype(&IDXGISwapChain1::Present1)               _IDXGISwapChain1Present1;
+    decltype(&IDXGISwapChain3::ResizeBuffers1)         _IDXGISwapChain3ResizeBuffers1;
+    decltype(&ID3D12CommandQueue::ExecuteCommandLists) _ID3D12CommandQueueExecuteCommandLists;
 
-    decltype(&IDXGISwapChain::Present)       Present;
-    decltype(&IDXGISwapChain::ResizeBuffers) ResizeBuffers;
-    decltype(&IDXGISwapChain::ResizeTarget)  ResizeTarget;
-    decltype(&IDXGISwapChain1::Present1)     Present1;
-    decltype(&IDXGISwapChain3::ResizeBuffers1) ResizeBuffers1;
-    decltype(&ID3D12CommandQueue::ExecuteCommandLists) ExecuteCommandLists;
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
+    static void    STDMETHODCALLTYPE _MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
 
 public:
     std::string LibraryName;
 
-    virtual ~DX12_Hook();
+    virtual ~DX12Hook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
-    static DX12_Hook* Inst();
+    static DX12Hook_t* Inst();
     virtual std::string GetLibraryName() const;
 
     void LoadFunctions(
-        decltype(Present) PresentFcn,
-        decltype(ResizeBuffers) ResizeBuffersFcn,
-        decltype(ResizeTarget) ResizeTargetFcn,
-        decltype(Present1) Present1Fcn1,
-        decltype(ResizeBuffers1) ResizeBuffers1Fcn,
-        decltype(ExecuteCommandLists) ExecuteCommandListsFcn);
+        decltype(_IDXGISwapChainPresent) presentFcn,
+        decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
+        decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
+        decltype(_IDXGISwapChain1Present1) present1Fcn1,
+        decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
+        decltype(_ID3D12CommandQueueExecuteCommandLists) xecuteCommandListsFcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
 };
+
+}// namespace InGameOverlay

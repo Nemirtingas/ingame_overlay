@@ -17,21 +17,23 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "Vulkan_Hook.h"
-#include "Windows_Hook.h"
+#include "VulkanHook.h"
+#include "WindowsHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
-Vulkan_Hook* Vulkan_Hook::_inst = nullptr;
+namespace InGameOverlay {
 
-bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+VulkanHook_t* VulkanHook_t::_Instance = nullptr;
+
+bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     SPDLOG_WARN("Vulkan overlay is not yet supported.");
     return false;
     if (!_Hooked)
     {
-        if (vkQueuePresentKHR == nullptr)
+        if (_VkQueuePresentKHR == nullptr)
         {
             SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
@@ -49,14 +51,14 @@ bool Vulkan_Hook::StartHook(std::function<void()> key_combination_callback, std:
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)vkQueuePresentKHR, &Vulkan_Hook::MyvkQueuePresentKHR)
+            std::make_pair<void**, void*>(&(PVOID&)_VkQueuePresentKHR, &VulkanHook_t::_MyVkQueuePresentKHR)
         );
         EndHook();
     }
     return true;
 }
 
-void Vulkan_Hook::HideAppInputs(bool hide)
+void VulkanHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -64,7 +66,7 @@ void Vulkan_Hook::HideAppInputs(bool hide)
     }
 }
 
-void Vulkan_Hook::HideOverlayInputs(bool hide)
+void VulkanHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -72,16 +74,16 @@ void Vulkan_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool Vulkan_Hook::IsStarted()
+bool VulkanHook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void Vulkan_Hook::_ResetRenderState()
+void VulkanHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplVulkan_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -94,30 +96,30 @@ void Vulkan_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void Vulkan_Hook::_PrepareForOverlay()
+void VulkanHook_t::_PrepareForOverlay()
 {
     
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL Vulkan_Hook::MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-    auto inst = Vulkan_Hook::Inst();
+    auto inst = VulkanHook_t::Inst();
     inst->_PrepareForOverlay();
-    return inst->vkQueuePresentKHR(queue, pPresentInfo);
+    return inst->_VkQueuePresentKHR(queue, pPresentInfo);
 }
 
-Vulkan_Hook::Vulkan_Hook():
+VulkanHook_t::VulkanHook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
     _ImGuiFontAtlas(nullptr),
-    vkQueuePresentKHR(nullptr)
+    _VkQueuePresentKHR(nullptr)
 {
 }
 
-Vulkan_Hook::~Vulkan_Hook()
+VulkanHook_t::~VulkanHook_t()
 {
-    SPDLOG_INFO("Vulkan_Hook Hook removed");
+    SPDLOG_INFO("VulkanHook_t Hook removed");
 
     if (_WindowsHooked)
         delete Windows_Hook::Inst();
@@ -126,33 +128,35 @@ Vulkan_Hook::~Vulkan_Hook()
     {
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-Vulkan_Hook* Vulkan_Hook::Inst()
+VulkanHook_t* VulkanHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new Vulkan_Hook;
+    if (_Instance == nullptr)
+        _Instance = new VulkanHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string Vulkan_Hook::GetLibraryName() const
+std::string VulkanHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void Vulkan_Hook::LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
+void VulkanHook_t::LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
 {
-    vkQueuePresentKHR = _vkQueuePresentKHR;
+    _VkQueuePresentKHR = _vkQueuePresentKHR;
 }
 
-std::weak_ptr<uint64_t> Vulkan_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     return std::shared_ptr<uint64_t>(nullptr);
 }
 
-void Vulkan_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void VulkanHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
 
 }
+
+}// namespace InGameOverlay

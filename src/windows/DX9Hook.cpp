@@ -17,14 +17,16 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "DX9_Hook.h"
-#include "Windows_Hook.h"
-#include "DirectX_VTables.h"
+#include "DX9Hook.h"
+#include "WindowsHook.h"
+#include "DirectXVTables.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx9.h>
 
-DX9_Hook* DX9_Hook::_inst = nullptr;
+namespace InGameOverlay {
+
+DX9Hook_t* DX9Hook_t::_Instance = nullptr;
 
 template<typename T>
 static inline void SafeRelease(T*& pUnk)
@@ -36,11 +38,11 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
-        if (Reset == nullptr || Present == nullptr)
+        if (_IDirect3DDevice9Reset == nullptr || _IDirect3DDevice9Present == nullptr)
         {
             SPDLOG_WARN("Failed to hook DirectX 9: Rendering functions missing.");
             return false;
@@ -58,19 +60,19 @@ bool DX9_Hook::StartHook(std::function<void()> key_combination_callback, std::se
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)Reset, &DX9_Hook::MyReset),
-            std::make_pair<void**, void*>(&(PVOID&)Present, &DX9_Hook::MyPresent)
+            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Reset, &DX9Hook_t::_MyIDirect3DDevice9Reset),
+            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Present, &DX9Hook_t::_MyIDirect3DDevice9Present)
         );
-        if (PresentEx != nullptr)
+        if (_IDirect3DDevice9ExPresentEx != nullptr)
         {
             HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)PresentEx, &DX9_Hook::MyPresentEx)
+                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExPresentEx, &DX9Hook_t::_MyIDirect3DDevice9ExPresentEx)
             );
         }
-        if (SwapChainPresent != nullptr)
+        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
         {
             HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)SwapChainPresent, &DX9_Hook::MySwapChainPresent)
+                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DSwapChain9SwapChainPresent, &DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent)
             );
         }
         EndHook();
@@ -78,7 +80,7 @@ bool DX9_Hook::StartHook(std::function<void()> key_combination_callback, std::se
     return true;
 }
 
-void DX9_Hook::HideAppInputs(bool hide)
+void DX9Hook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -86,7 +88,7 @@ void DX9_Hook::HideAppInputs(bool hide)
     }
 }
 
-void DX9_Hook::HideOverlayInputs(bool hide)
+void DX9Hook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -94,16 +96,16 @@ void DX9_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool DX9_Hook::IsStarted()
+bool DX9Hook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void DX9_Hook::_ResetRenderState()
+void DX9Hook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplDX9_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -118,7 +120,7 @@ void DX9_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
+void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 {
     if (!destWindow)
     {
@@ -162,7 +164,7 @@ void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         Windows_Hook::Inst()->SetInitialWindowSize(destWindow);
 
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(destWindow))
@@ -177,31 +179,31 @@ void DX9_Hook::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     }
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MyReset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
+HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
 {
-    auto inst = DX9_Hook::Inst();
+    auto inst = DX9Hook_t::Inst();
     inst->_ResetRenderState();
-    return (_this->*inst->Reset)(pPresentationParameters);
+    return (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresent(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
+HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
-    auto inst = DX9_Hook::Inst();
+    auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
-    return (_this->*inst->Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
+    return (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MyPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
-    auto inst = DX9_Hook::Inst();
+    auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
-    return (_this->*inst->PresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+    return (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 }
 
-HRESULT STDMETHODCALLTYPE DX9_Hook::MySwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
+HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
     IDirect3DDevice9* pDevice;
-    auto inst = DX9_Hook::Inst();
+    auto inst = DX9Hook_t::Inst();
 
     if (SUCCEEDED(_this->GetDevice(&pDevice)))
     {
@@ -218,22 +220,22 @@ HRESULT STDMETHODCALLTYPE DX9_Hook::MySwapChainPresent(IDirect3DSwapChain9* _thi
         inst->_PrepareForOverlay(pDevice, destWindow);
         pDevice->Release();
     }
-    return (_this->*inst->SwapChainPresent)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+    return (_this->*inst->_IDirect3DSwapChain9SwapChainPresent)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 }
 
-DX9_Hook::DX9_Hook():
+DX9Hook_t::DX9Hook_t():
     _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
     _LastWindow(nullptr),
     _ImGuiFontAtlas(nullptr),
-    Present(nullptr),
-    PresentEx(nullptr),
-    Reset(nullptr)
+    _IDirect3DDevice9Present(nullptr),
+    _IDirect3DDevice9ExPresentEx(nullptr),
+    _IDirect3DDevice9Reset(nullptr)
 {
 }
 
-DX9_Hook::~DX9_Hook()
+DX9Hook_t::~DX9Hook_t()
 {
     SPDLOG_INFO("DX9 Hook removed");
 
@@ -246,33 +248,33 @@ DX9_Hook::~DX9_Hook()
         ImGui::DestroyContext();
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-DX9_Hook* DX9_Hook::Inst()
+DX9Hook_t* DX9Hook_t::Inst()
 {
-    if( _inst == nullptr )
-        _inst = new DX9_Hook;
+    if( _Instance == nullptr )
+        _Instance = new DX9Hook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string DX9_Hook::GetLibraryName() const
+std::string DX9Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void DX9_Hook::LoadFunctions(decltype(Present) PresentFcn, decltype(Reset) ResetFcn, decltype(PresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn)
+void DX9Hook_t::LoadFunctions(decltype(_IDirect3DDevice9Present) PresentFcn, decltype(_IDirect3DDevice9Reset) ResetFcn, decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn)
 {
-    Present = PresentFcn;
-    Reset = ResetFcn;
+    _IDirect3DDevice9Present = PresentFcn;
+    _IDirect3DDevice9Reset = ResetFcn;
 
-    PresentEx = PresentExFcn;
+    _IDirect3DDevice9ExPresentEx = PresentExFcn;
 
-    SwapChainPresent = SwapChainPresentFcn;
+    _IDirect3DSwapChain9SwapChainPresent = SwapChainPresentFcn;
 }
 
-std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> DX9Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
 
@@ -294,9 +296,9 @@ std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, ui
         {
             const uint32_t* pixels = reinterpret_cast<const uint32_t*>(image_data);
             uint8_t* texture_bits = reinterpret_cast<uint8_t*>(rect.pBits);
-            for (int32_t i = 0; i < height; ++i)
+            for (uint32_t i = 0; i < height; ++i)
             {
-                for (int32_t j = 0; j < width; ++j)
+                for (uint32_t j = 0; j < width; ++j)
                 {
                     // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader
                     uint32_t color = *pixels++;
@@ -338,7 +340,7 @@ std::weak_ptr<uint64_t> DX9_Hook::CreateImageResource(const void* image_data, ui
     return ptr;
 }
 
-void DX9_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void DX9Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -348,3 +350,5 @@ void DX9_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

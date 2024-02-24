@@ -17,21 +17,23 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "OpenGL_Hook.h"
-#include "Windows_Hook.h"
+#include "OpenGLHook.h"
+#include "WindowsHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
 
 #include <glad/gl.h>
 
-OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
+namespace InGameOverlay {
 
-bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
+
+bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
-        if (wglSwapBuffers == nullptr)
+        if (_WGLSwapBuffers == nullptr)
         {
             SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;
@@ -50,14 +52,14 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)wglSwapBuffers, &OpenGL_Hook::MywglSwapBuffers)
+            std::make_pair<void**, void*>(&(PVOID&)_WGLSwapBuffers, &OpenGLHook_t::_MyWGLSwapBuffers)
         );
         EndHook();
     }
     return true;
 }
 
-void OpenGL_Hook::HideAppInputs(bool hide)
+void OpenGLHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -65,7 +67,7 @@ void OpenGL_Hook::HideAppInputs(bool hide)
     }
 }
 
-void OpenGL_Hook::HideOverlayInputs(bool hide)
+void OpenGLHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -73,16 +75,16 @@ void OpenGL_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool OpenGL_Hook::IsStarted()
+bool OpenGLHook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void OpenGL_Hook::_ResetRenderState()
+void OpenGLHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
         Windows_Hook::Inst()->ResetRenderState();
@@ -96,7 +98,7 @@ void OpenGL_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
+void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 {
     HWND hWnd = WindowFromDC(hDC);
 
@@ -115,7 +117,7 @@ void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
         Windows_Hook::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
     if (ImGui_ImplOpenGL3_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(hWnd))
@@ -130,24 +132,24 @@ void OpenGL_Hook::_PrepareForOverlay(HDC hDC)
     }
 }
 
-BOOL WINAPI OpenGL_Hook::MywglSwapBuffers(HDC hDC)
+BOOL WINAPI OpenGLHook_t::_MyWGLSwapBuffers(HDC hDC)
 {
-    auto inst = OpenGL_Hook::Inst();
+    auto inst = OpenGLHook_t::Inst();
     inst->_PrepareForOverlay(hDC);
-    return inst->wglSwapBuffers(hDC);
+    return inst->_WGLSwapBuffers(hDC);
 }
 
-OpenGL_Hook::OpenGL_Hook():
+OpenGLHook_t::OpenGLHook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
     _LastWindow(nullptr),
     _ImGuiFontAtlas(nullptr),
-    wglSwapBuffers(nullptr)
+    _WGLSwapBuffers(nullptr)
 {
 }
 
-OpenGL_Hook::~OpenGL_Hook()
+OpenGLHook_t::~OpenGLHook_t()
 {
     SPDLOG_INFO("OpenGL Hook removed");
 
@@ -160,28 +162,28 @@ OpenGL_Hook::~OpenGL_Hook()
         ImGui::DestroyContext();
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-OpenGL_Hook* OpenGL_Hook::Inst()
+OpenGLHook_t* OpenGLHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new OpenGL_Hook;
+    if (_Instance == nullptr)
+        _Instance = new OpenGLHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string OpenGL_Hook::GetLibraryName() const
+std::string OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void OpenGL_Hook::LoadFunctions(wglSwapBuffers_t pfnwglSwapBuffers)
+void OpenGLHook_t::LoadFunctions(WGLSwapBuffers_t pfnwglSwapBuffers)
 {
-    wglSwapBuffers = pfnwglSwapBuffers;
+    _WGLSwapBuffers = pfnwglSwapBuffers;
 }
 
-std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> OpenGLHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     GLuint* texture = new GLuint(0);
     glGenTextures(1, texture);
@@ -220,7 +222,7 @@ std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data,
     return ptr;
 }
 
-void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void OpenGLHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -230,3 +232,5 @@ void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

@@ -25,32 +25,34 @@
 
 extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 
+namespace InGameOverlay {
+
 constexpr decltype(X11_Hook::DLL_NAME) X11_Hook::DLL_NAME;
 
 X11_Hook* X11_Hook::_inst = nullptr;
 
-uint32_t ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
+uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
-        ingame_overlay::ToggleKey lib_key;
+        InGameOverlay::ToggleKey lib_key;
         uint32_t native_key;
     } mapping[] = {
-        { ingame_overlay::ToggleKey::ALT  , XK_Alt_L     },
-        { ingame_overlay::ToggleKey::CTRL , XK_Control_L },
-        { ingame_overlay::ToggleKey::SHIFT, XK_Shift_L   },
-        { ingame_overlay::ToggleKey::TAB  , XK_Tab       },
-        { ingame_overlay::ToggleKey::F1   , XK_F1        },
-        { ingame_overlay::ToggleKey::F2   , XK_F2        },
-        { ingame_overlay::ToggleKey::F3   , XK_F3        },
-        { ingame_overlay::ToggleKey::F4   , XK_F4        },
-        { ingame_overlay::ToggleKey::F5   , XK_F5        },
-        { ingame_overlay::ToggleKey::F6   , XK_F6        },
-        { ingame_overlay::ToggleKey::F7   , XK_F7        },
-        { ingame_overlay::ToggleKey::F8   , XK_F8        },
-        { ingame_overlay::ToggleKey::F9   , XK_F9        },
-        { ingame_overlay::ToggleKey::F10  , XK_F10       },
-        { ingame_overlay::ToggleKey::F11  , XK_F11       },
-        { ingame_overlay::ToggleKey::F12  , XK_F12       },
+        { InGameOverlay::ToggleKey::ALT  , XK_Alt_L     },
+        { InGameOverlay::ToggleKey::CTRL , XK_Control_L },
+        { InGameOverlay::ToggleKey::SHIFT, XK_Shift_L   },
+        { InGameOverlay::ToggleKey::TAB  , XK_Tab       },
+        { InGameOverlay::ToggleKey::F1   , XK_F1        },
+        { InGameOverlay::ToggleKey::F2   , XK_F2        },
+        { InGameOverlay::ToggleKey::F3   , XK_F3        },
+        { InGameOverlay::ToggleKey::F4   , XK_F4        },
+        { InGameOverlay::ToggleKey::F5   , XK_F5        },
+        { InGameOverlay::ToggleKey::F6   , XK_F6        },
+        { InGameOverlay::ToggleKey::F7   , XK_F7        },
+        { InGameOverlay::ToggleKey::F8   , XK_F8        },
+        { InGameOverlay::ToggleKey::F9   , XK_F9        },
+        { InGameOverlay::ToggleKey::F10  , XK_F10       },
+        { InGameOverlay::ToggleKey::F11  , XK_F11       },
+        { InGameOverlay::ToggleKey::F12  , XK_F12       },
     };
 
     for (auto const& item : mapping)
@@ -69,7 +71,7 @@ bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
-bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
+bool X11_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -406,3 +408,5 @@ std::string X11_Hook::GetLibraryName() const
 {
     return LibraryName;
 }
+
+}// namespace InGameOverlay

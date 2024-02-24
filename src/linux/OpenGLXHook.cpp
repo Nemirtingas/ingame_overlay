@@ -19,21 +19,23 @@
 
 #include <glad/gl.h>
 
-#include "OpenGLX_Hook.h"
+#include "OpenGLXHook_t.h"
 #include "X11_Hook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
 
-OpenGLX_Hook* OpenGLX_Hook::_inst = nullptr;
+namespace InGameOverlay {
 
-constexpr decltype(OpenGLX_Hook::DLL_NAME) OpenGLX_Hook::DLL_NAME;
+OpenGLXHook_t* OpenGLXHook_t::_Instance = nullptr;
 
-bool OpenGLX_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+constexpr decltype(OpenGLXHook_t::DLL_NAME) OpenGLXHook_t::DLL_NAME;
+
+bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
-        if (glXSwapBuffers == nullptr)
+        if (_GLXSwapBuffers == nullptr)
         {
             SPDLOG_WARN("Failed to hook OpenGLX: Rendering functions missing.");
             return false;
@@ -52,14 +54,14 @@ bool OpenGLX_Hook::StartHook(std::function<void()> key_combination_callback, std
         UnhookAll();
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>((void**)&glXSwapBuffers, (void*)&OpenGLX_Hook::MyglXSwapBuffers)
+            std::make_pair<void**, void*>((void**)&_GLXSwapBuffers, (void*)&OpenGLXHook_t::My_GLXSwapBuffers)
         );
         EndHook();
     }
     return true;
 }
 
-void OpenGLX_Hook::HideAppInputs(bool hide)
+void OpenGLXHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -67,7 +69,7 @@ void OpenGLX_Hook::HideAppInputs(bool hide)
     }
 }
 
-void OpenGLX_Hook::HideOverlayInputs(bool hide)
+void OpenGLXHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -75,16 +77,16 @@ void OpenGLX_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool OpenGLX_Hook::IsStarted()
+bool OpenGLXHook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void OpenGLX_Hook::_ResetRenderState()
+void OpenGLXHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
         X11_Hook::Inst()->ResetRenderState();
@@ -99,7 +101,7 @@ void OpenGLX_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
+void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 {
     if( !_Initialized )
     {
@@ -134,7 +136,7 @@ void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         X11_Hook::Inst()->SetInitialWindowSize(_Display, (Window)drawable);
 
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
     //auto oldContext = glXGetCurrentContext();
@@ -155,23 +157,23 @@ void OpenGLX_Hook::_PrepareForOverlay(Display* display, GLXDrawable drawable)
     //glXMakeCurrent(_Display, drawable, oldContext);
 }
 
-void OpenGLX_Hook::MyglXSwapBuffers(Display* display, GLXDrawable drawable)
+void OpenGLXHook_t::My_GLXSwapBuffers(Display* display, GLXDrawable drawable)
 {
-    OpenGLX_Hook::Inst()->_PrepareForOverlay(display, drawable);
-    OpenGLX_Hook::Inst()->glXSwapBuffers(display, drawable);
+    OpenGLXHook_t::Inst()->_PrepareForOverlay(display, drawable);
+    OpenGLXHook_t::Inst()->_GLXSwapBuffers(display, drawable);
 }
 
-OpenGLX_Hook::OpenGLX_Hook():
+OpenGLXHook_t::OpenGLXHook_t():
     _Initialized(false),
     _Hooked(false),
     _X11Hooked(false),
     _ImGuiFontAtlas(nullptr),
-    glXSwapBuffers(nullptr)
+    _GLXSwapBuffers(nullptr)
 {
     //_library = dlopen(DLL_NAME);
 }
 
-OpenGLX_Hook::~OpenGLX_Hook()
+OpenGLXHook_t::~OpenGLXHook_t()
 {
     SPDLOG_INFO("OpenGLX Hook removed");
 
@@ -187,28 +189,28 @@ OpenGLX_Hook::~OpenGLX_Hook()
 
     //dlclose(_library);
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-OpenGLX_Hook* OpenGLX_Hook::Inst()
+OpenGLXHook_t* OpenGLXHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new OpenGLX_Hook;
+    if (_Instance == nullptr)
+        _Instance = new OpenGLXHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string OpenGLX_Hook::GetLibraryName() const
+std::string OpenGLXHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void OpenGLX_Hook::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
+void OpenGLXHook_t::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
 {
-    glXSwapBuffers = pfnglXSwapBuffers;
+    _GLXSwapBuffers = pfnglXSwapBuffers;
 }
 
-std::weak_ptr<uint64_t> OpenGLX_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> OpenGLXHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     GLuint* texture = new GLuint(0);
     glGenTextures(1, texture);
@@ -247,7 +249,7 @@ std::weak_ptr<uint64_t> OpenGLX_Hook::CreateImageResource(const void* image_data
     return ptr;
 }
 
-void OpenGLX_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void OpenGLXHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -257,3 +259,5 @@ void OpenGLX_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

@@ -19,13 +19,15 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
 
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
+
+namespace InGameOverlay {
 
 class X11_Hook :
     public Base_Hook
@@ -80,9 +82,11 @@ public:
 
     Window GetGameWnd() const{ return _GameWnd; }
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static X11_Hook* Inst();
     virtual std::string GetLibraryName() const;
 };
+
+}// namespace InGameOverlay

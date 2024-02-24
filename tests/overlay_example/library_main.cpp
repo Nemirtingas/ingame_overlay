@@ -3,7 +3,7 @@
 #include <vector>
 
 #include <imgui.h>
-#include <ingame_overlay/Renderer_Detector.h>
+#include <InGameOverlay/RendererDetector.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
@@ -14,20 +14,19 @@
 
 using namespace std::chrono_literals;
 
-static void* g_hModule;
-
-struct overlay_t
+struct OverlayData_t
 {
-    std::thread worker;
+    std::thread Worker;
 
-    ImFontAtlas* font_atlas;
-    ingame_overlay::Renderer_Hook* renderer;
-    std::mutex overlay_mutex;
-    bool show;
-    bool stop;
+    ImFontAtlas* FontAtlas;
+    InGameOverlay::RendererHook_t* Renderer;
+    std::mutex OverlayMutex;
+    char OverlayInputTextBuffer[256]{};
+    bool Show;
+    bool Stop;
 };
 
-static overlay_t* overlay_data;
+static OverlayData_t* OverlayData;
 
 struct Image
 {
@@ -57,49 +56,47 @@ Image CreateImageFromData(void const* data, size_t data_len)
 
 void shared_library_load(void* hmodule)
 {
-    overlay_data = new overlay_t();
+    OverlayData = new OverlayData_t();
     // hmodule is this library HMODULE on Windows   (like if you did call LoadLibrary)
     // hmodule is this library void* on Linux/MacOS (like if you did call dlopen)
-    g_hModule = hmodule;
 
-    overlay_data->worker = std::thread([]()
+    OverlayData->Worker = std::thread([]()
     {
-        std::lock_guard<std::mutex> lk(overlay_data->overlay_mutex);
-        // Try to detect renderer for an infinite amount of time.
-        auto future = ingame_overlay::DetectRenderer();
-        // Try to detect renderer for at most 4 seconds.
-        auto future2 = ingame_overlay::DetectRenderer(4s);
-        auto future3 = ingame_overlay::DetectRenderer(4s);
-        auto future4 = ingame_overlay::DetectRenderer(4s);
+        std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+        // Try to detect Renderer for an infinite amount of time.
+        auto future = InGameOverlay::DetectRenderer();
+        // Try to detect Renderer for at most 4 seconds.
+        auto future2 = InGameOverlay::DetectRenderer(4s);
+        auto future3 = InGameOverlay::DetectRenderer(4s);
+        auto future4 = InGameOverlay::DetectRenderer(4s);
         
-        //ingame_overlay::StopRendererDetection();
-        std::thread([]() { std::this_thread::sleep_for(20ms); ingame_overlay::DetectRenderer(); }).detach();
-        ingame_overlay::FreeDetector();
+        //InGameOverlay::StopRendererDetection();
+        std::thread([]() { std::this_thread::sleep_for(20ms); InGameOverlay::DetectRenderer(); }).detach();
+        InGameOverlay::FreeDetector();
 
         future.wait();
         if (future.valid())
         {
-            overlay_data->renderer = future.get();
-            if (overlay_data->renderer == nullptr)
+            OverlayData->Renderer = future.get();
+            if (OverlayData->Renderer == nullptr)
             {
-                future = ingame_overlay::DetectRenderer(4s);
+                future = InGameOverlay::DetectRenderer(4s);
                 future.wait();
                 if (future.valid())
                 {
-                    overlay_data->renderer = future.get();
+                    OverlayData->Renderer = future.get();
                 }
 
-                if (overlay_data->renderer == nullptr)
+                if (OverlayData->Renderer == nullptr)
                     return;
             }
 
             // overlay_proc is called  when the process wants to swap buffers.
-            overlay_data->renderer->OverlayProc = []()
+            OverlayData->Renderer->OverlayProc = []()
             {
-                std::lock_guard<std::mutex> lk(overlay_data->overlay_mutex);
-                static char buf[255]{};
+                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
 
-                if (!overlay_data->show)
+                if (!OverlayData->Show)
                     return;
 
                 static std::weak_ptr<uint64_t> image;
@@ -108,7 +105,7 @@ void shared_library_load(void* hmodule)
                 {
                     auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
 
-                    image = overlay_data->renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+                    image = OverlayData->Renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
 
                     sharedImage = image.lock();
                 }
@@ -122,18 +119,18 @@ void shared_library_load(void* hmodule)
 
                 ImGui::SetNextWindowBgAlpha(0.50);
 
-                if (ImGui::Begin("Overlay", &overlay_data->show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
+                if (ImGui::Begin("Overlay", &OverlayData->Show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
                 {
-                    if (!overlay_data->show)
+                    if (!OverlayData->Show)
                     {
-                        overlay_data->renderer->HideAppInputs(false);
-                        overlay_data->renderer->HideOverlayInputs(true);
+                        OverlayData->Renderer->HideAppInputs(false);
+                        OverlayData->Renderer->HideOverlayInputs(true);
                     }
 
                     ImGui::TextUnformatted("Hello from overlay !");
                     ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
-                    ImGui::Text("Renderer Hooked: %s", overlay_data->renderer->GetLibraryName().c_str());
-                    ImGui::InputText("Test input text", buf, sizeof(buf));
+                    ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName().c_str());
+                    ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
                     if (sharedImage != nullptr)
                         ImGui::Image(*sharedImage, { 64, 64 });
@@ -141,44 +138,44 @@ void shared_library_load(void* hmodule)
                 ImGui::End();
             };
 
-            // Called on renderer hook status change
-            overlay_data->renderer->OverlayHookReady = [](ingame_overlay::OverlayHookState hookState)
+            // Called on Renderer hook status change
+            OverlayData->Renderer->OverlayHookReady = [](InGameOverlay::OverlayHookState hookState)
             {
-                std::lock_guard<std::mutex> lk(overlay_data->overlay_mutex);
+                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
 
-                if (hookState == ingame_overlay::OverlayHookState::Removing)
-                    overlay_data->show = false;
+                if (hookState == InGameOverlay::OverlayHookState::Removing)
+                    OverlayData->Show = false;
             };
 
-            overlay_data->font_atlas = new ImFontAtlas();
+            OverlayData->FontAtlas = new ImFontAtlas();
 
             ImFontConfig fontcfg;
 
             fontcfg.OversampleH = fontcfg.OversampleV = 1;
             fontcfg.PixelSnapH = true;
-            fontcfg.GlyphRanges = overlay_data->font_atlas->GetGlyphRangesDefault();
+            fontcfg.GlyphRanges = OverlayData->FontAtlas->GetGlyphRangesDefault();
 
-            overlay_data->font_atlas->AddFontDefault(&fontcfg);
+            OverlayData->FontAtlas->AddFontDefault(&fontcfg);
 
-            overlay_data->font_atlas->Build();
+            OverlayData->FontAtlas->Build();
 
-            overlay_data->renderer->StartHook([]()
+            OverlayData->Renderer->StartHook([]()
             {
-                std::lock_guard<std::mutex> lk(overlay_data->overlay_mutex);
+                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
 
-                if (overlay_data->show)
+                if (OverlayData->Show)
                 {
-                    overlay_data->renderer->HideAppInputs(false);
-                    overlay_data->renderer->HideOverlayInputs(true);
-                    overlay_data->show = false;
+                    OverlayData->Renderer->HideAppInputs(false);
+                    OverlayData->Renderer->HideOverlayInputs(true);
+                    OverlayData->Show = false;
                 }
                 else
                 {
-                    overlay_data->renderer->HideAppInputs(true);
-                    overlay_data->renderer->HideOverlayInputs(false);
-                    overlay_data->show = true;
+                    OverlayData->Renderer->HideAppInputs(true);
+                    OverlayData->Renderer->HideOverlayInputs(false);
+                    OverlayData->Show = true;
                 }
-            }, { ingame_overlay::ToggleKey::SHIFT, ingame_overlay::ToggleKey::F2 }, overlay_data->font_atlas);
+            }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
         }
     });
 }
@@ -186,14 +183,14 @@ void shared_library_load(void* hmodule)
 void shared_library_unload(void* hmodule)
 {
     {
-        std::lock_guard<std::mutex> lk(overlay_data->overlay_mutex);
-        if (overlay_data->worker.joinable())
-            overlay_data->worker.join();
+        std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+        if (OverlayData->Worker.joinable())
+            OverlayData->Worker.join();
 
-        overlay_data->show = false;
-        delete overlay_data->renderer; overlay_data->renderer = nullptr;
+        OverlayData->Show = false;
+        delete OverlayData->Renderer; OverlayData->Renderer = nullptr;
     }
-    delete overlay_data;
+    delete OverlayData;
 }
 
 #if defined(_WIN32) || defined(WIN32) || defined(__MINGW32__) ||\

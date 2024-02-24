@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -19,55 +19,58 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
 
-#include <GL/glx.h>
+namespace InGameOverlay {
 
-class OpenGLX_Hook :
-    public ingame_overlay::Renderer_Hook,
-    public Base_Hook
+class OpenGLHook_t :
+    public RendererHook_t,
+    public BaseHook_t
 {
 public:
-    static constexpr const char *DLL_NAME = "libGLX.so";
+    static constexpr const char *DLL_NAME = "opengl32.dll";
+
+    using WGLSwapBuffers_t = BOOL(WINAPI*)(HDC);
 
 private:
-    static OpenGLX_Hook* _inst;
+    static OpenGLHook_t* _Instance;
 
     // Variables
     bool _Hooked;
-    bool _X11Hooked;
+    bool _WindowsHooked;
     bool _Initialized;
-    Display *_Display;
-    GLXContext _Context;
+    HWND _LastWindow;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
-    OpenGLX_Hook();
+    OpenGLHook_t();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(Display* display, GLXDrawable drawable);
+    void _PrepareForOverlay(HDC hDC);
 
     // Hook to render functions
-    decltype(::glXSwapBuffers)* glXSwapBuffers;
+    WGLSwapBuffers_t _WGLSwapBuffers;
+
+    static BOOL WINAPI _MyWGLSwapBuffers(HDC hDC);
 
 public:
     std::string LibraryName;
 
-    static void MyglXSwapBuffers(Display* display, GLXDrawable drawable);
+    virtual ~OpenGLHook_t();
 
-    virtual ~OpenGLX_Hook();
-
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
-    static OpenGLX_Hook* Inst();
+    static OpenGLHook_t* Inst();
     virtual std::string GetLibraryName() const;
-    void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
+    void LoadFunctions(WGLSwapBuffers_t pfnwglSwapBuffers);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
 };
+
+}// namespace InGameOverlay
