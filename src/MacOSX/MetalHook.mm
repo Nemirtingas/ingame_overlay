@@ -93,7 +93,7 @@ void MetalHook_t::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void MetalHook_t::_PrepareForOverlay(RendePass_t& renderPass)
+void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
 {
     if (!_Initialized)
     {
@@ -140,7 +140,7 @@ void MetalHook_t::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> sel
 
     for(auto it = inst->_RenderPass.begin(); it != inst->_RenderPass.end(); ++it)
     {
-        if(it->encoder == self)
+        if(it->Encoder == self)
         {
             inst->_PrepareForOverlay(*it);
             inst->_RenderPass.erase(it);
