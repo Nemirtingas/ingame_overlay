@@ -19,8 +19,8 @@
 
 #include <glad/gl.h>
 
-#include "OpenGLXHook_t.h"
-#include "X11_Hook.h"
+#include "OpenGLXHook.h"
+#include "X11Hook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>

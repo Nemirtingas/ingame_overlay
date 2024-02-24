@@ -19,7 +19,7 @@
 
 #include <cassert>
 
-#include <InGameOverlay/RendererDetector_t.h>
+#include <InGameOverlay/RendererDetector.h>
 
 #include <System/Encoding.hpp>
 #include <System/String.hpp>
@@ -74,7 +74,7 @@ private:
     std::condition_variable _StopDetectionConditionVariable;
     std::mutex _StopDetectionMutex;
 
-    decltype(::_GLXSwapBuffer)* _GLXSwapBuffer;
+    decltype(::glXSwapBuffers)* _GLXSwapBuffers;
 
     bool _OpenGLXHooked;
     //bool _VulkanHooked;
@@ -101,7 +101,7 @@ private:
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
-        inst->_GLXSwapBuffer(dpy, drawable);
+        inst->_GLXSwapBuffers(dpy, drawable);
         if (inst->_DetectionDone)
             return;
 
@@ -114,12 +114,12 @@ private:
         }
     }
 
-    void _HookGLXSwapBuffers(decltype(::glXSwapBuffers)* __GLXSwapBuffer)
+    void _HookGLXSwapBuffers(decltype(::glXSwapBuffers)* __GLXSwapBuffers)
     {
-        _GLXSwapBuffer = __GLXSwapBuffer;
+        _GLXSwapBuffers = __GLXSwapBuffers;
 
         _DetectionHooks.BeginHook();
-        TRY_HOOK_FUNCTION(_GLXSwapBuffer, &RendererDetector_t::_MyGLXSwapBuffers);
+        TRY_HOOK_FUNCTION(_GLXSwapBuffers, &RendererDetector_t::_MyGLXSwapBuffers);
         _DetectionHooks.EndHook();
     }
 
@@ -134,22 +134,22 @@ private:
                 return;
             }
 
-            auto _GLXSwapBuffer = libGLX.GetSymbol<decltype(::glXSwapBuffers)>("_GLXSwapBuffer");
-            if (_GLXSwapBuffer != nullptr)
+            auto _GLXSwapBuffers = libGLX.GetSymbol<decltype(::glXSwapBuffers)>("glXSwapBuffers");
+            if (_GLXSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked _GLXSwapBuffer to detect OpenGLX");
+                SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
 
                 _OpenGLXHooked = true;
 
                 _OpenGLXHook = OpenGLX_Hook::Inst();
                 _OpenGLXHook->LibraryName = library_path;
-                _OpenGLXHook->LoadFunctions(_GLXSwapBuffer);
+                _OpenGLXHook->LoadFunctions(_GLXSwapBuffers);
 
-                _HookGLXSwapBuffers(_GLXSwapBuffer);
+                _HookGLXSwapBuffers(_GLXSwapBuffers);
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook _GLXSwapBuffer to detect OpenGLX");
+                SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
             }
         }
     }

@@ -612,15 +612,15 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX10", library_path);
                 return;
             }
-            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
+            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
 
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D10Device* pDevice = nullptr;
             int version = 0;
 
-            if (!dxgi_path.empty())
+            if (!dxgiPath.empty())
             {
-                HMODULE dxgi = GetModuleHandleA(dxgi_path.c_str());
+                HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
                 if (dxgi != nullptr)
                 {
                     IDXGIFactory2* pDXGIFactory = nullptr;
@@ -727,15 +727,15 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX11", library_path);
                 return;
             }
-            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
+            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
 
             IDXGISwapChain* pSwapChain = nullptr;
             ID3D11Device* pDevice = nullptr;
             int version = 0;
 
-            if (!dxgi_path.empty())
+            if (!dxgiPath.empty())
             {
-                HMODULE dxgi = GetModuleHandleA(dxgi_path.c_str());
+                HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
                 if (dxgi != nullptr)
                 {
                     IDXGIFactory2* pDXGIFactory = nullptr;
@@ -843,8 +843,8 @@ private:
                 SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
                 return;
             }
-            std::string dxgi_path = _FindPreferedModulePath("dxgi.dll");
-            if (dxgi_path.empty())
+            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
+            if (dxgiPath.empty())
             {
                 SPDLOG_WARN("Failed to load dxgi.dll to detect DX12");
                 return;
@@ -882,7 +882,7 @@ private:
 
                     if (pCommandQueue != nullptr)
                     {
-                        HMODULE dxgi = GetModuleHandleA(dxgi_path.c_str());
+                        HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
                         if (dxgi != nullptr)
                         {
                             decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
@@ -949,7 +949,7 @@ private:
             auto _WGLSwapBuffers = libOpenGL.GetSymbol<decltype(::SwapBuffers)>("wglSwapBuffers");
             if (_WGLSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked _WGLSwapBuffers to detect OpenGL");
+                SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
 
                 _OpenGLHooked = true;
 
@@ -961,7 +961,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook _WGLSwapBuffers to detect OpenGL");
+                SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
             }
         }
     }

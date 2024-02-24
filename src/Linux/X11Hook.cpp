@@ -17,7 +17,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "X11_Hook.h"
+#include "X11Hook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
