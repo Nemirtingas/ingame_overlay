@@ -55,7 +55,7 @@ private:
     // Hook to render functions
     decltype(::glXSwapBuffers)* _GLXSwapBuffers;
 
-    static void MyglXSwapBuffers(Display* display, GLXDrawable drawable);
+    static void _MyGLXSwapBuffers(Display* display, GLXDrawable drawable);
 
 public:
     std::string LibraryName;

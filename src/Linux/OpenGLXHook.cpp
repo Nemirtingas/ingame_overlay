@@ -54,7 +54,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
         UnhookAll();
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>((void**)&_GLXSwapBuffers, (void*)&OpenGLXHook_t::My_GLXSwapBuffers)
+            std::make_pair<void**, void*>((void**)&_GLXSwapBuffers, (void*)&OpenGLXHook_t::_MyGLXSwapBuffers)
         );
         EndHook();
     }
@@ -157,7 +157,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
     //glXMakeCurrent(_Display, drawable, oldContext);
 }
 
-void OpenGLXHook_t::My_GLXSwapBuffers(Display* display, GLXDrawable drawable)
+void OpenGLXHook_t::_MyGLXSwapBuffers(Display* display, GLXDrawable drawable)
 {
     OpenGLXHook_t::Inst()->_PrepareForOverlay(display, drawable);
     OpenGLXHook_t::Inst()->_GLXSwapBuffers(display, drawable);
