@@ -24,7 +24,9 @@
 #import "imgui_impl_osx.h"
 #import <Cocoa/Cocoa.h>
 #import <Carbon/Carbon.h>
+#ifndef IMGUI_DISABLE_APPLE_GAMEPAD
 #import <GameController/GameController.h>
+#endif
 #import <time.h>
 
 // CHANGELOG
@@ -531,6 +533,7 @@ static void ImGui_ImplOSX_UpdateMouseCursor()
     }
 }
 
+#ifndef IMGUI_DISABLE_APPLE_GAMEPAD
 static void ImGui_ImplOSX_UpdateGamepads()
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -588,6 +591,7 @@ static void ImGui_ImplOSX_UpdateGamepads()
 
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
 }
+#endif
 
 static void ImGui_ImplOSX_UpdateImePosWithView(NSView* view)
 {
@@ -619,7 +623,9 @@ void ImGui_ImplOSX_NewFrame(NSView* view)
     bd->Time = current_time;
 
     ImGui_ImplOSX_UpdateMouseCursor();
+#ifndef IMGUI_DISABLE_APPLE_GAMEPAD
     ImGui_ImplOSX_UpdateGamepads();
+#endif
     ImGui_ImplOSX_UpdateImePosWithView(view);
 }
 
