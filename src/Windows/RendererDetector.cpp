@@ -54,7 +54,7 @@
     #undef GetModuleHandle
 #endif
 
-#define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(PVOID&)NAME, HOOK))) { \
+#define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
     SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
 
 namespace InGameOverlay {
