@@ -404,7 +404,7 @@ X11Hook_t* X11Hook_t::Inst()
     return _inst;
 }
 
-std::string X11Hook_t::GetLibraryName() const
+const std::string& X11Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }

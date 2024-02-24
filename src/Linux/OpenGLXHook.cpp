@@ -200,7 +200,7 @@ OpenGLXHook_t* OpenGLXHook_t::Inst()
     return _Instance;
 }
 
-std::string OpenGLXHook_t::GetLibraryName() const
+const std::string& OpenGLXHook_t::GetLibraryName() const
 {
     return LibraryName;
 }

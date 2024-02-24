@@ -86,7 +86,7 @@ public:
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static X11Hook_t* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
 };
 
 }// namespace InGameOverlay

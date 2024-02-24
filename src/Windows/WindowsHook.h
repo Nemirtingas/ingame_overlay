@@ -25,14 +25,14 @@
 
 namespace InGameOverlay {
 
-class Windows_Hook :
+class WindowsHook_t :
     public BaseHook_t
 {
 public:
     static constexpr const char* DLL_NAME = "user32.dll";
 
 private:
-    static Windows_Hook* _inst;
+    static WindowsHook_t* _inst;
 
     // Variables
     bool _Hooked;
@@ -52,7 +52,7 @@ private:
     bool _KeyCombinationPushed;
 
     // Functions
-    Windows_Hook();
+    WindowsHook_t();
     void _RawEvent(RAWINPUT& raw);
     bool _HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     decltype(::TranslateMessage)* _TranslateMessage;
@@ -88,11 +88,11 @@ private:
     static BOOL  WINAPI _MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
     static BOOL  WINAPI _MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
 
-    static short ImGuiGetKeyState(int nVirtKey);
+    static short _ImGuiGetKeyState(int nVirtKey);
 public:
     std::string LibraryName;
 
-    virtual ~Windows_Hook();
+    virtual ~WindowsHook_t();
 
     void ResetRenderState();
     void SetInitialWindowSize(HWND hWnd);
@@ -101,8 +101,8 @@ public:
     bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
-    static Windows_Hook* Inst();
-    virtual std::string GetLibraryName() const;
+    static WindowsHook_t* Inst();
+    virtual const std::string& GetLibraryName() const;
 };
 
 }//namespace InGameOverlay

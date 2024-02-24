@@ -57,7 +57,7 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
             return false;
         }
 
-        if (!Windows_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         _WindowsHooked = true;
@@ -88,7 +88,7 @@ void DX11Hook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideAppInputs(hide);
+        WindowsHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -96,7 +96,7 @@ void DX11Hook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideOverlayInputs(hide);
+        WindowsHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -112,7 +112,7 @@ void DX11Hook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplDX11_Shutdown();
-        Windows_Hook::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -172,13 +172,13 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         
         ImGui_ImplDX11_Init(_Device, _DeviceContext);
         
-        Windows_Hook::Inst()->SetInitialWindowSize(desc.OutputWindow);
+        WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
         _Initialized = true;
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX11_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(desc.OutputWindow))
+    if (ImGui_ImplDX11_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
     {
         ImGui::NewFrame();
     
@@ -242,7 +242,7 @@ DX11Hook_t::~DX11Hook_t()
     SPDLOG_INFO("DX11 Hook removed");
 
     if (_WindowsHooked)
-        delete Windows_Hook::Inst();
+        delete WindowsHook_t::Inst();
 
     if (_Initialized)
     {
@@ -266,7 +266,7 @@ DX11Hook_t* DX11Hook_t::Inst()
     return _Instance;
 }
 
-std::string DX11Hook_t::GetLibraryName() const
+const std::string& DX11Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }

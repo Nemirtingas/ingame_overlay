@@ -177,7 +177,7 @@ OpenGLHook_t* OpenGLHook_t::Inst()
     return _Instance;
 }
 
-std::string OpenGLHook_t::GetLibraryName() const
+const std::string& OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
 }

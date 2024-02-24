@@ -197,7 +197,7 @@ MetalHook_t* MetalHook_t::Inst()
     return _Instance;
 }
 
-std::string MetalHook_t::GetLibraryName() const
+const std::string& MetalHook_t::GetLibraryName() const
 {
     return LibraryName;
 }

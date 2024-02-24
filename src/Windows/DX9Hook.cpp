@@ -48,7 +48,7 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
             return false;
         }
 
-        if (!Windows_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         _WindowsHooked = true;
@@ -84,7 +84,7 @@ void DX9Hook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideAppInputs(hide);
+        WindowsHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -92,7 +92,7 @@ void DX9Hook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideOverlayInputs(hide);
+        WindowsHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -108,7 +108,7 @@ void DX9Hook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplDX9_Shutdown();
-        Windows_Hook::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -161,13 +161,13 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
         _LastWindow = destWindow;
 
-        Windows_Hook::Inst()->SetInitialWindowSize(destWindow);
+        WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
         _Initialized = true;
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX9_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(destWindow))
+    if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
     {
         ImGui::NewFrame();
 
@@ -240,7 +240,7 @@ DX9Hook_t::~DX9Hook_t()
     SPDLOG_INFO("DX9 Hook removed");
 
     if (_WindowsHooked)
-        delete Windows_Hook::Inst();
+        delete WindowsHook_t::Inst();
 
     if (_Initialized)
     {
@@ -259,7 +259,7 @@ DX9Hook_t* DX9Hook_t::Inst()
     return _Instance;
 }
 
-std::string DX9Hook_t::GetLibraryName() const
+const std::string& DX9Hook_t::GetLibraryName() const
 {
     return LibraryName;
 }

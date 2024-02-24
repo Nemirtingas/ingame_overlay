@@ -39,7 +39,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
             return false;
         }
 
-        if (!Windows_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         _WindowsHooked = true;
@@ -63,7 +63,7 @@ void OpenGLHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideAppInputs(hide);
+        WindowsHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -71,7 +71,7 @@ void OpenGLHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideOverlayInputs(hide);
+        WindowsHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -87,7 +87,7 @@ void OpenGLHook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
-        Windows_Hook::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -114,13 +114,13 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
         _LastWindow = hWnd;
 
-        Windows_Hook::Inst()->SetInitialWindowSize(hWnd);
+        WindowsHook_t::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplOpenGL3_NewFrame() && Windows_Hook::Inst()->PrepareForOverlay(hWnd))
+    if (ImGui_ImplOpenGL3_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(hWnd))
     {
         ImGui::NewFrame();
 
@@ -154,7 +154,7 @@ OpenGLHook_t::~OpenGLHook_t()
     SPDLOG_INFO("OpenGL Hook removed");
 
     if (_WindowsHooked)
-        delete Windows_Hook::Inst();
+        delete WindowsHook_t::Inst();
 
     if (_Initialized)
     {
@@ -173,7 +173,7 @@ OpenGLHook_t* OpenGLHook_t::Inst()
     return _Instance;
 }
 
-std::string OpenGLHook_t::GetLibraryName() const
+const std::string& OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
