@@ -17,8 +17,6 @@
 #include <backends/imgui_impl_metal.h>
 #include "imgui_impl_osx.h"
 @interface AppViewController : NSViewController<NSWindowDelegate>
-
-@interface AppViewController () <MTKViewDelegate>
 @property (nonatomic, readonly) MTKView *mtkView;
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
