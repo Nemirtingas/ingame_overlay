@@ -19,6 +19,10 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+#ifndef GL_SILENCE_DEPRECATION
+#define GL_SILENCE_DEPRECATION
+#endif
+
 #import "imgui.h"
 #ifndef IMGUI_DISABLE
 #import "imgui_impl_osx.h"
