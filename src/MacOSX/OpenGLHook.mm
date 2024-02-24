@@ -35,7 +35,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 {
     if (!_Hooked)
     {
-        if (_NSOpenGLContextFlushBufferMethod == nullptr && CGLFlushDrawable == nullptr)
+        if (_NSOpenGLContextFlushBufferMethod == nullptr && _CGLFlushDrawable == nullptr)
         {
             SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;

@@ -40,11 +40,11 @@ public:
 private:
     static MetalHook_t* _Instance;
 
-    struct render_pass_t
+    struct RenderPass_t
     {
-        MTLRenderPassDescriptor* descriptor;
-        id<MTLCommandBuffer> command_buffer;
-        id<MTLRenderCommandEncoder> encoder;
+        MTLRenderPassDescriptor* Descriptor;
+        id<MTLCommandBuffer> CommandBuffer;
+        id<MTLRenderCommandEncoder> Encoder;
     };
     
     // Variables
@@ -52,7 +52,7 @@ private:
     bool _Initialized;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     id<MTLDevice> _MetalDevice;
-    std::vector<render_pass_t> _RenderPass;
+    std::vector<RenderPass_t> _RenderPass;
     
     void* _ImGuiFontAtlas;
 
@@ -60,14 +60,14 @@ private:
     MetalHook_t();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(render_pass_t& render_pass);
+    void _PrepareForOverlay(RenderPass_t& renderPass);
 
     // Hook to render functions
     Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;
     Method _MTLRenderCommandEncoderEndEncodingMethod;
 
-    id<MTLRenderCommandEncoder> (*MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    void (*MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
+    id<MTLRenderCommandEncoder> (*_MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    void (*_MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
 
 public:
     std::string LibraryName;

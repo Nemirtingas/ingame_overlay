@@ -39,7 +39,7 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
             return false;
         }
 
-        if (!NSView_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         SPDLOG_INFO("Hooked Metal");
@@ -47,8 +47,8 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
 
         _ImGuiFontAtlas = imgui_font_atlas;
         
-        MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
-        MTLRenderCommandEncoderEndEncoding = (decltype(MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
+        _MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(_MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
+        _MTLRenderCommandEncoderEndEncoding = (decltype(_MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
     }
     return true;
 }
@@ -57,7 +57,7 @@ void MetalHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        NSView_Hook::Inst()->HideAppInputs(hide);
+        NSViewHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -65,7 +65,7 @@ void MetalHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        NSView_Hook::Inst()->HideOverlayInputs(hide);
+        NSViewHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -81,7 +81,7 @@ void MetalHook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplMetal_Shutdown();
-        //NSView_Hook::Inst()->_ResetRenderState();
+        //NSViewHook_t::Inst()->_ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -93,14 +93,14 @@ void MetalHook_t::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void MetalHook_t::_PrepareForOverlay(render_pass_t& render_pass)
+void MetalHook_t::_PrepareForOverlay(render_pass_t& renderPass)
 {
     if( !_Initialized )
     {
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
         
-        _MetalDevice = [render_pass.command_buffer device];
+        _MetalDevice = [renderPass.CommandBuffer device];
 
         ImGui_ImplMetal_Init(_MetalDevice);
         
@@ -108,7 +108,7 @@ void MetalHook_t::_PrepareForOverlay(render_pass_t& render_pass)
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
     
-    if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(render_pass.descriptor))
+    if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(renderPass.Descriptor))
     {
         ImGui::NewFrame();
         
@@ -116,16 +116,16 @@ void MetalHook_t::_PrepareForOverlay(render_pass_t& render_pass)
         
         ImGui::Render();
 
-        ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), render_pass.command_buffer, render_pass.encoder);
+        ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), renderPass.CommandBuffer, renderPass.Encoder);
     }
 }
 
 id<MTLRenderCommandEncoder> MetalHook_t::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
 {
     MetalHook_t* inst = MetalHook_t::Inst();
-    id<MTLRenderCommandEncoder> encoder = inst->MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
+    id<MTLRenderCommandEncoder> encoder = inst->_MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
     
-    inst->_RenderPass.emplace_back(render_pass_t{
+    inst->_RenderPass.emplace_back(RenderPass_t{
         descriptor,
         self,
         encoder,
@@ -148,7 +148,7 @@ void MetalHook_t::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> sel
         }
     }
     
-    inst->MTLRenderCommandEncoderEndEncoding(self, sel);
+    inst->_MTLRenderCommandEncoderEndEncoding(self, sel);
 }
 
 MetalHook_t::MetalHook_t():
@@ -158,8 +158,8 @@ MetalHook_t::MetalHook_t():
     _MetalDevice(nil),
     _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),
     _MTLRenderCommandEncoderEndEncodingMethod(nil),
-    MTLCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
-    MTLRenderCommandEncoderEndEncoding(nullptr)
+    _MTLCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
+    _MTLRenderCommandEncoderEndEncoding(nullptr)
 {
     
 }
