@@ -428,8 +428,6 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(macos_opengl2_app
       tests/macos_opengl2/main.mm
-	  tests/macos_opengl2/imgui_impl_metal.h
-	  tests/macos_opengl2/imgui_impl_metal.mm
       tests/macos_opengl2/imgui_impl_osx.h
       tests/macos_opengl2/imgui_impl_osx.mm
       deps/ImGui/imgui.cpp
@@ -465,8 +463,6 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(macos_metal_app
       tests/macos_metal/main.mm
-	  tests/macos_metal/imgui_impl_metal.h
-	  tests/macos_metal/imgui_impl_metal.mm
       tests/macos_metal/imgui_impl_osx.h
       tests/macos_metal/imgui_impl_osx.mm
       deps/ImGui/imgui.cpp
