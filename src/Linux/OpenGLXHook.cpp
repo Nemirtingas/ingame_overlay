@@ -41,7 +41,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
             return false;
         }
 
-        if (!X11_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!X11Hook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         _X11Hooked = true;
@@ -65,7 +65,7 @@ void OpenGLXHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        X11_Hook::Inst()->HideAppInputs(hide);
+        X11Hook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -73,7 +73,7 @@ void OpenGLXHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        X11_Hook::Inst()->HideOverlayInputs(hide);
+        X11Hook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -89,7 +89,7 @@ void OpenGLXHook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL3_Shutdown();
-        X11_Hook::Inst()->ResetRenderState();
+        X11Hook_t::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -133,7 +133,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
         _Display = display;
 
-        X11_Hook::Inst()->SetInitialWindowSize(_Display, (Window)drawable);
+        X11Hook_t::Inst()->SetInitialWindowSize(_Display, (Window)drawable);
 
         _Initialized = true;
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
@@ -143,7 +143,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
     //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11_Hook::Inst()->PrepareForOverlay(_Display, (Window)drawable))
+    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay(_Display, (Window)drawable))
     {
         ImGui::NewFrame();
 
@@ -178,7 +178,7 @@ OpenGLXHook_t::~OpenGLXHook_t()
     SPDLOG_INFO("OpenGLX Hook removed");
 
     if (_X11Hooked)
-        delete X11_Hook::Inst();
+        delete X11Hook_t::Inst();
 
     if (_Initialized)
     {
