@@ -60,14 +60,14 @@ private:
 
     // Hook to render functions
     Method _NSOpenGLContextFlushBufferMethod;
-    CGLError (*NSOpenGLContextflushBuffer)(id self);
-    decltype(::CGLFlushDrawable)* CGLFlushDrawable;
+    CGLError (*_NSOpenGLContextflushBuffer)(id self);
+    decltype(::CGLFlushDrawable)* _CGLFlushDrawable;
+
+    static CGLError _MyNSOpenGLContextFlushBuffer(id self);
+    static CGLError _MyCGLFlushDrawable(CGLContextObj glDrawable);
 
 public:
     std::string LibraryName;
-
-    static CGLError MyflushBuffer(id self);
-    static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable);
 
     virtual ~OpenGLHook_t();
 

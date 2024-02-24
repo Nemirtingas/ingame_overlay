@@ -41,7 +41,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
             return false;
         }
 
-        if (!NSView_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         SPDLOG_INFO("Hooked OpenGL");
@@ -51,14 +51,14 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         if (_NSOpenGLContextFlushBufferMethod != nullptr)
         {
-            NSOpenGLContextflushBuffer = (decltype(NSOpenGLContextflushBuffer))method_setImplementation(_NSOpenGLContextFlushBufferMethod, (IMP)MyflushBuffer);
+            _NSOpenGLContextflushBuffer = (decltype(_NSOpenGLContextflushBuffer))method_setImplementation(_NSOpenGLContextFlushBufferMethod, (IMP)_MyNSOpenGLContextFlushBuffer);
         }
-        else if (CGLFlushDrawable != nullptr)
+        else if (_CGLFlushDrawable != nullptr)
         {
             UnhookAll();
             BeginHook();
             HookFuncs(
-                std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGLHook_t::MyCGLFlushDrawable)
+                std::make_pair<void**, void*>((void**)&_CGLFlushDrawable, (void*)&OpenGLHook_t::_MyCGLFlushDrawable)
             );
             EndHook();
         }
@@ -70,7 +70,7 @@ void OpenGLHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        NSView_Hook::Inst()->HideAppInputs(hide);
+        NSViewHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -78,7 +78,7 @@ void OpenGLHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        NSView_Hook::Inst()->HideOverlayInputs(hide);
+        NSViewHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -94,7 +94,7 @@ void OpenGLHook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL2_Shutdown();
-        //NSView_Hook::Inst()->_ResetRenderState();
+        //NSViewHook_t::Inst()->_ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -117,7 +117,7 @@ void OpenGLHook_t::_PrepareForOverlay()
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
-    if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
+    if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
     {
         ImGui::NewFrame();
 
@@ -133,16 +133,16 @@ void OpenGLHook_t::_PrepareForOverlay()
     }
 }
 
-CGLError OpenGLHook_t::MyflushBuffer(id self)
+CGLError OpenGLHook_t::_MyNSOpenGLContextFlushBuffer(id self)
 {
     OpenGLHook_t::Inst()->_PrepareForOverlay();
-    return OpenGLHook_t::Inst()->NSOpenGLContextflushBuffer(self);
+    return OpenGLHook_t::Inst()->_NSOpenGLContextflushBuffer(self);
 }
 
-CGLError OpenGLHook_t::MyCGLFlushDrawable(CGLContextObj glDrawable)
+CGLError OpenGLHook_t::_MyCGLFlushDrawable(CGLContextObj glDrawable)
 {
     OpenGLHook_t::Inst()->_PrepareForOverlay();
-    return OpenGLHook_t::Inst()->CGLFlushDrawable(glDrawable);
+    return OpenGLHook_t::Inst()->_CGLFlushDrawable(glDrawable);
 }
 
 OpenGLHook_t::OpenGLHook_t():
@@ -150,8 +150,8 @@ OpenGLHook_t::OpenGLHook_t():
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
     _NSOpenGLContextFlushBufferMethod(nullptr),
-    NSOpenGLContextflushBuffer(nullptr),
-    CGLFlushDrawable(nullptr)
+    _NSOpenGLContextflushBuffer(nullptr),
+    _CGLFlushDrawable(nullptr)
 {
     
 }
@@ -185,7 +185,7 @@ std::string OpenGLHook_t::GetLibraryName() const
 void OpenGLHook_t::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
 {
     _NSOpenGLContextFlushBufferMethod = openGLFlushBufferMethod;
-    CGLFlushDrawable = pfnCGLFlushDrawable;
+    _CGLFlushDrawable = pfnCGLFlushDrawable;
 }
 
 std::weak_ptr<uint64_t> OpenGLHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
