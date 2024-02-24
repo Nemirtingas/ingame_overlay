@@ -79,8 +79,8 @@ private:
     bool _OpenGLXHooked;
     //bool _VulkanHooked;
 
-    OpenGLX_Hook* _OpenGLXHook;
-    //Vulkan_Hook* _VulkanHook;
+    OpenGLXHook_t* _OpenGLXHook;
+    //VulkanHook_t* _VulkanHook;
 
     RendererDetector_t() :
         _OpenGLXHooked(false),
@@ -141,7 +141,7 @@ private:
 
                 _OpenGLXHooked = true;
 
-                _OpenGLXHook = OpenGLX_Hook::Inst();
+                _OpenGLXHook = OpenGLXHook_t::Inst();
                 _OpenGLXHook->LibraryName = library_path;
                 _OpenGLXHook->LoadFunctions(_GLXSwapBuffers);
 
