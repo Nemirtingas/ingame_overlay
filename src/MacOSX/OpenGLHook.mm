@@ -17,19 +17,21 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "OpenGL_Hook.h"
-#include "NSView_Hook.h"
+#include "OpenGLHook.h"
+#include "NSViewHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
 
 #include <glad/gl.h>
 
-OpenGL_Hook* OpenGL_Hook::_inst = nullptr;
+namespace InGameOverlay {
 
-decltype(OpenGL_Hook::DLL_NAME) OpenGL_Hook::DLL_NAME;
+OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
-bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+decltype(OpenGLHook_t::DLL_NAME) OpenGLHook_t::DLL_NAME;
+
+bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -56,7 +58,7 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
             UnhookAll();
             BeginHook();
             HookFuncs(
-                std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGL_Hook::MyCGLFlushDrawable)
+                std::make_pair<void**, void*>((void**)&CGLFlushDrawable, (void*)&OpenGLHook_t::MyCGLFlushDrawable)
             );
             EndHook();
         }
@@ -64,7 +66,7 @@ bool OpenGL_Hook::StartHook(std::function<void()> key_combination_callback, std:
     return true;
 }
 
-void OpenGL_Hook::HideAppInputs(bool hide)
+void OpenGLHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -72,7 +74,7 @@ void OpenGL_Hook::HideAppInputs(bool hide)
     }
 }
 
-void OpenGL_Hook::HideOverlayInputs(bool hide)
+void OpenGLHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -80,16 +82,16 @@ void OpenGL_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool OpenGL_Hook::IsStarted()
+bool OpenGLHook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void OpenGL_Hook::_ResetRenderState()
+void OpenGLHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplOpenGL2_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
@@ -102,7 +104,7 @@ void OpenGL_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void OpenGL_Hook::_PrepareForOverlay()
+void OpenGLHook_t::_PrepareForOverlay()
 {
     if( !_Initialized )
     {
@@ -112,7 +114,7 @@ void OpenGL_Hook::_PrepareForOverlay()
         ImGui_ImplOpenGL2_Init();
 
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
@@ -131,19 +133,19 @@ void OpenGL_Hook::_PrepareForOverlay()
     }
 }
 
-CGLError OpenGL_Hook::MyflushBuffer(id self)
+CGLError OpenGLHook_t::MyflushBuffer(id self)
 {
-    OpenGL_Hook::Inst()->_PrepareForOverlay();
-    return OpenGL_Hook::Inst()->NSOpenGLContextflushBuffer(self);
+    OpenGLHook_t::Inst()->_PrepareForOverlay();
+    return OpenGLHook_t::Inst()->NSOpenGLContextflushBuffer(self);
 }
 
-CGLError OpenGL_Hook::MyCGLFlushDrawable(CGLContextObj glDrawable)
+CGLError OpenGLHook_t::MyCGLFlushDrawable(CGLContextObj glDrawable)
 {
-    OpenGL_Hook::Inst()->_PrepareForOverlay();
-    return OpenGL_Hook::Inst()->CGLFlushDrawable(glDrawable);
+    OpenGLHook_t::Inst()->_PrepareForOverlay();
+    return OpenGLHook_t::Inst()->CGLFlushDrawable(glDrawable);
 }
 
-OpenGL_Hook::OpenGL_Hook():
+OpenGLHook_t::OpenGLHook_t():
     _Initialized(false),
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
@@ -154,7 +156,7 @@ OpenGL_Hook::OpenGL_Hook():
     
 }
 
-OpenGL_Hook::~OpenGL_Hook()
+OpenGLHook_t::~OpenGLHook_t()
 {
     SPDLOG_INFO("OpenGL Hook removed");
 
@@ -164,29 +166,29 @@ OpenGL_Hook::~OpenGL_Hook()
         ImGui::DestroyContext();
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-OpenGL_Hook* OpenGL_Hook::Inst()
+OpenGLHook_t* OpenGLHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new OpenGL_Hook;
+    if (_Instance == nullptr)
+        _Instance = new OpenGLHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string OpenGL_Hook::GetLibraryName() const
+std::string OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void OpenGL_Hook::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
+void OpenGLHook_t::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)
 {
     _NSOpenGLContextFlushBufferMethod = openGLFlushBufferMethod;
     CGLFlushDrawable = pfnCGLFlushDrawable;
 }
 
-std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> OpenGLHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     GLuint* texture = new GLuint(0);
     glGenTextures(1, texture);
@@ -225,7 +227,7 @@ std::weak_ptr<uint64_t> OpenGL_Hook::CreateImageResource(const void* image_data,
     return ptr;
 }
 
-void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void OpenGLHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -235,3 +237,5 @@ void OpenGL_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

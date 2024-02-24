@@ -17,11 +17,13 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "NSView_Hook.h"
+#include "NSViewHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_osx.h>
 #include <System/Library.h>
+
+namespace InGameOverlay {
 
 static bool GetKeyState( unsigned short inKeyCode )
 {
@@ -64,32 +66,32 @@ static bool IgnoreEvent(NSEvent* event)
     return false;
 }
 
-constexpr decltype(NSView_Hook::DLL_NAME) NSView_Hook::DLL_NAME;
+constexpr decltype(NSViewHook_t::DLL_NAME) NSViewHook_t::DLL_NAME;
 
-NSView_Hook* NSView_Hook::_inst = nullptr;
+NSViewHook_t* NSViewHook_t::_Instance = nullptr;
 
-uint32_t ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
+uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
-        ingame_overlay::ToggleKey lib_key;
+        InGameOverlay::ToggleKey lib_key;
         uint32_t native_key;
     } mapping[] = {
-        { ingame_overlay::ToggleKey::ALT  , kVK_Option   },
-        { ingame_overlay::ToggleKey::CTRL , kVK_Control  },
-        { ingame_overlay::ToggleKey::SHIFT, kVK_Shift    },
-        { ingame_overlay::ToggleKey::TAB  , kVK_Tab      },
-        { ingame_overlay::ToggleKey::F1   , kVK_F1       },
-        { ingame_overlay::ToggleKey::F2   , kVK_F2       },
-        { ingame_overlay::ToggleKey::F3   , kVK_F3       },
-        { ingame_overlay::ToggleKey::F4   , kVK_F4       },
-        { ingame_overlay::ToggleKey::F5   , kVK_F5       },
-        { ingame_overlay::ToggleKey::F6   , kVK_F6       },
-        { ingame_overlay::ToggleKey::F7   , kVK_F7       },
-        { ingame_overlay::ToggleKey::F8   , kVK_F8       },
-        { ingame_overlay::ToggleKey::F9   , kVK_F9       },
-        { ingame_overlay::ToggleKey::F10  , kVK_F10      },
-        { ingame_overlay::ToggleKey::F11  , kVK_F11      },
-        { ingame_overlay::ToggleKey::F12  , kVK_F12      },
+        { InGameOverlay::ToggleKey::ALT  , kVK_Option   },
+        { InGameOverlay::ToggleKey::CTRL , kVK_Control  },
+        { InGameOverlay::ToggleKey::SHIFT, kVK_Shift    },
+        { InGameOverlay::ToggleKey::TAB  , kVK_Tab      },
+        { InGameOverlay::ToggleKey::F1   , kVK_F1       },
+        { InGameOverlay::ToggleKey::F2   , kVK_F2       },
+        { InGameOverlay::ToggleKey::F3   , kVK_F3       },
+        { InGameOverlay::ToggleKey::F4   , kVK_F4       },
+        { InGameOverlay::ToggleKey::F5   , kVK_F5       },
+        { InGameOverlay::ToggleKey::F6   , kVK_F6       },
+        { InGameOverlay::ToggleKey::F7   , kVK_F7       },
+        { InGameOverlay::ToggleKey::F8   , kVK_F8       },
+        { InGameOverlay::ToggleKey::F9   , kVK_F9       },
+        { InGameOverlay::ToggleKey::F10  , kVK_F10      },
+        { InGameOverlay::ToggleKey::F11  , kVK_F11      },
+        { InGameOverlay::ToggleKey::F12  , kVK_F12      },
     };
 
     for (auto const& item : mapping)
@@ -101,7 +103,7 @@ uint32_t ToggleKeyToNativeKey(ingame_overlay::ToggleKey k)
     return 0;
 }
 
-bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys)
+bool NSViewHook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
@@ -145,10 +147,10 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
         }
     
         Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
-        pressedMouseButtons = (decltype(pressedMouseButtons))method_setImplementation(ns_method, (IMP)&NSView_Hook::MypressedMouseButtons);
+        pressedMouseButtons = (decltype(pressedMouseButtons))method_setImplementation(ns_method, (IMP)&NSViewHook_t::MypressedMouseButtons);
 
         ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
-        mouseLocation = (decltype(mouseLocation))method_setImplementation(ns_method, (IMP)&NSView_Hook::MymouseLocation);
+        mouseLocation = (decltype(mouseLocation))method_setImplementation(ns_method, (IMP)&NSViewHook_t::MymouseLocation);
 
         NSInteger mask = NSEventMaskAny;
         /*
@@ -163,7 +165,7 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
 
         _EventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event)
         {
-            auto* inst = NSView_Hook::Inst();
+            auto* inst = NSViewHook_t::Inst();
             NSView* view = [[event window]contentView];
             bool hide_app_inputs = inst->ApplicationInputsHidden;
             bool hide_overlay_inputs = inst->OverlayInputsHidden;
@@ -227,17 +229,17 @@ bool NSView_Hook::StartHook(std::function<void()>& _key_combination_callback, st
     return true;
 }
 
-void NSView_Hook::HideAppInputs(bool hide)
+void NSViewHook_t::HideAppInputs(bool hide)
 {
     ApplicationInputsHidden = hide;
 }
 
-void NSView_Hook::HideOverlayInputs(bool hide)
+void NSViewHook_t::HideOverlayInputs(bool hide)
 {
     OverlayInputsHidden = hide;
 }
 
-void NSView_Hook::ResetRenderState()
+void NSViewHook_t::ResetRenderState()
 {
     if (_Initialized)
     {
@@ -250,7 +252,7 @@ void NSView_Hook::ResetRenderState()
     }
 }
 
-bool NSView_Hook::PrepareForOverlay()
+bool NSViewHook_t::PrepareForOverlay()
 {
     if (!_Hooked)
         return false;
@@ -275,18 +277,18 @@ bool NSView_Hook::PrepareForOverlay()
     return true;
 }
 
-NSPoint NSView_Hook::MymouseLocation(id self, SEL sel)
+NSPoint NSViewHook_t::MymouseLocation(id self, SEL sel)
 {
-    NSView_Hook* inst = NSView_Hook::Inst();
+    NSViewHook_t* inst = NSViewHook_t::Inst();
     if (inst->ApplicationInputsHidden)
         return inst->_SavedLocation;
 
     return inst->mouseLocation(self, sel);
 }
 
-NSInteger NSView_Hook::MypressedMouseButtons(id self, SEL sel)
+NSInteger NSViewHook_t::MypressedMouseButtons(id self, SEL sel)
 {
-    NSView_Hook* inst = NSView_Hook::Inst();
+    NSViewHook_t* inst = NSViewHook_t::Inst();
     if (inst->ApplicationInputsHidden)
         return 0;
 
@@ -297,7 +299,7 @@ NSInteger NSView_Hook::MypressedMouseButtons(id self, SEL sel)
 
 /////////////////////////////////////////////////////////////////////////////////////
 
-NSView_Hook::NSView_Hook() :
+NSViewHook_t::NSViewHook_t() :
     _Initialized(false),
     _Hooked(false),
     _EventMonitor(nil),
@@ -311,7 +313,7 @@ NSView_Hook::NSView_Hook() :
 {
 }
 
-NSView_Hook::~NSView_Hook()
+NSViewHook_t::~NSViewHook_t()
 {
     SPDLOG_INFO("NSView Hook removed");
 
@@ -326,18 +328,20 @@ NSView_Hook::~NSView_Hook()
     [NSEvent removeMonitor :_EventMonitor];
     _EventMonitor = nil;
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-NSView_Hook* NSView_Hook::Inst()
+NSViewHook_t* NSViewHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new NSView_Hook;
+    if (_Instance == nullptr)
+        _Instance = new NSViewHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string NSView_Hook::GetLibraryName() const
+std::string NSViewHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
+
+}// namespace InGameOverlay

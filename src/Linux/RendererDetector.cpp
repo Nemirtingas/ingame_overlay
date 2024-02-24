@@ -66,7 +66,7 @@ private:
     std::mutex _RendererMutex;
 
     BaseHook_t _DetectionHooks;
-    InGameOverlay::RendererHook_t* _RendererHook;
+    RendererHook_t* _RendererHook;
 
     bool _DetectionDone;
     uint32_t _DetectionCount;
@@ -123,14 +123,14 @@ private:
         _DetectionHooks.EndHook();
     }
 
-    void _HookOpenGLX(std::string const& library_path)
+    void _HookOpenGLX(std::string const& libraryPath)
     {
         if (!_OpenGLXHooked)
         {
             System::Library::Library libGLX;
-            if (!libGLX.OpenLibrary(library_path, false))
+            if (!libGLX.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect OpenGLX", library_path);
+                SPDLOG_WARN("Failed to load {} to detect OpenGLX", libraryPath);
                 return;
             }
 
@@ -142,7 +142,7 @@ private:
                 _OpenGLXHooked = true;
 
                 _OpenGLXHook = OpenGLXHook_t::Inst();
-                _OpenGLXHook->LibraryName = library_path;
+                _OpenGLXHook->LibraryName = libraryPath;
                 _OpenGLXHook->LoadFunctions(_GLXSwapBuffers);
 
                 _HookGLXSwapBuffers(_GLXSwapBuffers);
@@ -186,7 +186,7 @@ public:
         return std::async(std::launch::async, [this, timeout]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
-            constexpr std::chrono::milliseconds infinite_timeout{ -1 };
+            constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
         
             if (!detection_lock.try_lock_for(timeout))
             {
@@ -235,7 +235,7 @@ public:
             };
             std::string name;
 
-            auto start_time = std::chrono::steady_clock::now();
+            auto startTime = std::chrono::steady_clock::now();
             do
             {
                 std::unique_lock<std::mutex> lck(_StopDetectionMutex);
@@ -244,20 +244,20 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string lib_path = _FindPreferedModulePath(library.first);
-                    if (!lib_path.empty())
+                    std::string libraryPath = _FindPreferedModulePath(library.first);
+                    if (!libraryPath.empty())
                     {
-                        void* lib_handle = System::Library::GetLibraryHandle(lib_path.c_str());
-                        if (lib_handle != nullptr)
+                        void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                        if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(lib_handle));
+                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle));
                         }
                     }
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
-            } while (timeout == infinite_timeout || (std::chrono::steady_clock::now() - start_time) <= timeout);
+            } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
             {
                 System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);

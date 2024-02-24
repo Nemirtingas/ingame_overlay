@@ -17,18 +17,19 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "Metal_Hook.h"
-#include "NSView_Hook.h"
+#include "MetalHook.h"
+#include "NSViewHook.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_metal.h>
 
-Metal_Hook* Metal_Hook::_inst = nullptr;
+namespace InGameOverlay {
 
-decltype(Metal_Hook::DLL_NAME) Metal_Hook::DLL_NAME;
+MetalHook_t* MetalHook_t::_Instance = nullptr;
 
+decltype(MetalHook_t::DLL_NAME) MetalHook_t::DLL_NAME;
 
-bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -52,7 +53,7 @@ bool Metal_Hook::StartHook(std::function<void()> key_combination_callback, std::
     return true;
 }
 
-void Metal_Hook::HideAppInputs(bool hide)
+void MetalHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -60,7 +61,7 @@ void Metal_Hook::HideAppInputs(bool hide)
     }
 }
 
-void Metal_Hook::HideOverlayInputs(bool hide)
+void MetalHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
@@ -68,16 +69,16 @@ void Metal_Hook::HideOverlayInputs(bool hide)
     }
 }
 
-bool Metal_Hook::IsStarted()
+bool MetalHook_t::IsStarted()
 {
     return _Hooked;
 }
 
-void Metal_Hook::_ResetRenderState()
+void MetalHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(ingame_overlay::OverlayHookState::Removing);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplMetal_Shutdown();
         //NSView_Hook::Inst()->_ResetRenderState();
@@ -92,7 +93,7 @@ void Metal_Hook::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
+void MetalHook_t::_PrepareForOverlay(render_pass_t& render_pass)
 {
     if( !_Initialized )
     {
@@ -104,7 +105,7 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
         ImGui_ImplMetal_Init(_MetalDevice);
         
         _Initialized = true;
-        OverlayHookReady(ingame_overlay::OverlayHookState::Ready);
+        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
     
     if (NSView_Hook::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(render_pass.descriptor))
@@ -119,9 +120,9 @@ void Metal_Hook::_PrepareForOverlay(render_pass_t& render_pass)
     }
 }
 
-id<MTLRenderCommandEncoder> Metal_Hook::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
+id<MTLRenderCommandEncoder> MetalHook_t::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
 {
-    Metal_Hook* inst = Metal_Hook::Inst();
+    MetalHook_t* inst = MetalHook_t::Inst();
     id<MTLRenderCommandEncoder> encoder = inst->MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
     
     inst->_RenderPass.emplace_back(render_pass_t{
@@ -133,9 +134,9 @@ id<MTLRenderCommandEncoder> Metal_Hook::MyMTLCommandBufferRenderCommandEncoderWi
     return encoder;
 }
 
-void Metal_Hook::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
+void MetalHook_t::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel)
 {
-    Metal_Hook* inst = Metal_Hook::Inst();
+    MetalHook_t* inst = MetalHook_t::Inst();
 
     for(auto it = inst->_RenderPass.begin(); it != inst->_RenderPass.end(); ++it)
     {
@@ -150,7 +151,7 @@ void Metal_Hook::MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self
     inst->MTLRenderCommandEncoderEndEncoding(self, sel);
 }
 
-Metal_Hook::Metal_Hook():
+MetalHook_t::MetalHook_t():
     _Initialized(false),
     _Hooked(false),
     _ImGuiFontAtlas(nullptr),
@@ -163,7 +164,7 @@ Metal_Hook::Metal_Hook():
     
 }
 
-Metal_Hook::~Metal_Hook()
+MetalHook_t::~MetalHook_t()
 {
     SPDLOG_INFO("Metal Hook removed");
 
@@ -185,34 +186,34 @@ Metal_Hook::~Metal_Hook()
         _MetalDevice = nil;
     }
 
-    _inst = nullptr;
+    _Instance = nullptr;
 }
 
-Metal_Hook* Metal_Hook::Inst()
+MetalHook_t* MetalHook_t::Inst()
 {
-    if (_inst == nullptr)
-        _inst = new Metal_Hook;
+    if (_Instance == nullptr)
+        _Instance = new MetalHook_t;
 
-    return _inst;
+    return _Instance;
 }
 
-std::string Metal_Hook::GetLibraryName() const
+std::string MetalHook_t::GetLibraryName() const
 {
     return LibraryName;
 }
 
-void Metal_Hook::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding)
+void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding)
 {
     _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod = MTLCommandBufferRenderCommandEncoderWithDescriptor;
     _MTLRenderCommandEncoderEndEncodingMethod = RenderCommandEncoderEndEncoding;
 }
 
-std::weak_ptr<uint64_t> Metal_Hook::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<uint64_t> MetalHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
     return std::shared_ptr<uint64_t>();
 }
 
-void Metal_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void MetalHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -222,3 +223,5 @@ void Metal_Hook::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
             _ImageResources.erase(it);
     }
 }
+
+}// namespace InGameOverlay

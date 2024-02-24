@@ -23,7 +23,7 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/Renderer_Hook.h>
 
 #include "../internal_includes.h"
 
@@ -34,15 +34,17 @@
 //struct CGLDrawable_t;
 //extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
 
-class OpenGL_Hook :
-    public ingame_overlay::Renderer_Hook,
-    public Base_Hook
+namespace InGameOverlay {
+
+class OpenGLHook_t :
+    public RendererHook_t,
+    public BaseHook_t
 {
 public:
     static constexpr const char *DLL_NAME = "OpenGL";
 
 private:
-    static OpenGL_Hook* _inst;
+    static OpenGLHook_t* _Instance;
 
     // Variables
     bool _Hooked;
@@ -51,7 +53,7 @@ private:
     void* _ImGuiFontAtlas;
 
     // Functions
-    OpenGL_Hook();
+    OpenGLHook_t();
 
     void _ResetRenderState();
     void _PrepareForOverlay();
@@ -67,16 +69,18 @@ public:
     static CGLError MyflushBuffer(id self);
     static CGLError MyCGLFlushDrawable(CGLContextObj glDrawable);
 
-    virtual ~OpenGL_Hook();
+    virtual ~OpenGLHook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
-    static OpenGL_Hook* Inst();
+    static OpenGLHook_t* Inst();
     virtual std::string GetLibraryName() const;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
 };
+
+}// namespace InGameOverlay

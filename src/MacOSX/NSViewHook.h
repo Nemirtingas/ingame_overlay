@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/Renderer_Hook.h>
 
 #include "../internal_includes.h"
 
@@ -28,14 +28,16 @@
 #import <AppKit/AppKit.h>
 #include <objc/runtime.h>
 
-class NSView_Hook :
-    public Base_Hook
+namespace InGameOverlay {
+
+class NSViewHook_t :
+    public BaseHook_t
 {
 public:
     static constexpr const char* DLL_NAME = "AppKit";
 
 private:
-    static NSView_Hook* _inst;
+    static NSViewHook_t* _Instance;
 
     // Variables
     bool _Hooked;
@@ -52,7 +54,7 @@ private:
     static NSPoint MymouseLocation(id self, SEL sel);
 
     // Functions
-    NSView_Hook();
+    NSViewHook_t();
 
 public:
     std::function<void()> KeyCombinationCallback;
@@ -63,15 +65,17 @@ public:
 
     std::string LibraryName;
 
-    virtual ~NSView_Hook();
+    virtual ~NSViewHook_t();
 
     void ResetRenderState();
     bool PrepareForOverlay();
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<ingame_overlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
-    static NSView_Hook* Inst();
+    static NSViewHook_t* Inst();
     virtual std::string GetLibraryName() const;
 
 };
+
+}// namespace InGameOverlay

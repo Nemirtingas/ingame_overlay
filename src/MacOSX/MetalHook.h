@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <ingame_overlay/Renderer_Hook.h>
+#include <InGameOverlay/Renderer_Hook.h>
 
 #include "../internal_includes.h"
 
@@ -28,15 +28,17 @@
 
 #include <objc/runtime.h>
 
-class Metal_Hook :
-    public ingame_overlay::Renderer_Hook,
-    public Base_Hook
+namespace InGameOverlay {
+
+class MetalHook_t :
+    public RendererHook_t,
+    public BaseHook_t
 {
 public:
     static constexpr const char *DLL_NAME = "Metal";
 
 private:
-    static Metal_Hook* _inst;
+    static MetalHook_t* _Instance;
 
     struct render_pass_t
     {
@@ -55,7 +57,7 @@ private:
     void* _ImGuiFontAtlas;
 
     // Functions
-    Metal_Hook();
+    MetalHook_t();
 
     void _ResetRenderState();
     void _PrepareForOverlay(render_pass_t& render_pass);
@@ -73,16 +75,18 @@ public:
     static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     static void MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
 
-    virtual ~Metal_Hook();
+    virtual ~MetalHook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ingame_overlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
-    static Metal_Hook* Inst();
+    static MetalHook_t* Inst();
     virtual std::string GetLibraryName() const;
     void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
 };
+
+}// namespace InGameOverlay

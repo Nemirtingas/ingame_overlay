@@ -91,7 +91,7 @@ private:
     std::mutex _RendererMutex;
 
     BaseHook_t _DetectionHooks;
-    InGameOverlay::RendererHook_t* _RendererHook;
+    RendererHook_t* _RendererHook;
 
     bool _DetectionDone;
     uint32_t _DetectionCount;
@@ -529,14 +529,14 @@ private:
         _DetectionHooks.EndHook();
     }
 
-    void _HookDX9(std::string const& library_path)
+    void _HookDX9(std::string const& libraryPath)
     {
         if (!_DX9Hooked)
         {
             System::Library::Library libD3d9;
-            if (!libD3d9.OpenLibrary(library_path, false))
+            if (!libD3d9.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX9", library_path);
+                SPDLOG_WARN("Failed to load {} to detect DX9", libraryPath);
                 return;
             }
 
@@ -588,7 +588,7 @@ private:
                 _HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnSwapChainPresent);
 
                 _DX9Hook = DX9Hook_t::Inst();
-                _DX9Hook->LibraryName = library_path;
+                _DX9Hook->LibraryName = libraryPath;
                 _DX9Hook->LoadFunctions(pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
             }
             else
@@ -602,14 +602,14 @@ private:
         }
     }
 
-    void _HookDX10(std::string const& library_path)
+    void _HookDX10(std::string const& libraryPath)
     {
         if (!_DX10Hooked)
         {
             System::Library::Library libD3d10;
-            if (!libD3d10.OpenLibrary(library_path, false))
+            if (!libD3d10.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX10", library_path);
+                SPDLOG_WARN("Failed to load {} to detect DX10", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
@@ -705,7 +705,7 @@ private:
                 }
 
                 _DX10Hook = DX10Hook_t::Inst();
-                _DX10Hook->LibraryName = library_path;
+                _DX10Hook->LibraryName = libraryPath;
                 _DX10Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
@@ -717,14 +717,14 @@ private:
         }
     }
 
-    void _HookDX11(std::string const& library_path)
+    void _HookDX11(std::string const& libraryPath)
     {
         if (!_DX11Hooked)
         {
             System::Library::Library libD3d11;
-            if (!libD3d11.OpenLibrary(library_path, false))
+            if (!libD3d11.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX11", library_path);
+                SPDLOG_WARN("Failed to load {} to detect DX11", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
@@ -820,7 +820,7 @@ private:
                 }
 
                 _DX11Hook = DX11Hook_t::Inst();
-                _DX11Hook->LibraryName = library_path;
+                _DX11Hook->LibraryName = libraryPath;
                 _DX11Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
@@ -833,14 +833,14 @@ private:
         }
     }
 
-    void _HookDX12(std::string const& library_path)
+    void _HookDX12(std::string const& libraryPath)
     {
         if (!_DX12Hooked)
         {
             System::Library::Library libD3d12;
-            if (!libD3d12.OpenLibrary(library_path, false))
+            if (!libD3d12.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX12", library_path);
+                SPDLOG_WARN("Failed to load {} to detect DX12", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
@@ -920,7 +920,7 @@ private:
                 (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
 
                 _DX12Hook = DX12Hook_t::Inst();
-                _DX12Hook->LibraryName = library_path;
+                _DX12Hook->LibraryName = libraryPath;
                 _DX12Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
             }
             else
@@ -935,14 +935,14 @@ private:
         }
     }
 
-    void _HookOpenGL(std::string const& library_path)
+    void _HookOpenGL(std::string const& libraryPath)
     {
         if (!_OpenGLHooked)
         {
             System::Library::Library libOpenGL;
-            if (!libOpenGL.OpenLibrary(library_path, false))
+            if (!libOpenGL.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect OpenGL", library_path);
+                SPDLOG_WARN("Failed to load {} to detect OpenGL", libraryPath);
                 return;
             }
 
@@ -954,7 +954,7 @@ private:
                 _OpenGLHooked = true;
 
                 _OpenGLHook = OpenGLHook_t::Inst();
-                _OpenGLHook->LibraryName = library_path;
+                _OpenGLHook->LibraryName = libraryPath;
                 _OpenGLHook->LoadFunctions(_WGLSwapBuffers);
 
                 _HookWGLSwapBuffers(_WGLSwapBuffers);
@@ -966,16 +966,16 @@ private:
         }
     }
 
-    void _HookVulkan(std::string const& library_path)
+    void _HookVulkan(std::string const& libraryPath)
     {
         // Vulkan hook disabled until proper implementation.
         return;
         if (!_VulkanHooked)
         {
             System::Library::Library libVulkan;
-            if (!libVulkan.OpenLibrary(library_path, false))
+            if (!libVulkan.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect Vulkan", library_path);
+                SPDLOG_WARN("Failed to load {} to detect Vulkan", libraryPath);
                 return;
             }
 
@@ -1056,7 +1056,7 @@ private:
                 _VulkanHooked = true;
 
                 _VulkanHook = VulkanHook_t::Inst();
-                _VulkanHook->LibraryName = library_path;
+                _VulkanHook->LibraryName = libraryPath;
                 _VulkanHook->LoadFunctions(vkQueuePresentKHR);
 
                 _HookVkQueuePresentKHR(vkQueuePresentKHR);
@@ -1112,7 +1112,7 @@ public:
         return std::async(std::launch::async, [this, timeout]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
-            constexpr std::chrono::milliseconds infinite_timeout{ -1 };
+            constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
         
             if (!detection_lock.try_lock_for(timeout))
             {
@@ -1166,7 +1166,7 @@ public:
             };
             std::string name;
 
-            auto start_time = std::chrono::steady_clock::now();
+            auto startTime = std::chrono::steady_clock::now();
             do
             {
                 std::unique_lock<std::mutex> lck(_StopDetectionMutex);
@@ -1175,20 +1175,20 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string lib_path = _FindPreferedModulePath(library.first);
-                    if (!lib_path.empty())
+                    std::string libraryPath = _FindPreferedModulePath(library.first);
+                    if (!libraryPath.empty())
                     {
-                        void* lib_handle = System::Library::GetLibraryHandle(lib_path.c_str());
-                        if (lib_handle != nullptr)
+                        void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                        if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(lib_handle));
+                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle));
                         }
                     }
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
-            } while (timeout == infinite_timeout || (std::chrono::steady_clock::now() - start_time) <= timeout);
+            } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
             {
                 System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
