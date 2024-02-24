@@ -45,9 +45,9 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         _WindowsHooked = true;
 
         SPDLOG_INFO("Hooked OpenGL");
-
+        
         _Hooked = true;
-
+        
         _ImGuiFontAtlas = imgui_font_atlas;
 
         BeginHook();

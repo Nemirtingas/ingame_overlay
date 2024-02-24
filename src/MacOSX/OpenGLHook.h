@@ -34,6 +34,8 @@
 //struct CGLDrawable_t;
 //extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
 
+struct ImDrawData;
+
 namespace InGameOverlay {
 
 class OpenGLHook_t :
@@ -44,11 +46,20 @@ public:
     static constexpr const char *DLL_NAME = "OpenGL";
 
 private:
+    struct OpenGLDriver_t
+    {
+        bool (*ImGuiInit)();
+        bool (*ImGuiNewFrame)();
+        void (*ImGuiRenderDrawData)(ImDrawData*);
+        void (*ImGuiShutdown)();
+    };
+
     static OpenGLHook_t* _Instance;
 
     // Variables
     bool _Hooked;
     bool _Initialized;
+    OpenGLDriver_t _OpenGLDriver;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
