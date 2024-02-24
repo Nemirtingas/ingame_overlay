@@ -19,9 +19,9 @@
 
 #pragma once
 
-#include <InGameOverlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
 
 #include <Metal/Metal.h>
 #include <MetalKit/MetalKit.h>

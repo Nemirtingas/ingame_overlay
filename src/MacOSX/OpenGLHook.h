@@ -23,9 +23,9 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
-#include <InGameOverlay/Renderer_Hook.h>
+#include <InGameOverlay/RendererHook.h>
 
-#include "../internal_includes.h"
+#include "../InternalIncludes.h"
 
 #include <OpenGL/OpenGL.h>
 
