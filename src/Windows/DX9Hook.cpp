@@ -26,6 +26,11 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX9Hook_t* DX9Hook_t::_Instance = nullptr;
 
 template<typename T>
@@ -38,7 +43,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -53,29 +58,21 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(IDirect3DDevice9Reset);
+        TRY_HOOK_FUNCTION(IDirect3DDevice9Present);
+
+        if (_IDirect3DDevice9ExPresentEx != nullptr)
+            TRY_HOOK_FUNCTION(IDirect3DDevice9ExPresentEx);
+
+        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
+            TRY_HOOK_FUNCTION(IDirect3DSwapChain9SwapChainPresent);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 9");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Reset, &DX9Hook_t::_MyIDirect3DDevice9Reset),
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Present, &DX9Hook_t::_MyIDirect3DDevice9Present)
-        );
-        if (_IDirect3DDevice9ExPresentEx != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExPresentEx, &DX9Hook_t::_MyIDirect3DDevice9ExPresentEx)
-            );
-        }
-        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DSwapChain9SwapChainPresent, &DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent)
-            );
-        }
-        EndHook();
     }
     return true;
 }
@@ -105,14 +102,14 @@ void DX9Hook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(OverlayHookState::Removing);
 
         ImGui_ImplDX9_Shutdown();
         WindowsHook_t::Inst()->ResetRenderState();
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
-        SafeRelease(_pDevice);
+        SafeRelease(_Device);
         
         _LastWindow = nullptr;
         _Initialized = false;
@@ -146,13 +143,13 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     }
 
     // Workaround to detect if we changed window.
-    if (destWindow != _LastWindow || _pDevice != pDevice)
+    if (destWindow != _LastWindow || _Device != pDevice)
         _ResetRenderState();
 
     if (!_Initialized)
     {
         pDevice->AddRef();
-        _pDevice = pDevice;
+        _Device = pDevice;
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -164,7 +161,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        OverlayHookReady(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
@@ -228,10 +225,12 @@ DX9Hook_t::DX9Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _LastWindow(nullptr),
+    _Device(nullptr),
     _ImGuiFontAtlas(nullptr),
     _IDirect3DDevice9Present(nullptr),
     _IDirect3DDevice9ExPresentEx(nullptr),
-    _IDirect3DDevice9Reset(nullptr)
+    _IDirect3DDevice9Reset(nullptr),
+    _IDirect3DSwapChain9SwapChainPresent(nullptr)
 {
 }
 
@@ -278,7 +277,7 @@ std::weak_ptr<uint64_t> DX9Hook_t::CreateImageResource(const void* image_data, u
 {
     IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
 
-    _pDevice->CreateTexture(
+    _Device->CreateTexture(
         width,
         height,
         1,

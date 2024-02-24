@@ -42,7 +42,7 @@ private:
     bool _WindowsHooked;
     bool _Initialized;
     HWND _LastWindow;
-    IDirect3DDevice9* _pDevice;
+    IDirect3DDevice9* _Device;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 

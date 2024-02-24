@@ -25,6 +25,11 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, &DX10Hook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    return false;\
+} } while(0)
+
 DX10Hook_t* DX10Hook_t::_Instance = nullptr;
 
 template<typename T>
@@ -37,7 +42,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX10Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX10Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -52,24 +57,18 @@ bool DX10Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
+
+        if (_IDXGISwapChain1Present1 != nullptr)
+            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 10");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent      , &DX10Hook_t::_MyIDXGISwapChainPresent),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX10Hook_t::_MyIDXGISwapChainResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX10Hook_t::_MyIDXGISwapChainResizeBuffers)
-        );
-        if (_IDXGISwapChain1Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChain1Present1, &DX10Hook_t::_MyIDXGISwapChain1Present1)
-            );
-        }
-        EndHook();
     }
     return true;
 }
@@ -99,7 +98,7 @@ void DX10Hook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(OverlayHookState::Removing);
 
         ImGui_ImplDX10_Shutdown();
         WindowsHook_t::Inst()->ResetRenderState();
@@ -144,7 +143,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        OverlayHookReady(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX10_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
