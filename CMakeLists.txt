@@ -435,8 +435,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl2.h
       deps/ImGui/backends/imgui_impl_opengl2.cpp
-      deps/ImGui/backends/imgui_impl_osx.mm
     )
 
     target_include_directories(macos_opengl2_app
@@ -470,6 +470,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_metal.h
+      deps/ImGui/backends/imgui_impl_metal.mm
     )
 
     target_include_directories(macos_metal_app
