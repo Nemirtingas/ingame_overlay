@@ -14,7 +14,7 @@
 #import <MetalKit/MetalKit.h>
 
 #include "imgui.h"
-#include "imgui_impl_metal.h"
+#include <backends/imgui_impl_metal.h>
 #include "imgui_impl_osx.h"
 @interface AppViewController : NSViewController<NSWindowDelegate>
 
