@@ -81,6 +81,8 @@ elseif(APPLE)
     deps/ImGui/imgui_widgets.cpp
     deps/ImGui/backends/imgui_impl_opengl2.h
     deps/ImGui/backends/imgui_impl_opengl2.cpp
+    deps/ImGui/backends/imgui_impl_opengl3.h
+    deps/ImGui/backends/imgui_impl_opengl3.cpp
     deps/ImGui/backends/imgui_impl_metal.h
     deps/ImGui/backends/imgui_impl_metal.mm
     deps/ImGui/backends/imgui_impl_osx.h
@@ -451,6 +453,41 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     target_compile_definitions(macos_opengl2_app
+      PRIVATE
+      ${IMGUI_USER_CONFIG_VALUE}
+      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+      IMGUI_IMPL_OPENGL_LOADER_GLAD2
+      IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+      IMGUI_DISABLE_OBSOLETE_KEYIO
+      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+      IMGUI_DISABLE_APPLE_GAMEPAD
+    )
+
+    add_executable(macos_opengl3_app
+      tests/macos_opengl3/main.mm
+      tests/macos_opengl3/imgui_impl_osx.h
+      tests/macos_opengl3/imgui_impl_osx.mm
+      deps/ImGui/imgui.cpp
+      deps/ImGui/imgui_demo.cpp
+      deps/ImGui/imgui_draw.cpp
+      deps/ImGui/imgui_tables.cpp
+      deps/ImGui/imgui_widgets.cpp
+      deps/ImGui/backends/imgui_impl_opengl3.h
+      deps/ImGui/backends/imgui_impl_opengl3.cpp
+    )
+
+    target_include_directories(macos_opengl3_app
+      PRIVATE
+      deps/ImGui
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include
+    )
+
+    target_link_libraries(macos_opengl3_app
+      PRIVATE
+      dl
+    )
+
+    target_compile_definitions(macos_opengl3_app
       PRIVATE
       ${IMGUI_USER_CONFIG_VALUE}
       IMGUI_IMPL_OPENGL_LOADER_CUSTOM

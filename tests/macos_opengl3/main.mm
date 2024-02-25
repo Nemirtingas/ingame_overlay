@@ -1,4 +1,4 @@
-// Dear ImGui: standalone example application for OSX + OpenGL2, using legacy fixed pipeline
+// Dear ImGui: standalone example application for OSX + OpenGL3, using legacy fixed pipeline
 // If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
 // Read online: https://github.com/ocornut/imgui/tree/master/docs
 
@@ -12,7 +12,7 @@
 #include <glad/gl.h>
 
 #include <imgui.h>
-#include <backends/imgui_impl_opengl2.h>
+#include <backends/imgui_impl_opengl3.h>
 #include "imgui_impl_osx.h"
 
 #include <sys/sysctl.h>
@@ -103,6 +103,8 @@ static std::string getExecutablePath()
 {
     [super prepareOpenGL];
 
+    ImGui_ImplOpenGL3_Init();
+
 #ifndef DEBUG
     GLint swapInterval = 1;
     [[self openGLContext] setValues:&swapInterval forParameter:NSOpenGLCPSwapInterval];
@@ -127,7 +129,8 @@ static std::string getExecutablePath()
 
     // Setup Platform/Renderer backends
     ImGui_ImplOSX_Init(self);
-    ImGui_ImplOpenGL2_Init();
+    // The OpenGL context is not ready yet.
+    //ImGui_ImplOpenGL3_Init();
 
     // Load Fonts
     // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
@@ -153,7 +156,7 @@ static std::string getExecutablePath()
 -(void)updateAndDrawDemoView
 {
     // Start the Dear ImGui frame
-    ImGui_ImplOpenGL2_NewFrame();
+    ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplOSX_NewFrame(self);
     ImGui::NewFrame();
 
@@ -211,7 +214,7 @@ static std::string getExecutablePath()
     glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    ImGui_ImplOpenGL2_RenderDrawData(draw_data);
+    ImGui_ImplOpenGL3_RenderDrawData(draw_data);
 
     // Present
     [[self openGLContext] flushBuffer];
@@ -251,7 +254,7 @@ static std::string getExecutablePath()
     NSRect viewRect = NSMakeRect(100.0, 100.0, 100.0 + 1280.0, 100 + 720.0);
 
     _window = [[NSWindow alloc] initWithContentRect:viewRect styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable|NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:YES];
-    [_window setTitle:@"Dear ImGui OSX+OpenGL2 Example"];
+    [_window setTitle:@"Dear ImGui OSX+OpenGL3 Example"];
     [_window setAcceptsMouseMovedEvents:YES];
     [_window setOpaque:YES];
     [_window makeKeyAndOrderFront:NSApp];
@@ -265,8 +268,8 @@ static std::string getExecutablePath()
     NSMenu* appMenu;
     NSMenuItem* menuItem;
 
-    appMenu = [[NSMenu alloc] initWithTitle:@"Dear ImGui OSX+OpenGL2 Example"];
-    menuItem = [appMenu addItemWithTitle:@"Quit Dear ImGui OSX+OpenGL2 Example" action:@selector(terminate:) keyEquivalent:@"q"];
+    appMenu = [[NSMenu alloc] initWithTitle:@"Dear ImGui OSX+OpenGL3 Example"];
+    menuItem = [appMenu addItemWithTitle:@"Quit Dear ImGui OSX+OpenGL3 Example" action:@selector(terminate:) keyEquivalent:@"q"];
     [menuItem setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
 
     menuItem = [[NSMenuItem alloc] init];
@@ -294,8 +297,11 @@ static std::string getExecutablePath()
 
     NSOpenGLPixelFormatAttribute attrs[] =
     {
+        kCGLPFAOpenGLProfile, (CGLPixelFormatAttribute)kCGLOGLPVersion_GL4_Core,
+        kCGLPFAColorSize    , (CGLPixelFormatAttribute)24,
+        kCGLPFAAlphaSize    , (CGLPixelFormatAttribute)8,
         NSOpenGLPFADoubleBuffer,
-        NSOpenGLPFADepthSize, 32,
+        NSOpenGLPFADepthSize, (CGLPixelFormatAttribute)32,
         0
     };
 

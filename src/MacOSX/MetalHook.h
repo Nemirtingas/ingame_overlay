@@ -49,6 +49,7 @@ private:
     
     // Variables
     bool _Hooked;
+    bool _NSViewHooked;
     bool _Initialized;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     id<MTLDevice> _MetalDevice;
@@ -82,7 +83,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static MetalHook_t* Inst();
-    virtual std::string GetLibraryName() const;
+    virtual const std::string& GetLibraryName() const;
     void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);

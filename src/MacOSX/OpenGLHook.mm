@@ -22,6 +22,7 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
+#include <backends/imgui_impl_opengl3.h>
 
 #include <glad/gl.h>
 
@@ -30,6 +31,11 @@ namespace InGameOverlay {
 OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
 decltype(OpenGLHook_t::DLL_NAME) OpenGLHook_t::DLL_NAME;
+
+static bool ImGuiOpenGL3Init()
+{
+    return ImGui_ImplOpenGL3_Init(nullptr);
+}
 
 bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
@@ -44,10 +50,8 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
-        SPDLOG_INFO("Hooked OpenGL");
-        _Hooked = true;
 
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _NSViewHooked = true;
 
         if (_NSOpenGLContextFlushBufferMethod != nullptr)
         {
@@ -57,11 +61,15 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         {
             UnhookAll();
             BeginHook();
-            HookFuncs(
+            HookFunc(
                 std::make_pair<void**, void*>((void**)&_CGLFlushDrawable, (void*)&OpenGLHook_t::_MyCGLFlushDrawable)
             );
             EndHook();
         }
+
+        SPDLOG_INFO("Hooked OpenGL");
+        _Hooked = true;
+        _ImGuiFontAtlas = imgui_font_atlas;
     }
     return true;
 }
@@ -93,7 +101,7 @@ void OpenGLHook_t::_ResetRenderState()
     {
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
-        ImGui_ImplOpenGL2_Shutdown();
+        _OpenGLDriver.ImGuiShutdown();
         //NSViewHook_t::Inst()->_ResetRenderState();
         //ImGui::DestroyContext();
 
@@ -108,16 +116,38 @@ void OpenGLHook_t::_PrepareForOverlay()
 {
     if( !_Initialized )
     {
+        auto openGLVersion = gladLoaderLoadGL();
+        if (openGLVersion < GLAD_MAKE_VERSION(2, 0))
+        {
+            SPDLOG_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
+            return;
+        }
+
+        if (openGLVersion >= GLAD_MAKE_VERSION(3, 0))
+        {
+            _OpenGLDriver.ImGuiInit = ImGuiOpenGL3Init;
+            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL3_NewFrame;
+            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL3_RenderDrawData;
+            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL3_Shutdown;
+        }
+        else
+        {
+            _OpenGLDriver.ImGuiInit = ImGui_ImplOpenGL2_Init;
+            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL2_NewFrame;
+            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL2_RenderDrawData;
+            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL2_Shutdown;
+        }
+
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        ImGui_ImplOpenGL2_Init();
+        _OpenGLDriver.ImGuiInit();
 
         _Initialized = true;
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
 
-    if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplOpenGL2_NewFrame())
+    if (_OpenGLDriver.ImGuiNewFrame() && NSViewHook_t::Inst()->PrepareForOverlay())
     {
         ImGui::NewFrame();
 
@@ -125,11 +155,7 @@ void OpenGLHook_t::_PrepareForOverlay()
 
         ImGui::Render();
 
-        GLint last_program;
-        glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
-        glUseProgram(0);
-        ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());
-        glUseProgram(last_program);
+        _OpenGLDriver.ImGuiRenderDrawData(ImGui::GetDrawData());
     }
 }
 
@@ -146,8 +172,8 @@ CGLError OpenGLHook_t::_MyCGLFlushDrawable(CGLContextObj glDrawable)
 }
 
 OpenGLHook_t::OpenGLHook_t():
-    _Initialized(false),
     _Hooked(false),
+    _Initialized(false),
     _ImGuiFontAtlas(nullptr),
     _NSOpenGLContextFlushBufferMethod(nullptr),
     _NSOpenGLContextflushBuffer(nullptr),
@@ -160,9 +186,12 @@ OpenGLHook_t::~OpenGLHook_t()
 {
     SPDLOG_INFO("OpenGL Hook removed");
 
+    if (_NSViewHooked)
+        delete NSViewHook_t::Inst();
+
     if (_Initialized)
     {
-        ImGui_ImplOpenGL2_Shutdown();
+        _OpenGLDriver.ImGuiShutdown();
         ImGui::DestroyContext();
     }
 
@@ -177,7 +206,7 @@ OpenGLHook_t* OpenGLHook_t::Inst()
     return _Instance;
 }
 
-std::string OpenGLHook_t::GetLibraryName() const
+const std::string& OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
 }

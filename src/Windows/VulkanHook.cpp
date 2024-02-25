@@ -39,7 +39,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
             return false;
         }
 
-        if (!Windows_Hook::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
         _WindowsHooked = true;
@@ -62,7 +62,7 @@ void VulkanHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideAppInputs(hide);
+        WindowsHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -70,7 +70,7 @@ void VulkanHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        Windows_Hook::Inst()->HideOverlayInputs(hide);
+        WindowsHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -86,7 +86,7 @@ void VulkanHook_t::_ResetRenderState()
         OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplVulkan_Shutdown();
-        Windows_Hook::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState();
         ImGui::DestroyContext();
 
         //_ImageResources.clear();
@@ -122,7 +122,7 @@ VulkanHook_t::~VulkanHook_t()
     SPDLOG_INFO("VulkanHook_t Hook removed");
 
     if (_WindowsHooked)
-        delete Windows_Hook::Inst();
+        delete WindowsHook_t::Inst();
 
     if (_Initialized)
     {
@@ -139,7 +139,7 @@ VulkanHook_t* VulkanHook_t::Inst()
     return _Instance;
 }
 
-std::string VulkanHook_t::GetLibraryName() const
+const std::string& VulkanHook_t::GetLibraryName() const
 {
     return LibraryName;
 }

@@ -113,7 +113,7 @@ public:
     ///   Get the current renderer library name.
     /// </summary>
     /// <returns></returns>
-    virtual std::string GetLibraryName() const = 0;
+    virtual const std::string& GetLibraryName() const = 0;
 };
 
 }
