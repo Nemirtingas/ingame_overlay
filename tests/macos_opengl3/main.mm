@@ -103,6 +103,8 @@ static std::string getExecutablePath()
 {
     [super prepareOpenGL];
 
+    ImGui_ImplOpenGL3_Init();
+
 #ifndef DEBUG
     GLint swapInterval = 1;
     [[self openGLContext] setValues:&swapInterval forParameter:NSOpenGLCPSwapInterval];
@@ -127,7 +129,8 @@ static std::string getExecutablePath()
 
     // Setup Platform/Renderer backends
     ImGui_ImplOSX_Init(self);
-    ImGui_ImplOpenGL3_Init();
+    // The OpenGL context is not ready yet.
+    //ImGui_ImplOpenGL3_Init();
 
     // Load Fonts
     // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
