@@ -774,7 +774,7 @@ private:
         VkDeviceCreateInfo vulkanDeviceCreateInfo{};
         VkPhysicalDeviceProperties props{};
         std::vector<VkExtensionProperties> vulkanExtensionProperties;
-        VkDevice vulkanDevice;
+        VkDevice vulkanDevice = nullptr;
 
         vulkanDriver.vkEnumeratePhysicalDevices(vulkanInstance, &count, nullptr);
         vulkanPhysicalDevices.resize(count);
@@ -810,8 +810,8 @@ private:
     void _SetupVulkanDriver(VulkanDriverHook_t& vulkanDriver)
     {
         VkInstanceCreateInfo vulkanInstanceCreateInfo{};
-        VkInstance vulkanInstance;
-        VkDevice vulkanDevice;
+        VkInstance vulkanInstance = nullptr;
+        VkDevice vulkanDevice = nullptr;
 
         vulkanInstanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
@@ -829,8 +829,7 @@ private:
             vulkanDriver.vkEnumerateInstanceExtensionProperties == nullptr)
             return;
 
-        vulkanDriver.vkCreateInstance(&vulkanInstanceCreateInfo, nullptr, &vulkanInstance);
-        if (vulkanInstance == nullptr)
+        if (vulkanDriver.vkCreateInstance(&vulkanInstanceCreateInfo, nullptr, &vulkanInstance) != VkResult::VK_SUCCESS || vulkanInstance == nullptr)
             return;
 
         vulkanDriver.vkCreateDevice = (decltype(::vkCreateDevice)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkCreateDevice");

@@ -69,7 +69,7 @@ private:
     VulkanHook_t();
 
     void _ResetRenderState(OverlayHookState state);
-    void _InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain, uint32_t frameIndex);
+    void _InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain);
     VulkanFrame_t* _PrepareForOverlay(uint32_t frameIndex);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
