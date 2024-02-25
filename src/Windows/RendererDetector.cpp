@@ -145,6 +145,7 @@ private:
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
 
+    bool _DetectionStarted;
     bool _DetectionDone;
     uint32_t _DetectionCount;
     bool _DetectionCancelled;
@@ -183,6 +184,7 @@ private:
 
     RendererDetector_t() :
         _RendererHook(false),
+        _DetectionStarted(false),
         _DetectionDone(false),
         _DetectionCount(0),
         _DetectionCancelled(false),
@@ -376,8 +378,9 @@ private:
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
+        SPDLOG_INFO("IDXGISwapChain::Present");
         res = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_DeduceDXVersionFromSwapChain(_this);
@@ -393,8 +396,9 @@ private:
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
+        SPDLOG_INFO("IDXGISwapChain::Present1");
         res = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_DeduceDXVersionFromSwapChain(_this);
@@ -407,8 +411,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DDevice9::Present");
         auto res = (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -421,8 +426,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DDevice9Ex::PresentEx");
         auto res = (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -435,8 +441,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DSwapChain9::Present");
         auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -449,8 +456,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("wglSwapBuffers");
         auto res = inst->_WGLSwapBuffers(hDC);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
@@ -479,14 +487,15 @@ private:
         auto useThisHook = false;
         // This is needed because we hook multiple Vulkan drivers,
         // so wait for all of them to be hooked before trying to detect it.
-        if (inst->_VulkanHooked && !inst->_VulkanVendorFound)
+        if (inst->_DetectionStarted && inst->_VulkanHooked && !inst->_VulkanVendorFound)
         {
             useThisHook = true;
             inst->_VulkanVendorFound = true;
         }
 
+        SPDLOG_INFO("[AMD] vkQueueSubmit");
         auto res = inst->_VulkanDrivers[VULKAN_DRIVER_AMD].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
-        if (!inst->_VulkanHooked || inst->_DetectionDone)
+        if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
 
         inst->Vulkan_HookDetected(inst->_VulkanDrivers[VULKAN_DRIVER_AMD]);
@@ -502,14 +511,15 @@ private:
         auto useThisHook = false;
         // This is needed because we hook multiple Vulkan drivers,
         // so wait for all of them to be hooked before trying to detect it.
-        if (inst->_VulkanHooked && !inst->_VulkanVendorFound)
+        if (inst->_DetectionStarted && inst->_VulkanHooked && !inst->_VulkanVendorFound)
         {
             useThisHook = true;
             inst->_VulkanVendorFound = true;
         }
 
+        SPDLOG_INFO("[NVIDIA] vkQueueSubmit");
         auto res = inst->_VulkanDrivers[VULKAN_DRIVER_NVIDIA].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
-        if (!inst->_VulkanHooked || inst->_DetectionDone)
+        if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
 
         if (useThisHook)
@@ -523,8 +533,9 @@ private:
         auto inst = Inst();
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
+        SPDLOG_INFO("[GENERIC] vkQueueSubmit");
         auto res = inst->_VulkanDrivers[VULKAN_DRIVER_GENERIC].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
-        if (inst->_VulkanVendorFound || !inst->_VulkanHooked || inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_VulkanVendorFound || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
 
         inst->Vulkan_HookDetected(inst->_VulkanDrivers[VULKAN_DRIVER_GENERIC]);
@@ -700,11 +711,13 @@ private:
     {
 #ifdef _WIN64
         constexpr const char* WellKnownDrivers[] = {
-            "amdvlk64.dll"
+            "amdvlk64.dll",
+            //"vulkan64.dll"
         };
 #else
         constexpr const char* WellKnownDrivers[] = {
-            "amdvlk32.dll"
+            "amdvlk32.dll",
+            //"vulkan32.dll"
         };
 #endif
 
@@ -1270,9 +1283,8 @@ private:
             _SetupVulkanNVidiaDriver();
             _SetupVulkanAMDDriver();
 
-            for (int i = 0; i < VULKAN_DRIVER_COUNT; ++i)
+            for (auto& vulkanDriver : _VulkanDrivers)
             {
-                auto& vulkanDriver = _VulkanDrivers[i];
                 _SetupVulkanDriver(vulkanDriver);
 
                 if (vulkanDriver.vkQueueSubmit == nullptr || vulkanDriver.vkAcquireNextImageKHR == nullptr || vulkanDriver.vkQueuePresentKHR == nullptr)
@@ -1409,8 +1421,14 @@ public:
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
+                if (!_DetectionStarted)
+                {
+                    std::lock_guard<std::mutex> lck(_RendererMutex);
+                    _DetectionStarted = true;
+                }
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
+            _DetectionStarted = false;
             {
                 System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
                 
