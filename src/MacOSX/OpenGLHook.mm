@@ -50,28 +50,6 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
-        auto openGLVersion = gladLoaderLoadGL();
-        if (openGLVersion < GLAD_MAKE_VERSION(2, 0))
-        {
-            SPDLOG_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
-            return false;
-        }
-
-        if (openGLVersion >= GLAD_MAKE_VERSION(3, 0))
-        {
-            _OpenGLDriver.ImGuiInit = ImGuiOpenGL3Init;
-            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL3_NewFrame;
-            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL3_RenderDrawData;
-            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL3_Shutdown;
-        }
-        else
-        {
-            _OpenGLDriver.ImGuiInit = ImGui_ImplOpenGL2_Init;
-            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL2_NewFrame;
-            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL2_RenderDrawData;
-            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL2_Shutdown;
-        }
-
         _ImGuiFontAtlas = imgui_font_atlas;
 
         if (_NSOpenGLContextFlushBufferMethod != nullptr)
@@ -136,6 +114,28 @@ void OpenGLHook_t::_PrepareForOverlay()
 {
     if( !_Initialized )
     {
+        auto openGLVersion = gladLoaderLoadGL();
+        if (openGLVersion < GLAD_MAKE_VERSION(2, 0))
+        {
+            SPDLOG_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
+            return false;
+        }
+
+        if (openGLVersion >= GLAD_MAKE_VERSION(3, 0))
+        {
+            _OpenGLDriver.ImGuiInit = ImGuiOpenGL3Init;
+            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL3_NewFrame;
+            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL3_RenderDrawData;
+            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL3_Shutdown;
+        }
+        else
+        {
+            _OpenGLDriver.ImGuiInit = ImGui_ImplOpenGL2_Init;
+            _OpenGLDriver.ImGuiNewFrame = ImGui_ImplOpenGL2_NewFrame;
+            _OpenGLDriver.ImGuiRenderDrawData = ImGui_ImplOpenGL2_RenderDrawData;
+            _OpenGLDriver.ImGuiShutdown = ImGui_ImplOpenGL2_Shutdown;
+        }
+
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
