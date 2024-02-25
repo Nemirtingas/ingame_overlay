@@ -120,7 +120,7 @@ void OpenGLHook_t::_PrepareForOverlay()
         if (openGLVersion < GLAD_MAKE_VERSION(2, 0))
         {
             SPDLOG_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
-            return false;
+            return;
         }
 
         if (openGLVersion >= GLAD_MAKE_VERSION(3, 0))
