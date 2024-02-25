@@ -9,7 +9,7 @@
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
-#include <backends/imgui_impl_osx.h>
+#include "imgui_impl_osx.h"
 
 #include <sys/sysctl.h>
 #include <mach-o/dyld_images.h>

@@ -19,16 +19,34 @@
 
 #pragma once
 
-#include <future>
-#include <chrono>
-#include <memory>
+#include "BaseHook.h"
 
-#include "Renderer_Hook.h"
+#if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
 
-namespace ingame_overlay {
+#include <windows.h>
+#ifdef GetModuleHandle
+#undef GetModuleHandle
+#endif
 
-std::future<Renderer_Hook*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 });
-void StopRendererDetection();
-void FreeDetector();
+#endif
 
-}
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+#define SPDLOG_ACTIVE_LEVEL 0
+#include <spdlog/spdlog.h>
+#endif
+
+#ifndef SPDLOG_TRACE
+#define SPDLOG_TRACE(...)
+#endif
+#ifndef SPDLOG_DEBUG
+#define SPDLOG_DEBUG(...)
+#endif
+#ifndef SPDLOG_INFO
+#define SPDLOG_INFO(...)
+#endif
+#ifndef SPDLOG_WARN
+#define SPDLOG_WARN(...)
+#endif
+#ifndef SPDLOG_ERROR
+#define SPDLOG_ERROR(...)
+#endif

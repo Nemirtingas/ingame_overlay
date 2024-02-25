@@ -25,7 +25,7 @@
 #include <cstdint>
 #include <set>
 
-namespace ingame_overlay {
+namespace InGameOverlay {
 
 enum class ToggleKey
 {
@@ -41,10 +41,10 @@ enum class OverlayHookState : uint8_t
     Removing,
 };
 
-class Renderer_Hook
+class RendererHook_t
 {
 public:
-    virtual ~Renderer_Hook() {}
+    virtual ~RendererHook_t() {}
 
     std::function<void()> OverlayProc;
     std::function<void(OverlayHookState)> OverlayHookReady;
