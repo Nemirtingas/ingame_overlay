@@ -341,19 +341,6 @@ bool VulkanHook_t::_GetPhysicalDevice()
             queueFamilyIndex = _GetPhysicalDeviceFirstGraphicsQueue(physicalDevices[deviceIndex]);
             if (queueFamilyIndex < 0)
                 continue;
-    
-            std::vector<VkQueueFamilyProperties> queues;
-            _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, nullptr);
-            queues.resize(count);
-            _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevices[deviceIndex], &count, queues.data());
-            for (uint32_t i = 0; i < count; i++)
-            {
-                if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-                {
-                    queueFamilyIndex = i;
-                    break;
-                }
-            }
 
             _vkGetDeviceQueue(_VulkanDevice, queueFamilyIndex, 0, &vulkanQueue);
             
@@ -750,7 +737,8 @@ VulkanHook_t::~VulkanHook_t()
     if (_Initialized)
     {
         //ImGui_ImplVulkan_Shutdown();
-        ImGui::DestroyContext();
+        // As long as Vulkan_Shutdown doesn't work, don't destroy context
+        //ImGui::DestroyContext();
     }
 
     _Instance = nullptr;

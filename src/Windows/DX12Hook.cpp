@@ -516,7 +516,6 @@ DX12Hook_t::DX12Hook_t():
     _ID3D12CommandQueueExecuteCommandLists(nullptr),
     _IDXGISwapChain1Present1(nullptr)
 {
-    SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
 
 DX12Hook_t::~DX12Hook_t()
