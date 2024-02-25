@@ -50,7 +50,8 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
-        _ImGuiFontAtlas = imgui_font_atlas;
+
+        _NSViewHooked = true;
 
         if (_NSOpenGLContextFlushBufferMethod != nullptr)
         {
@@ -68,6 +69,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         SPDLOG_INFO("Hooked OpenGL");
         _Hooked = true;
+        _ImGuiFontAtlas = imgui_font_atlas;
     }
     return true;
 }
@@ -183,6 +185,9 @@ OpenGLHook_t::OpenGLHook_t():
 OpenGLHook_t::~OpenGLHook_t()
 {
     SPDLOG_INFO("OpenGL Hook removed");
+
+    if (_NSViewHooked)
+        delete NSViewHook_t::Inst();
 
     if (_Initialized)
     {

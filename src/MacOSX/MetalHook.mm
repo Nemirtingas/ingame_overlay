@@ -41,14 +41,15 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
 
         if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
+        
+        _NSViewHooked = true;
+
+        _MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(_MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
+        _MTLRenderCommandEncoderEndEncoding = (decltype(_MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
 
         SPDLOG_INFO("Hooked Metal");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-        
-        _MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(_MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
-        _MTLRenderCommandEncoderEndEncoding = (decltype(_MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
     }
     return true;
 }
@@ -167,6 +168,9 @@ MetalHook_t::MetalHook_t():
 MetalHook_t::~MetalHook_t()
 {
     SPDLOG_INFO("Metal Hook removed");
+
+    if (_NSViewHooked)
+        delete NSViewHook_t::Inst();
 
     if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod != nil && _MTLCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
     {

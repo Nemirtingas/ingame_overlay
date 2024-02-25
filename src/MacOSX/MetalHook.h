@@ -49,6 +49,7 @@ private:
     
     // Variables
     bool _Hooked;
+    bool _NSViewHooked;
     bool _Initialized;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     id<MTLDevice> _MetalDevice;

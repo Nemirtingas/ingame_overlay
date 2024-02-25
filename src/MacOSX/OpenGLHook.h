@@ -58,6 +58,7 @@ private:
 
     // Variables
     bool _Hooked;
+    bool _NSViewHooked;
     bool _Initialized;
     OpenGLDriver_t _OpenGLDriver;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
