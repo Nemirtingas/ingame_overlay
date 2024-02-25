@@ -540,7 +540,7 @@ bool VulkanHook_t::_SetupVulkanRenderer(VkSwapchainKHR swapChain)
     return true;
 }
 
-void VulkanHook_t::_InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain, uint32_t frameIndex)
+void VulkanHook_t::_InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain)
 {
     if (!_Initialized)
     {
@@ -629,12 +629,9 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice d
 {
     auto inst = VulkanHook_t::Inst();
 
-    uint32_t frameIndex;
-    auto res = inst->_VkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, &frameIndex);
+    auto res = inst->_VkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
 
-    inst->_InitializeForOverlay(device, swapchain, frameIndex);
-    if (pImageIndex != nullptr)
-        *pImageIndex = frameIndex;
+    inst->_InitializeForOverlay(device, swapchain);
 
     return res;
 }
