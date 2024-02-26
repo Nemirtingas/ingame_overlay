@@ -62,6 +62,8 @@ void shared_library_load(void* hmodule)
 
     OverlayData->Worker = std::thread([]()
     {
+        //std::this_thread::sleep_for(5s);
+
         std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
         // Try to detect Renderer for an infinite amount of time.
         auto future = InGameOverlay::DetectRenderer();

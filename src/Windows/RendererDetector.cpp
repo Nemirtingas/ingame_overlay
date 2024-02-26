@@ -475,6 +475,7 @@ private:
         _VulkanHook->LoadFunctions(
             vulkanDriver.vkAcquireNextImageKHR,
             vulkanDriver.vkQueuePresentKHR,
+            vulkanDriver.vkDestroyDevice,
             vulkanDriver.GetProcAddress);
         _HookDetected(_VulkanHook);
     }

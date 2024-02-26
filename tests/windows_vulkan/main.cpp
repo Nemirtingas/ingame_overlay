@@ -100,11 +100,13 @@ static VkPhysicalDevice SetupVulkan_SelectPhysicalDevice()
     // If a number >1 of GPUs got reported, find discrete GPU if present, or use first one available. This covers
     // most common cases (multi-gpu/integrated+dedicated graphics). Handling more complicated setups (multiple
     // dedicated GPUs) is out of scope of this sample.
+    //constexpr auto wantedGpuType = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    constexpr auto wantedGpuType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
     for (VkPhysicalDevice& device : gpus)
     {
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(device, &properties);
-        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+        if (properties.deviceType == wantedGpuType)
             return device;
     }
 

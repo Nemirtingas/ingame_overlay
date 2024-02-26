@@ -456,7 +456,7 @@ DX12Hook_t::~DX12Hook_t()
         _RenderTargetViewDescriptorHeap->Release();
 
         ImGui_ImplDX12_InvalidateDeviceObjects();
-        ImGui::DestroyContext();
+        //ImGui::DestroyContext();
 
         _Initialized = false;
     }
