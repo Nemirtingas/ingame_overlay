@@ -415,6 +415,12 @@ private:
         return res;
     }
 
+    void _GetDX10Functions(ID3D10Device* pDevice, decltype(&ID3D10Device::Release)& pfnRelease)
+    {
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)pfnRelease = vTable[(int)ID3D10DeviceVTable::Release];
+    }
+
     void _HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
     {
         void** vTable = *reinterpret_cast<void***>(pSwapChain);
@@ -699,11 +705,13 @@ private:
 
                 _DX10Hooked = true;
 
+                decltype(&ID3D10Device::Release) pfnRelease;
                 decltype(&IDXGISwapChain::Present) pfnPresent;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
 
+                _GetDX10Functions(pDevice, pfnRelease);
                 _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 if (version > 0)
                 {
@@ -712,7 +720,7 @@ private:
 
                 _DX10Hook = DX10Hook_t::Inst();
                 _DX10Hook->LibraryName = libraryPath;
-                _DX10Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX10Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
