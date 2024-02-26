@@ -51,7 +51,7 @@ private:
     // Functions
     DX11Hook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions

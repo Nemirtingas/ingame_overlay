@@ -49,7 +49,7 @@ private:
     // Functions
     DX9Hook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);
 
     // Hook to render functions
@@ -75,7 +75,11 @@ public:
     static DX9Hook_t* Inst();
     virtual const std::string& GetLibraryName() const;
 
-    void LoadFunctions(decltype(_IDirect3DDevice9Present) PresentFcn, decltype(_IDirect3DDevice9Reset) ResetFcn, decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn);
+    void LoadFunctions(
+        decltype(_IDirect3DDevice9Present) PresentFcn,
+        decltype(_IDirect3DDevice9Reset) ResetFcn,
+        decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn,
+        decltype(_IDirect3DSwapChain9SwapChainPresent) SwapChainPresentFcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);

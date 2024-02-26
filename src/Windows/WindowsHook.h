@@ -94,7 +94,7 @@ public:
 
     virtual ~WindowsHook_t();
 
-    void ResetRenderState();
+    void ResetRenderState(OverlayHookState state);
     void SetInitialWindowSize(HWND hWnd);
     bool PrepareForOverlay(HWND hWnd);
 

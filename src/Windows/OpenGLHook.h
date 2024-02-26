@@ -48,7 +48,7 @@ private:
     // Functions
     OpenGLHook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(HDC hDC);
 
     // Hook to render functions

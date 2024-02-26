@@ -101,14 +101,14 @@ bool DX9Hook_t::IsStarted()
     return _Hooked;
 }
 
-void DX9Hook_t::_ResetRenderState()
+void DX9Hook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(state);
 
         ImGui_ImplDX9_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState(state);
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -147,7 +147,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
     // Workaround to detect if we changed window.
     if (destWindow != _LastWindow || _pDevice != pDevice)
-        _ResetRenderState();
+        _ResetRenderState(OverlayHookState::Removing);
 
     if (!_Initialized)
     {
@@ -164,7 +164,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        OverlayHookReady(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
@@ -182,7 +182,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
 {
     auto inst = DX9Hook_t::Inst();
-    inst->_ResetRenderState();
+    inst->_ResetRenderState(OverlayHookState::Removing);
     return (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
 }
 
@@ -264,7 +264,11 @@ const std::string& DX9Hook_t::GetLibraryName() const
     return LibraryName;
 }
 
-void DX9Hook_t::LoadFunctions(decltype(_IDirect3DDevice9Present) PresentFcn, decltype(_IDirect3DDevice9Reset) ResetFcn, decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn, decltype(&IDirect3DSwapChain9::Present) SwapChainPresentFcn)
+void DX9Hook_t::LoadFunctions(
+    decltype(_IDirect3DDevice9Present) PresentFcn,
+    decltype(_IDirect3DDevice9Reset) ResetFcn,
+    decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn,
+    decltype(_IDirect3DSwapChain9SwapChainPresent) SwapChainPresentFcn)
 {
     _IDirect3DDevice9Present = PresentFcn;
     _IDirect3DDevice9Reset = ResetFcn;

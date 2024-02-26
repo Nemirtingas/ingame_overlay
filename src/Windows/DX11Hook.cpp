@@ -105,14 +105,14 @@ bool DX11Hook_t::IsStarted()
     return _Hooked;
 }
 
-void DX11Hook_t::_ResetRenderState()
+void DX11Hook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(state);
 
         ImGui_ImplDX11_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState(state);
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -175,7 +175,7 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        OverlayHookReady(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX11_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
@@ -205,14 +205,14 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
     auto inst = DX11Hook_t::Inst();
-    inst->_ResetRenderState();
+    inst->_ResetRenderState(OverlayHookState::Removing);
     return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
 }
 
 HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
     auto inst = DX11Hook_t::Inst();
-    inst->_ResetRenderState();
+    inst->_ResetRenderState(OverlayHookState::Removing);
     return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
 }
 

@@ -50,7 +50,7 @@ private:
     // Functions
     DX10Hook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain);
 
     // Hook to render functions

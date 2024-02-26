@@ -47,7 +47,7 @@ private:
     // Functions
     VulkanHook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay();
 
     // Hook to render functions
