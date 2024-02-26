@@ -40,27 +40,34 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _Initialized;
     HWND _LastWindow;
-    IDirect3DDevice9* _pDevice;
+    bool _DeviceReleasing;
+    IDirect3DDevice9* _Device;
+    ULONG _HookDeviceRefCount;
+    OverlayHookState _HookState;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
     DX9Hook_t();
 
+    void _UpdateHookDeviceRefCount();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);
 
     // Hook to render functions
+    decltype(&IDirect3DDevice9::Release)     _IDirect3DDevice9Release;
     decltype(&IDirect3DDevice9::Reset)       _IDirect3DDevice9Reset;
     decltype(&IDirect3DDevice9::Present)     _IDirect3DDevice9Present;
     decltype(&IDirect3DDevice9Ex::PresentEx) _IDirect3DDevice9ExPresentEx;
+    decltype(&IDirect3DDevice9Ex::ResetEx)   _IDirect3DDevice9ExResetEx;
     decltype(&IDirect3DSwapChain9::Present)  _IDirect3DSwapChain9SwapChainPresent;
 
+    static ULONG   STDMETHODCALLTYPE _MyIDirect3DDevice9Release(IDirect3DDevice9* _this);
     static HRESULT STDMETHODCALLTYPE _MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters);
     static HRESULT STDMETHODCALLTYPE _MyIDirect3DDevice9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion);
     static HRESULT STDMETHODCALLTYPE _MyIDirect3DDevice9ExPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags);
+    static HRESULT STDMETHODCALLTYPE _MyIDirect3DDevice9ExResetEx(IDirect3DDevice9Ex* _this, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode);
     static HRESULT STDMETHODCALLTYPE _MyIDirect3DSwapChain9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags);
 
 public:
@@ -76,9 +83,11 @@ public:
     virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(
+        decltype(_IDirect3DDevice9Release) ReleaseFcn,
         decltype(_IDirect3DDevice9Present) PresentFcn,
         decltype(_IDirect3DDevice9Reset) ResetFcn,
         decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn,
+        decltype(_IDirect3DDevice9ExResetEx) ResetExFcn,
         decltype(_IDirect3DSwapChain9SwapChainPresent) SwapChainPresentFcn);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);

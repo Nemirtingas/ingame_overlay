@@ -42,7 +42,7 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 {
     if (!_Hooked)
     {
-        if (_IDirect3DDevice9Reset == nullptr || _IDirect3DDevice9Present == nullptr)
+        if (_IDirect3DDevice9Release == nullptr || _IDirect3DDevice9Reset == nullptr || _IDirect3DDevice9Present == nullptr)
         {
             SPDLOG_WARN("Failed to hook DirectX 9: Rendering functions missing.");
             return false;
@@ -60,13 +60,20 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
         BeginHook();
         HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Reset, &DX9Hook_t::_MyIDirect3DDevice9Reset),
+            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Release, &DX9Hook_t::_MyIDirect3DDevice9Release),
+            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Reset  , &DX9Hook_t::_MyIDirect3DDevice9Reset),
             std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Present, &DX9Hook_t::_MyIDirect3DDevice9Present)
         );
         if (_IDirect3DDevice9ExPresentEx != nullptr)
         {
             HookFuncs(
                 std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExPresentEx, &DX9Hook_t::_MyIDirect3DDevice9ExPresentEx)
+            );
+        }
+        if (_IDirect3DDevice9ExResetEx != nullptr)
+        {
+            HookFuncs(
+                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExResetEx, &DX9Hook_t::_MyIDirect3DDevice9ExResetEx)
             );
         }
         if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
@@ -82,18 +89,14 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
 void DX9Hook_t::HideAppInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideAppInputs(hide);
-    }
 }
 
 void DX9Hook_t::HideOverlayInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideOverlayInputs(hide);
-    }
 }
 
 bool DX9Hook_t::IsStarted()
@@ -101,21 +104,46 @@ bool DX9Hook_t::IsStarted()
     return _Hooked;
 }
 
+void DX9Hook_t::_UpdateHookDeviceRefCount()
+{
+    switch (_HookState)
+    {
+        // 0 ref from ImGui
+        case OverlayHookState::Removing: _HookDeviceRefCount = 2; break; 
+        // 1 ref from ImGui (device)
+        case OverlayHookState::Reset: _HookDeviceRefCount = 3; break;
+        // 4 refs from ImGui (device, vertex buffer, index buffer, font texture)
+        case OverlayHookState::Ready: _HookDeviceRefCount = 6 + _ImageResources.size();
+    }
+}
+
 void DX9Hook_t::_ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
+    if (_HookState == state)
+        return;
+
+    OverlayHookReady(state);
+
+    _HookState = state;
+    _UpdateHookDeviceRefCount();
+    switch (state)
     {
-        OverlayHookReady(state);
+        case OverlayHookState::Reset:
+            ImGui_ImplDX9_InvalidateDeviceObjects();
+            // Yes, clearing images is required when resetting or DirectX9 will return a D3DERR_INVALIDCALL error
+            _ImageResources.clear();
+            break;
 
-        ImGui_ImplDX9_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState(state);
-        //ImGui::DestroyContext();
+        case OverlayHookState::Removing:
+            _DeviceReleasing = true;
+            ImGui_ImplDX9_Shutdown();
+            WindowsHook_t::Inst()->ResetRenderState(state);
+            ImGui::DestroyContext();
 
-        _ImageResources.clear();
-        SafeRelease(_pDevice);
-        
-        _LastWindow = nullptr;
-        _Initialized = false;
+            _ImageResources.clear();
+
+            _LastWindow = nullptr;
+            _DeviceReleasing = false;
     }
 }
 
@@ -129,9 +157,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         {
             D3DPRESENT_PARAMETERS params;
             if (pSwapChain->GetPresentParameters(&params) == D3D_OK)
-            {
                 destWindow = params.hDeviceWindow;
-            }
 
             pSwapChain->Release();
         }
@@ -146,13 +172,12 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     }
 
     // Workaround to detect if we changed window.
-    if (destWindow != _LastWindow || _pDevice != pDevice)
+    if (destWindow != _LastWindow || _Device != pDevice)
         _ResetRenderState(OverlayHookState::Removing);
 
-    if (!_Initialized)
+    if (_HookState == OverlayHookState::Removing)
     {
-        pDevice->AddRef();
-        _pDevice = pDevice;
+        _Device = pDevice;
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -163,9 +188,25 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
         WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
-        _Initialized = true;
-        OverlayHookReady(OverlayHookState::Ready);
+        _HookState = OverlayHookState::Reset;
+        _UpdateHookDeviceRefCount();
+
+        OverlayHookReady(_HookState);
     }
+
+    if (_HookState == OverlayHookState::Reset)
+    {
+        if (ImGui_ImplDX9_CreateDeviceObjects())
+        {
+            _HookState = OverlayHookState::Ready;
+            _UpdateHookDeviceRefCount();
+
+            OverlayHookReady(_HookState);
+        }
+    }
+
+    if (_HookState != OverlayHookState::Ready)
+        return;
 
     if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
     {
@@ -179,11 +220,28 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     }
 }
 
+ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* _this)
+{
+    auto inst = DX9Hook_t::Inst();
+    auto result = (_this->*inst->_IDirect3DDevice9Release)();
+
+    SPDLOG_INFO("[Release]: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+
+    if (!inst->_DeviceReleasing && inst->_HookState != OverlayHookState::Removing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+        inst->_ResetRenderState(OverlayHookState::Removing);
+
+    return result;
+}
+
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
 {
     auto inst = DX9Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
+    SPDLOG_INFO("Reset");
+
+    inst->_ResetRenderState(OverlayHookState::Reset);
+
+    auto x = (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
+    return x;
 }
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
@@ -198,6 +256,14 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDev
     auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+}
+
+HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExResetEx(IDirect3DDevice9Ex* _this, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode)
+{
+    auto inst = DX9Hook_t::Inst();
+    SPDLOG_INFO("ResetEx");
+    inst->_ResetRenderState(OverlayHookState::Reset);
+    return (_this->*inst->_IDirect3DDevice9ExResetEx)(pPresentationParameters, pFullscreenDisplayMode);
 }
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
@@ -224,14 +290,20 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDir
 }
 
 DX9Hook_t::DX9Hook_t():
-    _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
     _LastWindow(nullptr),
+    _DeviceReleasing(false),
+    _Device(nullptr),
+    _HookDeviceRefCount(0),
+    _HookState(OverlayHookState::Removing),
     _ImGuiFontAtlas(nullptr),
+    _IDirect3DDevice9Release(nullptr),
     _IDirect3DDevice9Present(nullptr),
+    _IDirect3DDevice9Reset(nullptr),
     _IDirect3DDevice9ExPresentEx(nullptr),
-    _IDirect3DDevice9Reset(nullptr)
+    _IDirect3DDevice9ExResetEx(nullptr),
+    _IDirect3DSwapChain9SwapChainPresent(nullptr)
 {
 }
 
@@ -242,11 +314,7 @@ DX9Hook_t::~DX9Hook_t()
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
 
-    if (_Initialized)
-    {
-        ImGui_ImplDX9_InvalidateDeviceObjects();
-        ImGui::DestroyContext();
-    }
+    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance = nullptr;
 }
@@ -265,15 +333,19 @@ const std::string& DX9Hook_t::GetLibraryName() const
 }
 
 void DX9Hook_t::LoadFunctions(
+    decltype(_IDirect3DDevice9Release) ReleaseFcn,
     decltype(_IDirect3DDevice9Present) PresentFcn,
     decltype(_IDirect3DDevice9Reset) ResetFcn,
     decltype(_IDirect3DDevice9ExPresentEx) PresentExFcn,
+    decltype(_IDirect3DDevice9ExResetEx) ResetExFcn,
     decltype(_IDirect3DSwapChain9SwapChainPresent) SwapChainPresentFcn)
 {
+    _IDirect3DDevice9Release = ReleaseFcn;
     _IDirect3DDevice9Present = PresentFcn;
     _IDirect3DDevice9Reset = ResetFcn;
 
     _IDirect3DDevice9ExPresentEx = PresentExFcn;
+    _IDirect3DDevice9ExResetEx = ResetExFcn;
 
     _IDirect3DSwapChain9SwapChainPresent = SwapChainPresentFcn;
 }
@@ -282,7 +354,7 @@ std::weak_ptr<uint64_t> DX9Hook_t::CreateImageResource(const void* image_data, u
 {
     IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
 
-    _pDevice->CreateTexture(
+    _Device->CreateTexture(
         width,
         height,
         1,
@@ -341,6 +413,8 @@ std::weak_ptr<uint64_t> DX9Hook_t::CreateImageResource(const void* image_data, u
 
     _ImageResources.emplace(ptr);
 
+    _UpdateHookDeviceRefCount();
+
     return ptr;
 }
 
@@ -351,7 +425,10 @@ void DX9Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     {
         auto it = _ImageResources.find(ptr);
         if (it != _ImageResources.end())
+        {
             _ImageResources.erase(it);
+            _UpdateHookDeviceRefCount();
+        }
     }
 }
 
