@@ -19,6 +19,7 @@ if(WIN32) # Setup some variables for Windows build
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/InternalIncludes.h
     src/BaseHook.h
+    src/Windows/DirectXVTables.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
     src/Windows/DX11Hook.h

@@ -225,9 +225,9 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
     auto inst = DX9Hook_t::Inst();
     auto result = (_this->*inst->_IDirect3DDevice9Release)();
 
-    SPDLOG_INFO("[Release]: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    SPDLOG_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (!inst->_DeviceReleasing && inst->_HookState != OverlayHookState::Removing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
 
     return result;
@@ -235,17 +235,15 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
 {
+    SPDLOG_INFO("IDirect3DDevice9::Reset");
     auto inst = DX9Hook_t::Inst();
-    SPDLOG_INFO("Reset");
-
     inst->_ResetRenderState(OverlayHookState::Reset);
-
-    auto x = (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
-    return x;
+    return (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
 }
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
+    SPDLOG_INFO("IDirect3DDevice9::Present");
     auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
@@ -253,6 +251,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
+    SPDLOG_INFO("IDirect3DDevice9Ex::PresentEx");
     auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
@@ -260,14 +259,15 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDev
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExResetEx(IDirect3DDevice9Ex* _this, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode)
 {
+    SPDLOG_INFO("IDirect3DDevice9Ex::ResetEx");
     auto inst = DX9Hook_t::Inst();
-    SPDLOG_INFO("ResetEx");
     inst->_ResetRenderState(OverlayHookState::Reset);
     return (_this->*inst->_IDirect3DDevice9ExResetEx)(pPresentationParameters, pFullscreenDisplayMode);
 }
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
+    SPDLOG_INFO("IDirect3DSwapChain9::Present");
     IDirect3DDevice9* pDevice;
     auto inst = DX9Hook_t::Inst();
 
@@ -278,9 +278,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDir
         {
             D3DPRESENT_PARAMETERS param;
             if (_this->GetPresentParameters(&param) == D3D_OK)
-            {
                 destWindow = param.hDeviceWindow;
-            }
         }
 
         inst->_PrepareForOverlay(pDevice, destWindow);
