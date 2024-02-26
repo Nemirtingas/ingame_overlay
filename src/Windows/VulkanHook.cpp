@@ -790,11 +790,11 @@ void VulkanHook_t::_InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR v
         init_info.QueueFamily = _QueueFamilyIndex;
         init_info.Queue = _VulkanQueue;
         init_info.DescriptorPool = _DescriptorsPools[0].DescriptorPool;
-        //init_info.Sampler = _VulkanImageSampler;
-        //init_info.CommandPool = _VulkanImageCommandPool;
-        //init_info.CommandBuffer = _VulkanImageCommandBuffer;
-        //init_info.FontDescriptor = _GetFreeDescriptorSet().DescriptorSet;
-        //init_info.DescriptorSetLayout = _VulkanDescriptorSetLayout;
+        init_info.FontSampler = _VulkanImageSampler;
+        init_info.FontCommandPool = _VulkanImageCommandPool;
+        init_info.FontCommandBuffer = _VulkanImageCommandBuffer;
+        init_info.FontDescriptorSet = _GetFreeDescriptorSet().DescriptorSet;
+        init_info.DescriptorSetLayout = _VulkanDescriptorSetLayout;
         init_info.Subpass = 0;
         init_info.MinImageCount = _Frames.size();
         init_info.ImageCount = _Frames.size();
