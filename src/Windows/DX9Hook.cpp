@@ -109,11 +109,11 @@ void DX9Hook_t::_UpdateHookDeviceRefCount()
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 2; break; 
-        // 1 ref from ImGui (device)
-        case OverlayHookState::Reset: _HookDeviceRefCount = 3; break;
-        // 4 refs from ImGui (device, vertex buffer, index buffer, font texture)
-        case OverlayHookState::Ready: _HookDeviceRefCount = 6 + _ImageResources.size();
+        case OverlayHookState::Removing: _HookDeviceRefCount = 3; break; 
+        // 1 ref from us, 1 ref from ImGui (device)
+        case OverlayHookState::Reset: _HookDeviceRefCount = 4; break;
+        // 1 ref from us, 4 refs from ImGui (device, vertex buffer, index buffer, font texture)
+        case OverlayHookState::Ready: _HookDeviceRefCount = 7 + _ImageResources.size();
     }
 }
 
@@ -141,6 +141,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            SafeRelease(_Device);
 
             _LastWindow = nullptr;
             _DeviceReleasing = false;
@@ -188,6 +189,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
         WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
+        _Device->AddRef();
         _HookState = OverlayHookState::Reset;
         _UpdateHookDeviceRefCount();
 
