@@ -70,8 +70,8 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
         BeginHook();
         HookFuncs(
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent      , &DX11Hook_t::_MyIDXGISwapChainPresent),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX11Hook_t::_MyIDXGISwapChainResizeBuffers),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX11Hook_t::_MyIDXGISwapChainResizeTarget)
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX11Hook_t::_MyIDXGISwapChainResizeTarget),
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX11Hook_t::_MyIDXGISwapChainResizeBuffers)
         );
         if (_IDXGISwapChain1Present1 != nullptr)
         {
