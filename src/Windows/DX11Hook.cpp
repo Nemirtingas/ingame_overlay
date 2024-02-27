@@ -37,7 +37,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-static HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
+static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
 {
     HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
 
@@ -51,7 +51,7 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 {
     if (!_Hooked)
     {
-        if (_IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
+        if (_ID3D11DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
         {
             SPDLOG_WARN("Failed to hook DirectX 11: Rendering functions missing.");
             return false;
@@ -69,6 +69,7 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         BeginHook();
         HookFuncs(
+            std::make_pair<void**, void*>(&(PVOID&)_ID3D11DeviceRelease        , &DX11Hook_t::_MyID3D11DeviceRelease),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent      , &DX11Hook_t::_MyIDXGISwapChainPresent),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX11Hook_t::_MyIDXGISwapChainResizeTarget),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX11Hook_t::_MyIDXGISwapChainResizeBuffers)
@@ -86,18 +87,14 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
 void DX11Hook_t::HideAppInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideAppInputs(hide);
-    }
 }
 
 void DX11Hook_t::HideOverlayInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideOverlayInputs(hide);
-    }
 }
 
 bool DX11Hook_t::IsStarted()
@@ -105,22 +102,81 @@ bool DX11Hook_t::IsStarted()
     return _Hooked;
 }
 
+void DX11Hook_t::_UpdateHookDeviceRefCount()
+{
+    switch (_HookState)
+    {
+        // 0 ref from ImGui
+        case OverlayHookState::Removing: _HookDeviceRefCount = 2; break;
+        // 1 refs from us, 10 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample)
+        //case OverlayHookState::Reset: _HookDeviceRefCount = 15 + _ImageResources.size(); break;
+        // 1 refs from us, 12 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample, vertex buffer, index buffer)
+        case OverlayHookState::Ready: _HookDeviceRefCount = 17 + _ImageResources.size();
+    }
+}
+
+bool DX11Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
+{
+    ID3D11Texture2D* pBackBuffer;
+    ID3D11RenderTargetView* pRenderTargetView;
+    bool result = true;
+
+    if (!SUCCEEDED(pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer))) || pBackBuffer == nullptr)
+        return false;
+
+    //if (!SUCCEEDED(_Device->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView)) || pRenderTargetView == nullptr)
+    //    result = false;
+
+    //ID3D11RenderTargetView* targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+    //pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, targets, NULL);
+    //bool bind_target = true;
+    //
+    //for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT && targets[i] != nullptr; ++i)
+    //{
+    //    ID3D11Resource* res = NULL;
+    //    targets[i]->GetResource(&res);
+    //    if (res)
+    //    {
+    //        if (res == (ID3D11Resource*)pBackBuffer)
+    //        {
+    //            pDevice->CreateRenderTargetView(pBackBuffer, NULL, &mainRenderTargetView);
+    //        }
+    //
+    //        res->Release();
+    //    }
+    //
+    //    targets[i]->Release();
+    //}
+
+    pBackBuffer->Release();
+    _RenderTargetView = pRenderTargetView;
+
+    return result;
+}
+
 void DX11Hook_t::_ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
+    if (_HookState == state)
+        return;
+
+    OverlayHookReady(state);
+
+    _HookState = state;
+    _UpdateHookDeviceRefCount();
+    switch (state)
     {
-        OverlayHookReady(state);
+        case OverlayHookState::Removing:
+            _DeviceReleasing = true;
+            ImGui_ImplDX11_Shutdown();
+            WindowsHook_t::Inst()->ResetRenderState(state);
+            ImGui::DestroyContext();
 
-        ImGui_ImplDX11_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState(state);
-        //ImGui::DestroyContext();
+            _ImageResources.clear();
+            SafeRelease(_RenderTargetView);
+            SafeRelease(_DeviceContext);
+            SafeRelease(_Device);
 
-        _ImageResources.clear();
-        SafeRelease(_MainRenderTargetView);
-        SafeRelease(_DeviceContext);
-        SafeRelease(_Device);
-
-        _Initialized = false;
+            _DeviceReleasing = false;
     }
 }
 
@@ -130,52 +186,37 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
     DXGI_SWAP_CHAIN_DESC desc;
     pSwapChain->GetDesc(&desc);
 
-    if (!_Initialized)
+    if (_HookState == OverlayHookState::Removing)
     {
-        _Device = nullptr;
         if (FAILED(GetDeviceAndCtxFromSwapchain(pSwapChain, &_Device, &_DeviceContext)))
             return;
 
-        ID3D11Texture2D* pBackBuffer;
-        pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-
-        _Device->CreateRenderTargetView(pBackBuffer, NULL, &_MainRenderTargetView);
-
-        //ID3D11RenderTargetView* targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-        //pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, targets, NULL);
-        //bool bind_target = true;
-        //
-        //for (unsigned i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT && targets[i] != nullptr; ++i)
+        //if (!_CreateRenderTargets(pSwapChain))
         //{
-        //    ID3D11Resource* res = NULL;
-        //    targets[i]->GetResource(&res);
-        //    if (res)
-        //    {
-        //        if (res == (ID3D11Resource*)pBackBuffer)
-        //        {
-        //            pDevice->CreateRenderTargetView(pBackBuffer, NULL, &mainRenderTargetView);
-        //        }
-        //
-        //        res->Release();
-        //    }
-        //
-        //    targets[i]->Release();
+        //    SafeRelease(_DeviceContext);
+        //    SafeRelease(_Device);
+        //    return;
         //}
-        
-        SafeRelease(pBackBuffer);
-        
-        if (_MainRenderTargetView == nullptr)
-            return;
-        
-        if(ImGui::GetCurrentContext() == nullptr)
+
+        if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
-        
+
         ImGui_ImplDX11_Init(_Device, _DeviceContext);
-        
+
         WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
-        _Initialized = true;
-        OverlayHookReady(OverlayHookState::Ready);
+        if (!ImGui_ImplDX11_CreateDeviceObjects())
+        {
+            ImGui_ImplDX11_Shutdown();
+            SafeRelease(_DeviceContext);
+            SafeRelease(_Device);
+            return;
+        }
+
+        _HookState = OverlayHookState::Ready;
+        _UpdateHookDeviceRefCount();
+
+        OverlayHookReady(_HookState);
     }
 
     if (ImGui_ImplDX11_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
@@ -186,50 +227,77 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
     
         ImGui::Render();
 
-        if (_MainRenderTargetView)
-        {
-            _DeviceContext->OMSetRenderTargets(1, &_MainRenderTargetView, NULL);
-        }
-    
+        //_DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
 }
 
+ULONG STDMETHODCALLTYPE DX11Hook_t::_MyID3D11DeviceRelease(ID3D11Device* _this)
+{
+    auto inst = DX11Hook_t::Inst();
+    auto result = (_this->*inst->_ID3D11DeviceRelease)();
+
+    SPDLOG_INFO("ID3D11Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+
+    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+        inst->_ResetRenderState(OverlayHookState::Removing);
+
+    return result;
+}
+
 HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
+    SPDLOG_INFO("IDXGISwapChain::Present");
     auto inst = DX11Hook_t::Inst();
     inst->_PrepareForOverlay(_this);
     return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
 
-HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
+HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
+    SPDLOG_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX11Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+
+    inst->OverlayHookReady(OverlayHookState::Reset);
+    //SafeRelease(inst->_RenderTargetView);
+    auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    //inst->_CreateRenderTargets(_this);
+
+    return r;
 }
 
-HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
+HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
+    SPDLOG_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX11Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+
+    inst->OverlayHookReady(OverlayHookState::Reset);
+    //SafeRelease(inst->_RenderTargetView);
+    auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+    //inst->_CreateRenderTargets(_this);
+
+    return r;
 }
 
 HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
+    SPDLOG_INFO("IDXGISwapChain1::Present1");
     auto inst = DX11Hook_t::Inst();
     inst->_PrepareForOverlay(_this);
     return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
 }
 
 DX11Hook_t::DX11Hook_t():
-    _Initialized(false),
     _Hooked(false),
     _WindowsHooked(false),
-    _ImGuiFontAtlas(nullptr),
+    _DeviceReleasing(false),
+    _Device(nullptr),
+    _HookDeviceRefCount(0),
+    _HookState(OverlayHookState::Removing),
     _DeviceContext(nullptr),
-    _MainRenderTargetView(nullptr),
+    _RenderTargetView(nullptr),
+    _ImGuiFontAtlas(nullptr),
+    _ID3D11DeviceRelease(nullptr),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),
     _IDXGISwapChainResizeTarget(nullptr),
@@ -244,16 +312,7 @@ DX11Hook_t::~DX11Hook_t()
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
 
-    if (_Initialized)
-    {
-        SafeRelease(_MainRenderTargetView);
-        SafeRelease(_DeviceContext);
-
-        ImGui_ImplDX11_InvalidateDeviceObjects();
-        ImGui::DestroyContext();
-
-        _Initialized = false;
-    }
+    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance = nullptr;
 }
@@ -272,14 +331,18 @@ const std::string& DX11Hook_t::GetLibraryName() const
 }
 
 void DX11Hook_t::LoadFunctions(
+    decltype(_ID3D11DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,
     decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
     decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
     decltype(_IDXGISwapChain1Present1) present1Fcn)
 {
+    _ID3D11DeviceRelease = releaseFcn;
+
     _IDXGISwapChainPresent = presentFcn;
     _IDXGISwapChainResizeBuffers = resizeBuffersFcn;
     _IDXGISwapChainResizeTarget = resizeTargetFcn;
+
     _IDXGISwapChain1Present1 = present1Fcn;
 }
 
@@ -335,6 +398,8 @@ std::weak_ptr<uint64_t> DX11Hook_t::CreateImageResource(const void* image_data, 
 
     _ImageResources.emplace(ptr);
 
+    _UpdateHookDeviceRefCount();
+
     return ptr;
 }
 
@@ -345,7 +410,10 @@ void DX11Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
     {
         auto it = _ImageResources.find(ptr);
         if (it != _ImageResources.end())
+        {
             _ImageResources.erase(it);
+            _UpdateHookDeviceRefCount();
+        }
     }
 }
 
