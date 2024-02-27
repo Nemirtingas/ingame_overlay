@@ -75,8 +75,8 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
         BeginHook();
         HookFuncs(
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent                , &DX12Hook_t::_MyIDXGISwapChainPresent),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget           , &DX12Hook_t::_MyIDXGISwapChainResizeBuffers),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers          , &DX12Hook_t::_MyIDXGISwapChainResizeTarget),
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget           , &DX12Hook_t::_MyIDXGISwapChainResizeTarget),
+            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers          , &DX12Hook_t::_MyIDXGISwapChainResizeBuffers),
             std::make_pair<void**, void*>(&(PVOID&)_ID3D12CommandQueueExecuteCommandLists, &DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists)
         );
         if (_IDXGISwapChain1Present1 != nullptr)
@@ -384,18 +384,18 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
     return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
 
-HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
-{
-    auto inst = DX12Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
-}
-
-HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
+HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
     auto inst = DX12Hook_t::Inst();
     inst->_ResetRenderState(OverlayHookState::Removing);
     return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+}
+
+HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
+{
+    auto inst = DX12Hook_t::Inst();
+    inst->_ResetRenderState(OverlayHookState::Removing);
+    return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
