@@ -107,6 +107,9 @@ void DX10Hook_t::_UpdateHookDeviceRefCount()
 
 bool DX10Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
+    // Disabled to see if it actually affects the overlay.
+    return true;
+
     ID3D10Texture2D* pBackBuffer;
     ID3D10RenderTargetView* pRenderTargetView;
     bool result = true;
@@ -121,6 +124,11 @@ bool DX10Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     _RenderTargetView = pRenderTargetView;
 
     return result;
+}
+
+void DX10Hook_t::_DestroyRenderTargets()
+{
+    SafeRelease(_RenderTargetView);
 }
 
 void DX10Hook_t::_ResetRenderState(OverlayHookState state)
@@ -141,7 +149,7 @@ void DX10Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
-            SafeRelease(_RenderTargetView);
+            _DestroyRenderTargets();
             SafeRelease(_Device);
 
             _DeviceReleasing = false;
@@ -159,11 +167,11 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         if (FAILED(pSwapChain->GetDevice(IID_PPV_ARGS(&_Device))))
             return;
 
-        //if (!_CreateRenderTargets(pSwapChain))
-        //{
-        //    SafeRelease(_Device);
-        //    return;
-        //}
+        if (!_CreateRenderTargets(pSwapChain))
+        {
+            SafeRelease(_Device);
+            return;
+        }
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -175,6 +183,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         if (!ImGui_ImplDX10_CreateDeviceObjects())
         {
             ImGui_ImplDX10_Shutdown();
+            _DestroyRenderTargets();
             SafeRelease(_Device);
             return;
         }
@@ -193,6 +202,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
 
         ImGui::Render();
 
+        // Activate this if you enable _RenderTargetView creation
         //_Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
         ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
     }
@@ -225,9 +235,9 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
     auto inst = DX10Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
-    //SafeRelease(inst->_RenderTargetView);
+    inst->_DestroyRenderTargets();
     auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
-    //inst->_CreateRenderTargets(_this);
+    inst->_CreateRenderTargets(_this);
 
     return r;
 }
@@ -238,9 +248,9 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
     auto inst = DX10Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
-    //SafeRelease(inst->_RenderTargetView);
+    inst->_DestroyRenderTargets();
     auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
-    //inst->_CreateRenderTargets(_this);
+    inst->_CreateRenderTargets(_this);
 
     return r;
 }
@@ -256,12 +266,12 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 DX10Hook_t::DX10Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _ImGuiFontAtlas(nullptr),
     _DeviceReleasing(false),
     _Device(nullptr),
     _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _RenderTargetView(nullptr),
+    _ImGuiFontAtlas(nullptr),
     _ID3D10DeviceRelease(nullptr),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),

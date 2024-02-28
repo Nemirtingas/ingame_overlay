@@ -54,6 +54,7 @@ private:
 
     void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain *pSwapChain);
+    void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain);
 

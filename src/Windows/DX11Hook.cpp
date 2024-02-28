@@ -117,6 +117,9 @@ void DX11Hook_t::_UpdateHookDeviceRefCount()
 
 bool DX11Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
+    // Disabled to see if it actually affects the overlay.
+    return true;
+
     ID3D11Texture2D* pBackBuffer;
     ID3D11RenderTargetView* pRenderTargetView;
     bool result = true;
@@ -124,9 +127,11 @@ bool DX11Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     if (!SUCCEEDED(pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer))) || pBackBuffer == nullptr)
         return false;
 
-    //if (!SUCCEEDED(_Device->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView)) || pRenderTargetView == nullptr)
-    //    result = false;
+    if (!SUCCEEDED(_Device->CreateRenderTargetView(pBackBuffer, nullptr, &pRenderTargetView)) || pRenderTargetView == nullptr)
+        result = false;
 
+    // This code works on some apps and doesn't on others,
+    // while always getting the first buffer seems to be more reliable, comment is for now.
     //ID3D11RenderTargetView* targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
     //pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, targets, NULL);
     //bool bind_target = true;
@@ -154,6 +159,11 @@ bool DX11Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     return result;
 }
 
+void DX11Hook_t::_DestroyRenderTargets()
+{
+    SafeRelease(_RenderTargetView);
+}
+
 void DX11Hook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_HookState == state)
@@ -172,7 +182,7 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
-            SafeRelease(_RenderTargetView);
+            _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
 
@@ -191,12 +201,12 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         if (FAILED(GetDeviceAndCtxFromSwapchain(pSwapChain, &_Device, &_DeviceContext)))
             return;
 
-        //if (!_CreateRenderTargets(pSwapChain))
-        //{
-        //    SafeRelease(_DeviceContext);
-        //    SafeRelease(_Device);
-        //    return;
-        //}
+        if (!_CreateRenderTargets(pSwapChain))
+        {
+            SafeRelease(_DeviceContext);
+            SafeRelease(_Device);
+            return;
+        }
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -208,6 +218,7 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
         if (!ImGui_ImplDX11_CreateDeviceObjects())
         {
             ImGui_ImplDX11_Shutdown();
+            _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
             return;
@@ -227,6 +238,7 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
     
         ImGui::Render();
 
+        // Activate this if you enable _RenderTargetView creation
         //_DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     }
@@ -259,9 +271,9 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
     auto inst = DX11Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
-    //SafeRelease(inst->_RenderTargetView);
+    inst->_DestroyRenderTargets();
     auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
-    //inst->_CreateRenderTargets(_this);
+    inst->_CreateRenderTargets(_this);
 
     return r;
 }
@@ -272,9 +284,9 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
     auto inst = DX11Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
-    //SafeRelease(inst->_RenderTargetView);
+    inst->_DestroyRenderTargets();
     auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
-    //inst->_CreateRenderTargets(_this);
+    inst->_CreateRenderTargets(_this);
 
     return r;
 }
