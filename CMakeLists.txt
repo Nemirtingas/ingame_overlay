@@ -354,12 +354,13 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(dx12_app
       tests/dx12/main.cpp
+	  tests/dx12/imgui_impl_dx12.h
+	  tests/dx12/imgui_impl_dx12.cpp
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
       deps/ImGui/imgui_tables.cpp
       deps/ImGui/imgui_widgets.cpp
-      deps/ImGui/backends/imgui_impl_dx12.cpp
       deps/ImGui/backends/imgui_impl_win32.cpp
       deps/ImGui/backends/imgui_win_shader_blobs.cpp
     )
