@@ -181,6 +181,93 @@ enum class ID3D12GraphicsCommandListVTable
     ExecuteIndirect,
 };
 
+enum class ID3D12DeviceVTable
+{
+    // IUnknown
+    QueryInterface,
+    AddRef,
+    Release,
+
+    // ID3D12Device1
+    GetNodeCount,
+    CreateCommandQueue,
+    CreateCommandAllocator,
+    CreateGraphicsPipelineState,
+    CreateComputePipelineState,
+    CreateCommandList,
+    CheckFeatureSupport,
+    CreateDescriptorHeap,
+    GetDescriptorHandleIncrementSize,
+    CreateRootSignature,
+    CreateConstantBufferView,
+    CreateShaderResourceView,
+    CreateUnorderedAccessView,
+    CreateRenderTargetView,
+    CreateDepthStencilView,
+    CreateSampler,
+    CopyDescriptors,
+    CopyDescriptorsSimple,
+    GetResourceAllocationInfo,
+    GetCustomHeapProperties,
+    CreateCommittedResource,
+    CreateHeap,
+    CreatePlacedResource,
+    CreateReservedResource,
+    CreateSharedHandle,
+    OpenSharedHandle,
+    OpenSharedHandleByName,
+    MakeResident,
+    Evict,
+    CreateFence,
+    GetDeviceRemovedReason,
+    GetCopyableFootprints,
+    CreateQueryHeap,
+    SetStablePowerState,
+    CreateCommandSignature,
+    GetResourceTiling,
+    GetAdapterLuid,
+
+    // ID3D12Device2
+    CreatePipelineState,
+
+    // ID3D12Device3
+    OpenExistingHeapFromAddress,
+    OpenExistingHeapFromFileMapping,
+    EnqueueMakeResident,
+
+    // ID3D12Device4
+    CreateCommandList1,
+    CreateProtectedResourceSession,
+    CreateCommittedResource1,
+    CreateHeap1,
+    CreateReservedResource1,
+    GetResourceAllocationInfo1,
+
+    // ID3D12Device5
+    CreateLifetimeTracker,
+    RemoveDevice,
+    EnumerateMetaCommands,
+    EnumerateMetaCommandParameters,
+    CreateMetaCommand,
+    CreateStateObject,
+    GetRaytracingAccelerationStructurePrebuildInfo,
+    CheckDriverMatchingIdentifier,
+
+    // ID3D12Device6
+    SetBackgroundProcessingMode,
+
+    // ID3D12Device7
+    AddToStateObject,
+    CreateProtectedResourceSession1,
+
+    // ID3D12Device8
+    GetResourceAllocationInfo2,
+    CreateCommittedResource2,
+    CreatePlacedResource1,
+    CreateSamplerFeedbackUnorderedAccessView,
+    GetCopyableFootprints1,
+};
+
 enum class ID3D11DeviceVTable
 {
     // IUnknown
