@@ -427,6 +427,18 @@ private:
         (void*&)pfnRelease = vTable[(int)ID3D11DeviceVTable::Release];
     }
 
+    void _GetDX12Functions(ID3D12Device* pDevice, ID3D12CommandQueue* pCommandQueue, decltype(&ID3D12Device::Release)& pfnRelease, decltype(&ID3D12CommandQueue::ExecuteCommandLists)& pfnExecuteCommandLists)
+    {
+        {
+            void** vTable = *reinterpret_cast<void***>(pDevice);
+            (void*&)pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
+        }
+        {
+            void** vTable = *reinterpret_cast<void***>(pCommandQueue);
+            (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
+        }
+    }
+
     void _HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
     {
         void** vTable = *reinterpret_cast<void***>(pSwapChain);
@@ -927,23 +939,22 @@ private:
 
                 _DX12Hooked = true;
 
+                decltype(&ID3D12Device::Release) pfnRelease = nullptr;
                 decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
                 decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1 = nullptr;
+                decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists = nullptr;
 
+                _GetDX12Functions(pDevice, pCommandQueue, pfnRelease, pfnExecuteCommandLists);
+                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
                 _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 _HookDXGIPresent1(pSwapChain, pfnPresent1);
-                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
-
-                void** vTable = *reinterpret_cast<void***>(pCommandQueue);
-                decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists;
-                (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
 
                 _DX12Hook = DX12Hook_t::Inst();
                 _DX12Hook->LibraryName = libraryPath;
-                _DX12Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
+                _DX12Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
             }
             else
             {

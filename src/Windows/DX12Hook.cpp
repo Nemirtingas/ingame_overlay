@@ -56,7 +56,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 {
     if (!_Hooked)
     {
-        if (_IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
+        if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
         {
             SPDLOG_WARN("Failed to hook DirectX 12: Rendering functions missing.");
             return false;
@@ -74,6 +74,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         BeginHook();
         HookFuncs(
+            std::make_pair<void**, void*>(&(PVOID&)_ID3D12DeviceRelease                  , &DX12Hook_t::_MyID3D12DeviceRelease),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent                , &DX12Hook_t::_MyIDXGISwapChainPresent),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget           , &DX12Hook_t::_MyIDXGISwapChainResizeTarget),
             std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers          , &DX12Hook_t::_MyIDXGISwapChainResizeBuffers),
@@ -98,18 +99,14 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
 void DX12Hook_t::HideAppInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideAppInputs(hide);
-    }
 }
 
 void DX12Hook_t::HideOverlayInputs(bool hide)
 {
-    if (_Initialized)
-    {
+    if (_HookState == OverlayHookState::Ready)
         WindowsHook_t::Inst()->HideOverlayInputs(hide);
-    }
 }
 
 bool DX12Hook_t::IsStarted()
@@ -122,13 +119,13 @@ bool DX12Hook_t::_AllocShaderRessourceViewHeap()
     ID3D12DescriptorHeap *pHeap;
     D3D12_DESCRIPTOR_HEAP_DESC desc = {};
     desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    desc.NumDescriptors = ShaderRessourceViewHeap_t::HeapSize;
+    desc.NumDescriptors = ShaderResourceViewHeap_t::HeapSize;
     desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     if (_Device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&pHeap)) != S_OK)
         return false;
 
-    _ShaderRessourceViewHeapDescriptors.emplace_back(pHeap);
-    _ShaderRessourceViewHeaps.emplace_back();
+    _ShaderResourceViewHeapDescriptors.emplace_back(pHeap);
+    _ShaderResourceViewHeaps.emplace_back();
     return true;
 }
 
@@ -136,15 +133,15 @@ DX12Hook_t::ShaderRessourceView_t DX12Hook_t::_GetFreeShaderRessourceViewFromHea
 {
     ShaderRessourceView_t result{};
     UINT inc = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-    auto& heap = _ShaderRessourceViewHeaps[heapIndex];
+    auto& heap = _ShaderResourceViewHeaps[heapIndex];
     for (uint32_t usedIndex = 0; usedIndex < heap.HeapBitmap.size(); ++usedIndex)
     {
         if (!heap.HeapBitmap[usedIndex])
         {
             heap.HeapBitmap[usedIndex] = true;
             ++heap.UsedHeap;
-            result.CpuHandle.ptr = _ShaderRessourceViewHeapDescriptors[heapIndex].Heap->GetCPUDescriptorHandleForHeapStart().ptr + inc * usedIndex;
-            result.GpuHandle.ptr = _ShaderRessourceViewHeapDescriptors[heapIndex].Heap->GetGPUDescriptorHandleForHeapStart().ptr + inc * usedIndex;
+            result.CpuHandle.ptr = _ShaderResourceViewHeapDescriptors[heapIndex].Heap->GetCPUDescriptorHandleForHeapStart().ptr + inc * usedIndex;
+            result.GpuHandle.ptr = _ShaderResourceViewHeapDescriptors[heapIndex].Heap->GetGPUDescriptorHandleForHeapStart().ptr + inc * usedIndex;
             result.Id = MakeHeapId(heapIndex, usedIndex);
             break;
         }
@@ -155,21 +152,21 @@ DX12Hook_t::ShaderRessourceView_t DX12Hook_t::_GetFreeShaderRessourceViewFromHea
 
 DX12Hook_t::ShaderRessourceView_t DX12Hook_t::_GetFreeShaderRessourceView()
 {
-    for (uint32_t heapIndex = 0; heapIndex < _ShaderRessourceViewHeaps.size(); ++heapIndex)
+    for (uint32_t heapIndex = 0; heapIndex < _ShaderResourceViewHeaps.size(); ++heapIndex)
     {
-        if (_ShaderRessourceViewHeaps[heapIndex].UsedHeap != ShaderRessourceViewHeap_t::HeapSize)
+        if (_ShaderResourceViewHeaps[heapIndex].UsedHeap != ShaderResourceViewHeap_t::HeapSize)
             return _GetFreeShaderRessourceViewFromHeap(heapIndex);
     }
 
     if (_AllocShaderRessourceViewHeap())
-        return _GetFreeShaderRessourceViewFromHeap((uint32_t)_ShaderRessourceViewHeaps.size()-1);
+        return _GetFreeShaderRessourceViewFromHeap((uint32_t)_ShaderResourceViewHeaps.size()-1);
 
     return ShaderRessourceView_t{ 0, 0, ShaderRessourceView_t::InvalidId };
 }
 
 void DX12Hook_t::_ReleaseShaderRessourceView(uint32_t id)
 {
-    auto& heap = _ShaderRessourceViewHeaps[GetHeapIndex(id)];
+    auto& heap = _ShaderResourceViewHeaps[GetHeapIndex(id)];
     heap.HeapBitmap[GetHeapUsedIndex(id)] = false;
     --heap.UsedHeap;
 }
@@ -197,25 +194,126 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
     return pCommandQueue;
 }
 
+void DX12Hook_t::_UpdateHookDeviceRefCount()
+{
+    switch (_HookState)
+    {
+        // 2 Base reference count value
+        // 0 ref from ImGui
+        case OverlayHookState::Removing: _HookDeviceRefCount = 3; break;
+        // 0 ref from ImGui
+        //case OverlayHookState::Reset: _HookDeviceRefCount = 15 + _ImageResources.size(); break;
+        // Us: 2 + FrameCount * 5 + ImagesResourcesCount
+        // Device
+        // RenderTargetViewDescriptorHeap
+        // ShaderResourceViewCount
+        // ImagesResourcesCount
+        // (CommandAllocator + CommandList + BackBuffer + 2 internal refs) * FrameCount
+        // ImGui: 2 + FrameCount * 2
+        // PipelineState
+        // FontTexture
+        // (VertexBuffer + IndexBuffer) * FrameCount
+        case OverlayHookState::Ready: _HookDeviceRefCount = 2 + (_OverlayFrames.size() * 9) + _ShaderResourceViewHeapDescriptors.size() + _ImageResources.size();
+    }
+}
+
+bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
+{
+    IDXGISwapChain3* pSwapChain3 = nullptr;
+    DXGI_SWAP_CHAIN_DESC sc_desc;
+    pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
+    if (pSwapChain3 == nullptr)
+        return false;
+
+    pSwapChain3->GetDesc(&sc_desc);
+
+    UINT bufferCount = sc_desc.BufferCount;
+
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        desc.NumDescriptors = bufferCount;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        desc.NodeMask = 1;
+        if (_Device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&_RenderTargetViewDescriptorHeap)) != S_OK)
+        {
+            pSwapChain3->Release();
+            return false;
+        }
+
+        SIZE_T rtvDescriptorSize = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = _RenderTargetViewDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+        _OverlayFrames.resize(bufferCount);
+        for (UINT i = 0; i < bufferCount; ++i)
+        {
+            auto& frame = _OverlayFrames[i];
+
+            if (_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&frame.CommandAllocator)) != S_OK || frame.CommandAllocator == nullptr)
+            {
+                _DestroyRenderTargets();
+                pSwapChain3->Release();
+                return false;
+            }
+
+            if (_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, frame.CommandAllocator, NULL, IID_PPV_ARGS(&frame.CommandList)) != S_OK ||
+                frame.CommandList == nullptr || frame.CommandList->Close() != S_OK)
+            {
+                _DestroyRenderTargets();
+                pSwapChain3->Release();
+                return false;
+            }
+
+            if (pSwapChain3->GetBuffer(i, IID_PPV_ARGS(&frame.BackBuffer)) != S_OK || frame.BackBuffer == nullptr)
+            {
+                _DestroyRenderTargets();
+                pSwapChain3->Release();
+                return false;
+            }
+
+            _Device->CreateRenderTargetView(frame.BackBuffer, NULL, rtvHandle);
+            frame.RenderTarget = rtvHandle;
+            rtvHandle.ptr += rtvDescriptorSize;
+        }
+    }
+
+    pSwapChain3->Release();
+    return true;
+}
+
+void DX12Hook_t::_DestroyRenderTargets()
+{
+    _OverlayFrames.clear();
+    SafeRelease(_RenderTargetViewDescriptorHeap);
+}
+
 void DX12Hook_t::_ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
+    if (_HookState == state)
+        return;
+    
+    OverlayHookReady(state);
+    
+    _HookState = state;
+    _UpdateHookDeviceRefCount();
+    switch (state)
     {
-        OverlayHookReady(state);
+        case OverlayHookState::Removing:
+            _DeviceReleasing = true;
+            ImGui_ImplDX12_Shutdown();
+            WindowsHook_t::Inst()->ResetRenderState(state);
+            ImGui::DestroyContext();
+    
+            _DestroyRenderTargets();
 
-        ImGui_ImplDX12_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState(state);
-        //ImGui::DestroyContext();
+            _ImageResources.clear();
+            _ShaderResourceViewHeaps.clear();
+            _ShaderResourceViewHeapDescriptors.clear();
+            SafeRelease(_Device);
+            _CommandQueueOffset = 0;
+            _CommandQueue = nullptr;
 
-        _OverlayFrames.clear();
-
-        _ImageResources.clear();
-        _ShaderRessourceViewHeaps.clear();
-        _ShaderRessourceViewHeapDescriptors.clear();
-        SafeRelease(_RenderTargetViewDescriptorHeap);
-        SafeRelease(_Device);
-
-        _Initialized = false;
+            _DeviceReleasing = false;
     }
 }
 
@@ -230,7 +328,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
 
     pSwapChain3->GetDesc(&sc_desc);
 
-    if (!_Initialized)
+    if(_HookState == OverlayHookState::Removing)
     {
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         _Device = nullptr;
@@ -240,8 +338,6 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             return;
 		}
 
-        UINT bufferCount = sc_desc.BufferCount;
-
         if (!_AllocShaderRessourceViewHeap())
         {
             _Device->Release();
@@ -249,77 +345,13 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             return;
         }
 
+        if (!_CreateRenderTargets(pSwapChain))
         {
-            D3D12_DESCRIPTOR_HEAP_DESC desc = {};
-            desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-            desc.NumDescriptors = bufferCount;
-            desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-            desc.NodeMask = 1;
-            if (_Device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&_RenderTargetViewDescriptorHeap)) != S_OK)
-            {
-                _ShaderRessourceViewHeaps.clear();
-                _ShaderRessourceViewHeapDescriptors.clear();
-                _Device->Release();
-                pSwapChain3->Release();
-                return;
-            }
-        
-            SIZE_T rtvDescriptorSize = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-            D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = _RenderTargetViewDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-            ID3D12CommandAllocator* pCmdAlloc;
-            ID3D12Resource* pBackBuffer;
-
-            for (UINT i = 0; i < bufferCount; ++i)
-            {
-                pCmdAlloc = nullptr;
-                pBackBuffer = nullptr;
-
-                if (_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCmdAlloc)) != S_OK || pCmdAlloc == nullptr)
-                {
-                    _OverlayFrames.clear();
-                    _ShaderRessourceViewHeaps.clear();
-                    _ShaderRessourceViewHeapDescriptors.clear();
-                    _RenderTargetViewDescriptorHeap->Release();
-                    _Device->Release();
-                    pSwapChain3->Release();
-                    return;
-                }
-
-                if (i == 0)
-                {
-                    if (_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCmdAlloc, NULL, IID_PPV_ARGS(&_CommandList)) != S_OK ||
-                        _CommandList == nullptr || _CommandList->Close() != S_OK)
-                    {
-                        _OverlayFrames.clear();
-                        SafeRelease(_CommandList);
-                        pCmdAlloc->Release();
-                        _ShaderRessourceViewHeaps.clear();
-                        _ShaderRessourceViewHeapDescriptors.clear();
-                        _RenderTargetViewDescriptorHeap->Release();
-                        _Device->Release();
-                        pSwapChain3->Release();
-                        return;
-                    }
-                }
-
-                if (pSwapChain3->GetBuffer(i, IID_PPV_ARGS(&pBackBuffer)) != S_OK || pBackBuffer == nullptr)
-                {
-                    _OverlayFrames.clear();
-                    _CommandList->Release();
-                    pCmdAlloc->Release();
-                    _ShaderRessourceViewHeaps.clear();
-                    _ShaderRessourceViewHeapDescriptors.clear();
-                    _RenderTargetViewDescriptorHeap->Release();
-                    _Device->Release();
-                    pSwapChain3->Release();
-                    return;
-                }
-
-                _Device->CreateRenderTargetView(pBackBuffer, NULL, rtvHandle);
-
-                _OverlayFrames.emplace_back(rtvHandle, pCmdAlloc, pBackBuffer);
-                rtvHandle.ptr += rtvDescriptorSize;
-            }
+            _Device->Release();
+            _ShaderResourceViewHeaps.clear();
+            _ShaderResourceViewHeapDescriptors.clear();
+            pSwapChain3->Release();
+            return;
         }
 
         auto shaderRessourceView = _GetFreeShaderRessourceView();
@@ -327,54 +359,79 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        ImGui_ImplDX12_Init(_Device, bufferCount, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr,
+        ImGui_ImplDX12_Init(_Device, sc_desc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM,
             shaderRessourceView.CpuHandle,
             shaderRessourceView.GpuHandle);
-        
         WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
 
-        _Initialized = true;
-        OverlayHookReady(OverlayHookState::Ready);
+        if (!ImGui_ImplDX12_CreateDeviceObjects())
+        {
+            ImGui_ImplDX12_Shutdown();
+            _DestroyRenderTargets();
+            _Device->Release();
+            _ShaderResourceViewHeaps.clear();
+            _ShaderResourceViewHeapDescriptors.clear();
+            pSwapChain3->Release();
+            return;
+        }
+
+        _HookState = OverlayHookState::Ready;
+        _UpdateHookDeviceRefCount();
+
+        OverlayHookReady(_HookState);
     }
 
     if (ImGui_ImplDX12_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(sc_desc.OutputWindow))
     {
+        auto& frame = _OverlayFrames[pSwapChain3->GetCurrentBackBufferIndex()];
+
         ImGui::NewFrame();
 
         OverlayProc();
 
-        UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
-
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource = _OverlayFrames[bufferIndex].pBackBuffer;
+        barrier.Transition.pResource = frame.BackBuffer;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
-        _OverlayFrames[bufferIndex].pCmdAlloc->Reset();
-        _CommandList->Reset(_OverlayFrames[bufferIndex].pCmdAlloc, NULL);
-        _CommandList->ResourceBarrier(1, &barrier);
-        _CommandList->OMSetRenderTargets(1, &_OverlayFrames[bufferIndex].RenderTarget, FALSE, NULL);
-        //pCmdList->SetDescriptorHeaps(1, ShaderRessourceViewHeapDescriptors);
+        frame.CommandAllocator->Reset();
+        frame.CommandList->Reset(frame.CommandAllocator, NULL);
+        frame.CommandList->ResourceBarrier(1, &barrier);
+        frame.CommandList->OMSetRenderTargets(1, &frame.RenderTarget, FALSE, NULL);
 
         ImGui::Render();
-        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), _CommandList, &_ShaderRessourceViewHeapDescriptors[0].Heap, (int)_ShaderRessourceViewHeapDescriptors.size(), ShaderRessourceViewHeap_t::HeapSize);
+        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), frame.CommandList, &_ShaderResourceViewHeapDescriptors[0].Heap, (int)_ShaderResourceViewHeapDescriptors.size(), ShaderResourceViewHeap_t::HeapSize);
 
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-        _CommandList->ResourceBarrier(1, &barrier);
-        _CommandList->Close();
+        frame.CommandList->ResourceBarrier(1, &barrier);
+        frame.CommandList->Close();
 
-        pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&_CommandList);
+        pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&frame.CommandList);
     }
 
     pSwapChain3->Release();
 }
 
+ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
+{
+    auto inst = DX12Hook_t::Inst();
+    auto result = (_this->*inst->_ID3D12DeviceRelease)();
+
+    SPDLOG_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+
+    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+        inst->_ResetRenderState(OverlayHookState::Removing);
+
+    return result;
+}
+
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
+    SPDLOG_INFO("IDXGISwapChain::Present");
     auto inst = DX12Hook_t::Inst();
 
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
@@ -386,20 +443,33 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
+    SPDLOG_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX12Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+
+    inst->OverlayHookReady(OverlayHookState::Reset);
+    inst->_DestroyRenderTargets();
+    auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    inst->_CreateRenderTargets(_this);
+
+    return r;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
+    SPDLOG_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX12Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+    
+    inst->OverlayHookReady(OverlayHookState::Reset);
+    inst->_DestroyRenderTargets();
+    auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+    inst->_CreateRenderTargets(_this);
+
+    return r;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
+    SPDLOG_INFO("IDXGISwapChain1::Present1");
     auto inst = DX12Hook_t::Inst();
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
@@ -411,13 +481,20 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
 {
+    SPDLOG_INFO("IDXGISwapChain3::ResizeBuffers1");
     auto inst = DX12Hook_t::Inst();
-    inst->_ResetRenderState(OverlayHookState::Removing);
-    return (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+
+    inst->OverlayHookReady(OverlayHookState::Reset);
+    inst->_DestroyRenderTargets();
+    auto r = (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+    inst->_CreateRenderTargets(_this);
+
+    return r;
 }
 
 void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
 {
+    SPDLOG_INFO("ID3D12CommandQueue::ExecuteCommandLists");
     auto inst = DX12Hook_t::Inst();
     inst->_CommandQueue = _this;
     (_this->*inst->_ID3D12CommandQueueExecuteCommandLists)(NumCommandLists, ppCommandLists);
@@ -426,16 +503,19 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _Initialized(false),
+    _DeviceReleasing(false),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
-    _CommandList(nullptr),
+    _HookDeviceRefCount(0),
+    _HookState(OverlayHookState::Removing),
     _RenderTargetViewDescriptorHeap(nullptr),
     _ImGuiFontAtlas(nullptr),
+    _ID3D12DeviceRelease(nullptr),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),
     _IDXGISwapChainResizeTarget(nullptr),
+    _IDXGISwapChain3ResizeBuffers1(nullptr),
     _ID3D12CommandQueueExecuteCommandLists(nullptr),
     _IDXGISwapChain1Present1(nullptr)
 {
@@ -449,20 +529,7 @@ DX12Hook_t::~DX12Hook_t()
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
 
-    if (_Initialized)
-    {
-        _OverlayFrames.clear();
-
-        _ImageResources.clear();        
-        _ShaderRessourceViewHeaps.clear();
-        _ShaderRessourceViewHeapDescriptors.clear();
-        _RenderTargetViewDescriptorHeap->Release();
-
-        ImGui_ImplDX12_InvalidateDeviceObjects();
-        ImGui::DestroyContext();
-
-        _Initialized = false;
-    }
+    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance = nullptr;
 }
@@ -481,22 +548,25 @@ const std::string& DX12Hook_t::GetLibraryName() const
 }
 
 void DX12Hook_t::LoadFunctions(
-    decltype(_IDXGISwapChainPresent) PresentFcn,
-    decltype(_IDXGISwapChainResizeBuffers) ResizeBuffersFcn,
-    decltype(_IDXGISwapChainResizeTarget) ResizeTargetFcn,
-    decltype(_IDXGISwapChain1Present1) Present1Fcn,
-    decltype(_IDXGISwapChain3ResizeBuffers1) ResizeBuffers1Fcn,
-    decltype(_ID3D12CommandQueueExecuteCommandLists) ExecuteCommandListsFcn)
+    decltype(_ID3D12DeviceRelease) releaseFcn,
+    decltype(_IDXGISwapChainPresent) presentFcn,
+    decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
+    decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
+    decltype(_IDXGISwapChain1Present1) present1Fcn,
+    decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
+    decltype(_ID3D12CommandQueueExecuteCommandLists) executeCommandListsFcn)
 {
-    _IDXGISwapChainPresent = PresentFcn;
-    _IDXGISwapChainResizeBuffers = ResizeBuffersFcn;
-    _IDXGISwapChainResizeTarget = ResizeTargetFcn;
+    _ID3D12DeviceRelease = releaseFcn;
 
-    _IDXGISwapChain1Present1 = Present1Fcn;
+    _IDXGISwapChainPresent = presentFcn;
+    _IDXGISwapChainResizeBuffers = resizeBuffersFcn;
+    _IDXGISwapChainResizeTarget = resizeTargetFcn;
 
-    _IDXGISwapChain3ResizeBuffers1 = ResizeBuffers1Fcn;
+    _IDXGISwapChain1Present1 = present1Fcn;
 
-    _ID3D12CommandQueueExecuteCommandLists = ExecuteCommandListsFcn;
+    _IDXGISwapChain3ResizeBuffers1 = resizeBuffers1Fcn;
+
+    _ID3D12CommandQueueExecuteCommandLists = executeCommandListsFcn;
 }
 
 std::weak_ptr<uint64_t> DX12Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

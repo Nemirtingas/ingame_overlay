@@ -63,13 +63,13 @@ private:
         inline ~ID3D12DescriptorHeapWrapper_t() { if (Heap != nullptr) Heap->Release(); }
     };
 
-    struct ShaderRessourceViewHeap_t
+    struct ShaderResourceViewHeap_t
     {
         static constexpr uint32_t HeapSize = 1024;
         std::array<bool, HeapSize> HeapBitmap;
         uint32_t UsedHeap;
 
-        inline ShaderRessourceViewHeap_t()
+        inline ShaderResourceViewHeap_t()
             : HeapBitmap{}, UsedHeap{}
         {}
     };
@@ -86,24 +86,24 @@ private:
     struct DX12Frame_t
     {
         D3D12_CPU_DESCRIPTOR_HANDLE RenderTarget = {};
-        ID3D12CommandAllocator* pCmdAlloc = nullptr;
-        ID3D12Resource* pBackBuffer = nullptr;
+        ID3D12CommandAllocator* CommandAllocator = nullptr;
+        ID3D12GraphicsCommandList* CommandList = nullptr;
+        ID3D12Resource* BackBuffer = nullptr;
 
         inline void Reset()
         {
-            pCmdAlloc = nullptr;
-            pBackBuffer = nullptr;
+            CommandAllocator = nullptr;
+            CommandList = nullptr;
+            BackBuffer = nullptr;
         }
+
+        DX12Frame_t() = default;
 
         DX12Frame_t(DX12Frame_t const&) = delete;
         DX12Frame_t& operator=(DX12Frame_t const&) = delete;
 
-        DX12Frame_t(D3D12_CPU_DESCRIPTOR_HANDLE RenderTarget, ID3D12CommandAllocator* pCmdAlloc, ID3D12Resource* pBackBuffer):
-            RenderTarget(RenderTarget), pCmdAlloc(pCmdAlloc), pBackBuffer(pBackBuffer)
-        {}
-
         DX12Frame_t(DX12Frame_t&& other) noexcept:
-            RenderTarget(other.RenderTarget), pCmdAlloc(other.pCmdAlloc), pBackBuffer(other.pBackBuffer)
+            RenderTarget(other.RenderTarget), CommandAllocator(other.CommandAllocator), BackBuffer(other.BackBuffer)
         {
             other.Reset();
         }
@@ -111,8 +111,9 @@ private:
         DX12Frame_t& operator=(DX12Frame_t&& other) noexcept
         {
             RenderTarget = other.RenderTarget;
-            pCmdAlloc = other.pCmdAlloc;
-            pBackBuffer = other.pBackBuffer;
+            CommandAllocator = other.CommandAllocator;
+            CommandList = other.CommandList;
+            BackBuffer = other.BackBuffer;
             other.Reset();
 
             return *this;
@@ -120,23 +121,25 @@ private:
 
         ~DX12Frame_t()
         {
-            if (pCmdAlloc != nullptr) pCmdAlloc->Release();
-            if (pBackBuffer != nullptr) pBackBuffer->Release();
+            if (CommandAllocator != nullptr) CommandAllocator->Release();
+            if (CommandList != nullptr) CommandList->Release();
+            if (BackBuffer != nullptr) BackBuffer->Release();
         }
     };
 
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _Initialized;
+    bool _DeviceReleasing;
 
     size_t _CommandQueueOffset;
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
+    ULONG _HookDeviceRefCount;
+    OverlayHookState _HookState;
     std::vector<DX12Frame_t> _OverlayFrames;
-    std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderRessourceViewHeapDescriptors;
-    std::vector<ShaderRessourceViewHeap_t> _ShaderRessourceViewHeaps;
-    ID3D12GraphicsCommandList* _CommandList;
+    std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderResourceViewHeapDescriptors;
+    std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;
     // Render Target View heap
     ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
@@ -152,10 +155,14 @@ private:
 
     ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
+    void _UpdateHookDeviceRefCount();
+    bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
+    void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
 
     // Hook to render functions
+    decltype(&ID3D12Device::Release)                   _ID3D12DeviceRelease;
     decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain::ResizeBuffers)           _IDXGISwapChainResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)            _IDXGISwapChainResizeTarget;
@@ -163,6 +170,7 @@ private:
     decltype(&IDXGISwapChain3::ResizeBuffers1)         _IDXGISwapChain3ResizeBuffers1;
     decltype(&ID3D12CommandQueue::ExecuteCommandLists) _ID3D12CommandQueueExecuteCommandLists;
 
+    static ULONG   STDMETHODCALLTYPE _MyID3D12DeviceRelease(IUnknown* _this);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
@@ -183,6 +191,7 @@ public:
     virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(
+        decltype(_ID3D12DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
         decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
