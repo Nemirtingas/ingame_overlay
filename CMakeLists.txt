@@ -454,7 +454,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       PRIVATE
       user32
 	  shell32.lib
-	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/lib-vc2010-64/glfw3.lib
+	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/lib/glfw3.lib
 	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/vulkansdk/lib/vulkan-1.lib
     )
 

@@ -37,7 +37,7 @@
 
 //#define APP_USE_UNLIMITED_FRAME_RATE
 #ifdef _DEBUG
-//#define APP_USE_VULKAN_DEBUG_REPORT
+#define APP_USE_VULKAN_DEBUG_REPORT
 #endif
 
 // Data
@@ -194,7 +194,8 @@ static void SetupVulkan(ImVector<const char*> instance_extensions)
     // Create Logical Device (with 1 queue)
     {
         ImVector<const char*> device_extensions;
-        device_extensions.push_back("VK_KHR_swapchain");
+        device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        //device_extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
 
         // Enumerate physical device extension
         uint32_t properties_count;

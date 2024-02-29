@@ -67,7 +67,8 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _Initialized;
+    bool _RebuildRenderTargets;
+    OverlayHookState _HookState;
     HWND _MainWindow;
     std::function<void* (const char*)> _VulkanFunctionLoader;
     VkPhysicalDevice _VulkanPhysicalDevice;
@@ -94,6 +95,8 @@ private:
     void _ReleaseDescriptor(uint32_t id, VkDescriptorSet descriptorSet);
     void _CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout);
 
+    bool _CreateRenderTargets(VkSwapchainKHR swapChain);
+    void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
     void _InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain);
     VulkanFrame_t* _PrepareForOverlay(uint32_t frameIndex);
@@ -106,11 +109,10 @@ private:
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
     bool _GetPhysicalDevice();
     bool _CreateRenderPass();
-    bool _CreateRenderTargets(VkSwapchainKHR swapChain);
+    void _DestroyRenderPass();
     bool _SetupVulkanRenderer();
     uint32_t _GetVulkanMemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits);
     bool _CreateImageObjects();
-    void _DestroyFrames();
 
     // Hook to render functions
     decltype(::vkAcquireNextImageKHR)* _VkAcquireNextImageKHR;
@@ -120,6 +122,8 @@ private:
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex);
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
     static VKAPI_ATTR void     VKAPI_CALL _MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator);
+
+    decltype(::vkDeviceWaitIdle)* _vkDeviceWaitIdle;
 
     decltype(::vkCreateInstance)                         *_vkCreateInstance;
     decltype(::vkDestroyInstance)                        *_vkDestroyInstance;
