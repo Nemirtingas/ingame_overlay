@@ -202,7 +202,7 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
         {
             ImGui_ImplVulkan_Shutdown();
 
-            WindowsHook_t::Inst()->ResetRenderState();
+            WindowsHook_t::Inst()->ResetRenderState(state);
             _FreeVulkanRessources();
             _Initialized = false;
         }
