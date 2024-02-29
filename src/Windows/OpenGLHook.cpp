@@ -80,14 +80,14 @@ bool OpenGLHook_t::IsStarted()
     return _Hooked;
 }
 
-void OpenGLHook_t::_ResetRenderState()
+void OpenGLHook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(state);
 
         ImGui_ImplOpenGL3_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState(state);
         //ImGui::DestroyContext();
 
         _ImageResources.clear();
@@ -103,7 +103,7 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
     HWND hWnd = WindowFromDC(hDC);
 
     if (hWnd != _LastWindow)
-        _ResetRenderState();
+        _ResetRenderState(OverlayHookState::Removing);
 
     if (!_Initialized)
     {
@@ -117,7 +117,7 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         WindowsHook_t::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        OverlayHookReady(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplOpenGL3_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(hWnd))

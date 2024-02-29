@@ -10,10 +10,14 @@
 
 // Data
 static LPDIRECT3D9              g_pD3D = NULL;
-static LPDIRECT3DDEVICE9        g_pd3dDevice = NULL;
+static LPDIRECT3D9EX            g_pD3DEx = NULL;
+static LPDIRECT3DDEVICE9        g_currentD3DDevice = NULL;
+static LPDIRECT3DDEVICE9        g_pD3DDevice = NULL;
+static LPDIRECT3DDEVICE9EX      g_pD3DDeviceEx = NULL;
 static D3DPRESENT_PARAMETERS    g_d3dpp = {};
 static LPDIRECT3DSWAPCHAIN9     g_pd3dSwapChain = NULL;
-static bool                     g_useSwapChain = true;
+static bool                     g_useSwapChain = false;
+static bool                     g_useD3DEx = true;
 
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
@@ -55,7 +59,7 @@ int main(int, char**)
 
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX9_Init(g_pd3dDevice);
+    ImGui_ImplDX9_Init(g_currentD3DDevice);
 
     // Load Fonts
     // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
@@ -144,16 +148,16 @@ int main(int, char**)
 
         // Rendering
         ImGui::EndFrame();
-        g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
-        g_pd3dDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        g_pd3dDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        g_currentD3DDevice->SetRenderState(D3DRS_ZENABLE, FALSE);
+        g_currentD3DDevice->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        g_currentD3DDevice->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
         D3DCOLOR clear_col_dx = D3DCOLOR_RGBA((int)(clear_color.x*clear_color.w*255.0f), (int)(clear_color.y*clear_color.w*255.0f), (int)(clear_color.z*clear_color.w*255.0f), (int)(clear_color.w*255.0f));
-        g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
-        if (g_pd3dDevice->BeginScene() >= 0)
+        g_currentD3DDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, clear_col_dx, 1.0f, 0);
+        if (g_currentD3DDevice->BeginScene() >= 0)
         {
             ImGui::Render();
             ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-            g_pd3dDevice->EndScene();
+            g_currentD3DDevice->EndScene();
         }
         HRESULT result;
         
@@ -163,11 +167,14 @@ int main(int, char**)
         }
         else
         {
-            result = g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
+            if (g_useD3DEx)
+                result = g_pD3DDeviceEx->PresentEx(NULL, NULL, NULL, NULL, 0);
+            else
+                result = g_pD3DDevice->Present(NULL, NULL, NULL, NULL);
         }
 
         // Handle loss of D3D9 device
-        if (result == D3DERR_DEVICELOST && g_pd3dDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
+        if (result == D3DERR_DEVICELOST && g_currentD3DDevice->TestCooperativeLevel() == D3DERR_DEVICENOTRESET)
             ResetDevice();
     }
 
@@ -186,8 +193,16 @@ int main(int, char**)
 
 bool CreateDeviceD3D(HWND hWnd)
 {
-    if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
-        return false;
+    if (!g_useD3DEx)
+    {
+        if ((g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)) == NULL)
+            return false;
+    }
+    else
+    {
+        if (Direct3DCreate9Ex(D3D_SDK_VERSION, &g_pD3DEx) != S_OK)
+            return false;
+    }
 
     // Create the D3DDevice
     ZeroMemory(&g_d3dpp, sizeof(g_d3dpp));
@@ -198,10 +213,23 @@ bool CreateDeviceD3D(HWND hWnd)
     g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
     g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;           // Present with vsync
     //g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;   // Present without vsync, maximum unthrottled framerate
-    if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
-        return false;
 
-    g_pd3dDevice->GetSwapChain(0, &g_pd3dSwapChain);
+    if (!g_useD3DEx)
+    {
+        if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pD3DDevice) != D3D_OK)
+            return false;
+
+        g_pD3DDevice->GetSwapChain(0, &g_pd3dSwapChain);
+        g_currentD3DDevice = g_pD3DDevice;
+    }
+    else
+    {
+        if (g_pD3DEx->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, NULL, &g_pD3DDeviceEx) != D3D_OK)
+            return false;
+
+        g_pD3DDeviceEx->GetSwapChain(0, &g_pd3dSwapChain);
+        g_currentD3DDevice = g_pD3DDeviceEx;
+    }
 
     return true;
 }
@@ -209,14 +237,19 @@ bool CreateDeviceD3D(HWND hWnd)
 void CleanupDeviceD3D()
 {
     if (g_pd3dSwapChain) { g_pd3dSwapChain->Release(); g_pd3dSwapChain = NULL; }
-    if (g_pd3dDevice) { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+    if (g_pD3DDevice) { g_pD3DDevice->Release(); g_pD3DDevice = NULL; }
     if (g_pD3D) { g_pD3D->Release(); g_pD3D = NULL; }
 }
 
 void ResetDevice()
 {
     ImGui_ImplDX9_InvalidateDeviceObjects();
-    HRESULT hr = g_pd3dDevice->Reset(&g_d3dpp);
+    HRESULT hr;
+    if (!g_useD3DEx)
+        hr = g_pD3DDevice->Reset(&g_d3dpp);
+    else
+        hr = g_pD3DDeviceEx->ResetEx(&g_d3dpp, NULL);
+
     if (hr == D3DERR_INVALIDCALL)
         IM_ASSERT(0);
     ImGui_ImplDX9_CreateDeviceObjects();
@@ -234,7 +267,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (msg)
     {
     case WM_SIZE:
-        if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
+        if (g_currentD3DDevice != NULL && wParam != SIZE_MINIMIZED)
         {
             g_d3dpp.BackBufferWidth = LOWORD(lParam);
             g_d3dpp.BackBufferHeight = HIWORD(lParam);

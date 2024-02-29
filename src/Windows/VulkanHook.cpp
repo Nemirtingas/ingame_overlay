@@ -79,14 +79,14 @@ bool VulkanHook_t::IsStarted()
     return _Hooked;
 }
 
-void VulkanHook_t::_ResetRenderState()
+void VulkanHook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        OverlayHookReady(state);
 
         ImGui_ImplVulkan_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState();
+        WindowsHook_t::Inst()->ResetRenderState(state);
         ImGui::DestroyContext();
 
         //_ImageResources.clear();

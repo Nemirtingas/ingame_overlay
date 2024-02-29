@@ -41,24 +41,31 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _Initialized;
+    bool _DeviceReleasing;
     ID3D10Device* _Device;
-    ID3D10RenderTargetView* _MainRenderTargetView;
+    ULONG _HookDeviceRefCount;
+    OverlayHookState _HookState;
+    ID3D10RenderTargetView* _RenderTargetView;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
     DX10Hook_t();
 
-    void _ResetRenderState();
+    void _UpdateHookDeviceRefCount();
+    bool _CreateRenderTargets(IDXGISwapChain *pSwapChain);
+    void _DestroyRenderTargets();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain);
 
     // Hook to render functions
+    decltype(&ID3D10Device::Release)         _ID3D10DeviceRelease;
     decltype(&IDXGISwapChain::Present)       _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) _IDXGISwapChainResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)  _IDXGISwapChainResizeTarget;
     decltype(&IDXGISwapChain1::Present1)     _IDXGISwapChain1Present1;
 
+    static ULONG   STDMETHODCALLTYPE _MyID3D10DeviceRelease(ID3D10Device* _this);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
@@ -77,6 +84,7 @@ public:
     virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(
+        decltype(_ID3D10DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
         decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,

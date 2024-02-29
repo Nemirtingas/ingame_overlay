@@ -178,7 +178,7 @@ void WindowsHook_t::HideOverlayInputs(bool hide)
     _OverlayInputsHidden = hide;
 }
 
-void WindowsHook_t::ResetRenderState()
+void WindowsHook_t::ResetRenderState(OverlayHookState state)
 {
     if (_Initialized)
     {
@@ -206,7 +206,7 @@ short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)
 bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
 {
     if (_GameHwnd != hWnd)
-        ResetRenderState();
+        ResetRenderState(OverlayHookState::Removing);
 
     if (!_Initialized)
     {
@@ -602,7 +602,7 @@ WindowsHook_t::~WindowsHook_t()
 {
     SPDLOG_INFO("Windows Hook removed");
 
-    ResetRenderState();
+    ResetRenderState(OverlayHookState::Removing);
 
     _inst = nullptr;
 }

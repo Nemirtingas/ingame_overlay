@@ -41,28 +41,35 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _Initialized;
+    bool _DeviceReleasing;
     ID3D11Device* _Device;
+    ULONG _HookDeviceRefCount;
+    OverlayHookState _HookState;
     ID3D11DeviceContext* _DeviceContext;
-    ID3D11RenderTargetView* _MainRenderTargetView;
+    ID3D11RenderTargetView* _RenderTargetView;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
     DX11Hook_t();
 
-    void _ResetRenderState();
+    void _UpdateHookDeviceRefCount();
+    bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
+    void _DestroyRenderTargets();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions
+    decltype(&ID3D11Device::Release)         _ID3D11DeviceRelease;
     decltype(&IDXGISwapChain::Present)       _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) _IDXGISwapChainResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)  _IDXGISwapChainResizeTarget;
     decltype(&IDXGISwapChain1::Present1)     _IDXGISwapChain1Present1;
 
+    static ULONG   STDMETHODCALLTYPE _MyID3D11DeviceRelease(ID3D11Device* _this);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
-    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
-    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters);
 
 public:
@@ -78,6 +85,7 @@ public:
     virtual const std::string& GetLibraryName() const;
 
     void LoadFunctions(
+        decltype(_ID3D11DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
         decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,

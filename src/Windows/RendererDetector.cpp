@@ -415,6 +415,30 @@ private:
         return res;
     }
 
+    void _GetDX10Functions(ID3D10Device* pDevice, decltype(&ID3D10Device::Release)& pfnRelease)
+    {
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)pfnRelease = vTable[(int)ID3D10DeviceVTable::Release];
+    }
+
+    void _GetDX11Functions(ID3D11Device* pDevice, decltype(&ID3D11Device::Release)& pfnRelease)
+    {
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)pfnRelease = vTable[(int)ID3D11DeviceVTable::Release];
+    }
+
+    void _GetDX12Functions(ID3D12Device* pDevice, ID3D12CommandQueue* pCommandQueue, decltype(&ID3D12Device::Release)& pfnRelease, decltype(&ID3D12CommandQueue::ExecuteCommandLists)& pfnExecuteCommandLists)
+    {
+        {
+            void** vTable = *reinterpret_cast<void***>(pDevice);
+            (void*&)pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
+        }
+        {
+            void** vTable = *reinterpret_cast<void***>(pCommandQueue);
+            (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
+        }
+    }
+
     void _HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
     {
         void** vTable = *reinterpret_cast<void***>(pSwapChain);
@@ -463,14 +487,17 @@ private:
     }
 
     void _HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
-        void*& pfnPresent,
-        void*& pfnReset,
-        void*& pfnPresentEx,
-        void*& pfnSwapChainPresent)
+        decltype(&IDirect3DDevice9::Release)& pfnRelease,
+        decltype(&IDirect3DDevice9::Present)& pfnPresent,
+        decltype(&IDirect3DDevice9::Reset)& pfnReset,
+        decltype(&IDirect3DDevice9Ex::PresentEx)& pfnPresentEx,
+        decltype(&IDirect3DDevice9Ex::ResetEx)& pfnResetEx,
+        decltype(&IDirect3DSwapChain9::Present)& pfnSwapChainPresent)
     {
         void** vTable = *reinterpret_cast<void***>(pDevice);
-        pfnPresent = vTable[(int)IDirect3DDevice9VTable::Present];
-        pfnReset = vTable[(int)IDirect3DDevice9VTable::Reset];
+        (void*&)pfnRelease = vTable[(int)IDirect3DDevice9VTable::Release];
+        (void*&)pfnPresent = vTable[(int)IDirect3DDevice9VTable::Present];
+        (void*&)pfnReset = vTable[(int)IDirect3DDevice9VTable::Reset];
 
         (void*&)_IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
 
@@ -480,8 +507,9 @@ private:
 
         if (ex)
         {
-            pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
+            (void*&)pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
             (void*&)_IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
+            (void*&)pfnResetEx = vTable[(int)IDirect3DDevice9VTable::ResetEx];
 
             _DetectionHooks.BeginHook();
             TRY_HOOK_FUNCTION(_IDirect3DDevice9ExPresentEx, &RendererDetector_t::_MyDX9PresentEx);
@@ -496,7 +524,7 @@ private:
         if (pSwapChain != nullptr)
         {
             vTable = *reinterpret_cast<void***>(pSwapChain);
-            pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
+            (void*&)pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
             (void*&)_IDirect3DSwapChain9Present = vTable[(int)IDirect3DSwapChain9VTable::Present];
 
             _DetectionHooks.BeginHook();
@@ -580,16 +608,18 @@ private:
 
                 pDevice->GetSwapChain(0, &pSwapChain);
 
+                decltype(&IDirect3DDevice9::Release) pfnRelease;
                 decltype(&IDirect3DDevice9::Present) pfnPresent;
                 decltype(&IDirect3DDevice9::Reset) pfnReset;
                 decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
+                decltype(&IDirect3DDevice9Ex::ResetEx) pfnResetEx;
                 decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
 
-                _HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnSwapChainPresent);
+                _HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, pfnRelease, pfnPresent, pfnReset, pfnPresentEx, pfnResetEx, pfnSwapChainPresent);
 
                 _DX9Hook = DX9Hook_t::Inst();
                 _DX9Hook->LibraryName = libraryPath;
-                _DX9Hook->LoadFunctions(pfnPresent, pfnReset, pfnPresentEx, pfnSwapChainPresent);
+                _DX9Hook->LoadFunctions(pfnRelease, pfnPresent, pfnReset, pfnPresentEx, pfnResetEx, pfnSwapChainPresent);
             }
             else
             {
@@ -693,11 +723,13 @@ private:
 
                 _DX10Hooked = true;
 
+                decltype(&ID3D10Device::Release) pfnRelease;
                 decltype(&IDXGISwapChain::Present) pfnPresent;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
 
+                _GetDX10Functions(pDevice, pfnRelease);
                 _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 if (version > 0)
                 {
@@ -706,7 +738,7 @@ private:
 
                 _DX10Hook = DX10Hook_t::Inst();
                 _DX10Hook->LibraryName = libraryPath;
-                _DX10Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX10Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -808,11 +840,13 @@ private:
 
                 _DX11Hooked = true;
 
+                decltype(&ID3D11Device::Release) pfnRelease = nullptr;
                 decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
 
+                _GetDX11Functions(pDevice, pfnRelease);
                 _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 if (version > 0)
                 {
@@ -821,7 +855,7 @@ private:
 
                 _DX11Hook = DX11Hook_t::Inst();
                 _DX11Hook->LibraryName = libraryPath;
-                _DX11Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX11Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
             }
             else
             {
@@ -905,23 +939,22 @@ private:
 
                 _DX12Hooked = true;
 
+                decltype(&ID3D12Device::Release) pfnRelease = nullptr;
                 decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
                 decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
                 decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
                 decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
                 decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1 = nullptr;
+                decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists = nullptr;
 
+                _GetDX12Functions(pDevice, pCommandQueue, pfnRelease, pfnExecuteCommandLists);
+                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
                 _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
                 _HookDXGIPresent1(pSwapChain, pfnPresent1);
-                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
-
-                void** vTable = *reinterpret_cast<void***>(pCommandQueue);
-                decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists;
-                (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
 
                 _DX12Hook = DX12Hook_t::Inst();
                 _DX12Hook->LibraryName = libraryPath;
-                _DX12Hook->LoadFunctions(pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
+                _DX12Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
             }
             else
             {
