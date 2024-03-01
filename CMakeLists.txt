@@ -233,6 +233,7 @@ target_compile_definitions(ingame_overlay
   IMGUI_DISABLE_OBSOLETE_KEYIO
   IMGUI_DISABLE_OBSOLETE_FUNCTIONS
   IMGUI_DISABLE_APPLE_GAMEPAD
+  ImTextureID=ImU64
 )
 
 add_library(Nemirtingas::InGameOverlay ALIAS ingame_overlay)
