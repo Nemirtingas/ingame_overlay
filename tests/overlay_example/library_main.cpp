@@ -9,8 +9,8 @@
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_PNG
 #define STBI_NO_STDIO
-#include <stb_image.h>
-#include <thumbs_up.h>
+#include "../common/stb_image.h"
+#include "../common/thumbs_up.h"
 
 using namespace std::chrono_literals;
 

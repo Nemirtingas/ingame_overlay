@@ -354,8 +354,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(dx12_app
       tests/dx12/main.cpp
-	  tests/dx12/imgui_impl_dx12.h
-	  tests/dx12/imgui_impl_dx12.cpp
+	  tests/common/imgui_impl_dx12.h
+	  tests/common/imgui_impl_dx12.cpp
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
@@ -432,8 +432,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(macos_opengl2_app
       tests/macos_opengl2/main.mm
-      tests/macos_opengl2/imgui_impl_osx.h
-      tests/macos_opengl2/imgui_impl_osx.mm
+      tests/common/imgui_impl_osx.h
+      tests/common/imgui_impl_osx.mm
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
@@ -467,8 +467,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(macos_opengl3_app
       tests/macos_opengl3/main.mm
-      tests/macos_opengl3/imgui_impl_osx.h
-      tests/macos_opengl3/imgui_impl_osx.mm
+      tests/common/imgui_impl_osx.h
+      tests/common/imgui_impl_osx.mm
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
@@ -502,8 +502,8 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     add_executable(macos_metal_app
       tests/macos_metal/main.mm
-      tests/macos_metal/imgui_impl_osx.h
-      tests/macos_metal/imgui_impl_osx.mm
+      tests/common/imgui_impl_osx.h
+      tests/common/imgui_impl_osx.mm
       deps/ImGui/imgui.cpp
       deps/ImGui/imgui_demo.cpp
       deps/ImGui/imgui_draw.cpp
