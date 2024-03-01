@@ -446,16 +446,16 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_include_directories(windows_vulkan_app
       PRIVATE
       deps/ImGui
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/include>
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/vulkansdk/include>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
     )
 
     target_link_libraries(windows_vulkan_app
       PRIVATE
       user32
 	  shell32.lib
-	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/glfw/lib/glfw3.lib
-	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_vulkan/vulkansdk/lib/vulkan-1.lib
+	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/lib/glfw3.lib
+	  ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/lib/vulkan-1.lib
     )
 
     target_compile_definitions(windows_vulkan_app

@@ -107,7 +107,7 @@ bool VulkanHook_t::IsStarted()
 
 bool VulkanHook_t::_AllocDescriptorPool()
 {    
-    VkDescriptorPool vulkanDescriptorPool = nullptr;
+    VkDescriptorPool vulkanDescriptorPool = VK_NULL_HANDLE;
 
     VkDescriptorPoolSize poolSizes[] =
     {
@@ -119,7 +119,7 @@ bool VulkanHook_t::_AllocDescriptorPool()
     descriptorPoolCreateInfo.maxSets = MaxDescriptorCountPerPool;
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(poolSizes[0]));
     descriptorPoolCreateInfo.pPoolSizes = poolSizes;
-    if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == nullptr)
+    if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == VK_NULL_HANDLE)
         return false;
 
     
@@ -133,7 +133,7 @@ bool VulkanHook_t::_AllocDescriptorPool()
 VulkanHook_t::VulkanDescriptorSet_t VulkanHook_t::_GetFreeDescriptorSetFromPool(uint32_t poolIndex)
 {
     auto& descriptorsPool = _DescriptorsPools[poolIndex];
-    VkDescriptorSet vulkanDescriptorSet = nullptr;
+    VkDescriptorSet vulkanDescriptorSet = VK_NULL_HANDLE;
     VulkanDescriptorSet_t descriptorSet;
 
     VkDescriptorSetAllocateInfo alloc_info = {};
@@ -238,18 +238,18 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
     {
         auto& frame = _Frames[i];
 
-        if (_vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &frame.CommandPool) != VkResult::VK_SUCCESS || frame.CommandPool == nullptr)
+        if (_vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &frame.CommandPool) != VkResult::VK_SUCCESS || frame.CommandPool == VK_NULL_HANDLE)
             return false;
 
         commandBufferAllocateInfo.commandPool = frame.CommandPool;
-        if (_vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &frame.CommandBuffer) != VkResult::VK_SUCCESS || frame.CommandBuffer == nullptr)
+        if (_vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &frame.CommandBuffer) != VkResult::VK_SUCCESS || frame.CommandBuffer == VK_NULL_HANDLE)
         {
             _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
             return false;
         }
 
         imageViewCreateInfo.image = backBuffers[i];
-        if (_vkCreateImageView(_VulkanDevice, &imageViewCreateInfo, nullptr, &frame.RenderTarget) != VkResult::VK_SUCCESS || frame.RenderTarget == nullptr)
+        if (_vkCreateImageView(_VulkanDevice, &imageViewCreateInfo, nullptr, &frame.RenderTarget) != VkResult::VK_SUCCESS || frame.RenderTarget == VK_NULL_HANDLE)
         {
             _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
             _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
@@ -257,7 +257,7 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
         }
 
         attachment[0] = frame.RenderTarget;
-        if (_vkCreateFramebuffer(_VulkanDevice, &framebufferCreateInfo, nullptr, &frame.Framebuffer) != VkResult::VK_SUCCESS || frame.Framebuffer == nullptr)
+        if (_vkCreateFramebuffer(_VulkanDevice, &framebufferCreateInfo, nullptr, &frame.Framebuffer) != VkResult::VK_SUCCESS || frame.Framebuffer == VK_NULL_HANDLE)
         {
             _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
             _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
@@ -265,7 +265,7 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             return false;
         }
 
-        if (_vkCreateSemaphore(_VulkanDevice, &semaphoreCreateInfo, nullptr, &frame.Semaphore) != VkResult::VK_SUCCESS || frame.Semaphore == nullptr)
+        if (_vkCreateSemaphore(_VulkanDevice, &semaphoreCreateInfo, nullptr, &frame.Semaphore) != VkResult::VK_SUCCESS || frame.Semaphore == VK_NULL_HANDLE)
         {
             _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
             _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
@@ -274,7 +274,7 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             return false;
         }
 
-        if (_vkCreateFence(_VulkanDevice, &fenceCreateInfo, nullptr, &frame.Fence) != VkResult::VK_SUCCESS || frame.Fence == nullptr)
+        if (_vkCreateFence(_VulkanDevice, &fenceCreateInfo, nullptr, &frame.Fence) != VkResult::VK_SUCCESS || frame.Fence == VK_NULL_HANDLE)
         {
             _vkDestroySemaphore(_VulkanDevice, frame.Semaphore, nullptr);
             _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
@@ -293,22 +293,22 @@ void VulkanHook_t::_DestroyRenderTargets()
 {
     for (auto& frame : _Frames)
     {
-        if (frame.Fence != nullptr)
+        if (frame.Fence != VK_NULL_HANDLE)
             _vkDestroyFence(_VulkanDevice, frame.Fence, nullptr);
 
-        if (frame.Semaphore != nullptr)
+        if (frame.Semaphore != VK_NULL_HANDLE)
             _vkDestroySemaphore(_VulkanDevice, frame.Semaphore, nullptr);
 
-        if (frame.Framebuffer != nullptr)
+        if (frame.Framebuffer != VK_NULL_HANDLE)
             _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
 
-        if (frame.RenderTarget != nullptr)
+        if (frame.RenderTarget != VK_NULL_HANDLE)
             _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
 
-        if (frame.CommandBuffer != nullptr)
+        if (frame.CommandBuffer != VK_NULL_HANDLE)
             _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
 
-        if (frame.CommandPool != nullptr)
+        if (frame.CommandPool != VK_NULL_HANDLE)
             _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
     }
     _Frames.clear();
@@ -387,28 +387,28 @@ void VulkanHook_t::_FreeVulkanRessources()
     {
         _DestroyRenderTargets();
 
-        if (_VulkanImageSampler != nullptr)
+        if (_VulkanImageSampler != VK_NULL_HANDLE)
         {
             _vkDestroySampler(_VulkanDevice, _VulkanImageSampler, nullptr);
-            _VulkanImageSampler = nullptr;
+            _VulkanImageSampler = VK_NULL_HANDLE;
         }
 
-        if (_VulkanImageCommandBuffer != nullptr)
+        if (_VulkanImageCommandBuffer != VK_NULL_HANDLE)
         {
             _vkFreeCommandBuffers(_VulkanDevice, _VulkanImageCommandPool, 1, &_VulkanImageCommandBuffer);
-            _VulkanImageCommandBuffer = nullptr;
+            _VulkanImageCommandBuffer = VK_NULL_HANDLE;
         }
 
-        if (_VulkanImageCommandPool != nullptr)
+        if (_VulkanImageCommandPool != VK_NULL_HANDLE)
         {
             _vkDestroyCommandPool(_VulkanDevice, _VulkanImageCommandPool, nullptr);
-            _VulkanImageCommandPool = nullptr;
+            _VulkanImageCommandPool = VK_NULL_HANDLE;
         }
 
-        if (_VulkanDescriptorSetLayout != nullptr)
+        if (_VulkanDescriptorSetLayout != VK_NULL_HANDLE)
         {
             _vkDestroyDescriptorSetLayout(_VulkanDevice, _VulkanDescriptorSetLayout, nullptr);
-            _VulkanDescriptorSetLayout = nullptr;
+            _VulkanDescriptorSetLayout = VK_NULL_HANDLE;
         }
 
         _ImageResources.clear();
@@ -603,7 +603,7 @@ bool VulkanHook_t::_GetPhysicalDevice()
 
 bool VulkanHook_t::_CreateRenderPass()
 {
-    VkRenderPass vulkanRenderPass = nullptr;
+    VkRenderPass vulkanRenderPass = VK_NULL_HANDLE;
     VkAttachmentDescription attachment = {};
     // TODO: Find a way to use the correct format
     attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
@@ -636,7 +636,7 @@ bool VulkanHook_t::_CreateRenderPass()
     info.pSubpasses = &subpass;
     info.dependencyCount = 1;
     info.pDependencies = &dependency;
-    if (_vkCreateRenderPass(_VulkanDevice, &info, nullptr, &vulkanRenderPass) != VkResult::VK_SUCCESS || vulkanRenderPass == nullptr)
+    if (_vkCreateRenderPass(_VulkanDevice, &info, nullptr, &vulkanRenderPass) != VkResult::VK_SUCCESS || vulkanRenderPass == VK_NULL_HANDLE)
         return false;
 
     _VulkanRenderPass = vulkanRenderPass;
@@ -645,10 +645,10 @@ bool VulkanHook_t::_CreateRenderPass()
 
 void VulkanHook_t::_DestroyRenderPass()
 {
-    if (_VulkanRenderPass != nullptr)
+    if (_VulkanRenderPass != VK_NULL_HANDLE)
     {
         _vkDestroyRenderPass(_VulkanDevice, _VulkanRenderPass, nullptr);
-        _VulkanRenderPass = nullptr;
+        _VulkanRenderPass = VK_NULL_HANDLE;
     }
 }
 
@@ -687,10 +687,10 @@ uint32_t VulkanHook_t::_GetVulkanMemoryType(VkMemoryPropertyFlags properties, ui
 bool VulkanHook_t::_CreateImageObjects()
 {
     VkResult result;
-    VkSampler vulkanSampler = nullptr;
-    VkCommandPool vulkanCommandPool = nullptr;
+    VkSampler vulkanSampler = VK_NULL_HANDLE;
+    VkCommandPool vulkanCommandPool = VK_NULL_HANDLE;
     VkCommandBuffer vulkanCommandBuffer = nullptr;
-    VkDescriptorSetLayout vulkanDescriptorSetLayout = nullptr;
+    VkDescriptorSetLayout vulkanDescriptorSetLayout = VK_NULL_HANDLE;
 
     // Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
     VkSamplerCreateInfo samplerCreateInfo = {};
@@ -865,7 +865,7 @@ VulkanHook_t::VulkanFrame_t* VulkanHook_t::_PrepareForOverlay(uint32_t frameInde
         _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
     }
        
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer, nullptr);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer, VK_NULL_HANDLE);
         
     _vkCmdEndRenderPass(frame.CommandBuffer);
     _vkEndCommandBuffer(frame.CommandBuffer);
@@ -924,7 +924,6 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
 
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
     {
-        auto x = inst->_vkDeviceWaitIdle(inst->_VulkanDevice);
         inst->_RebuildRenderTargets = true;
     }
 
@@ -952,10 +951,10 @@ VulkanHook_t::VulkanHook_t():
     _VulkanDevice(nullptr),
     _VulkanQueue(nullptr),
     _QueueFamilyIndex(0),
-    _VulkanDescriptorSetLayout(nullptr),
-    _VulkanRenderPass(nullptr),
-    _VulkanImageSampler(nullptr),
-    _VulkanImageCommandPool(nullptr),
+    _VulkanDescriptorSetLayout(VK_NULL_HANDLE),
+    _VulkanRenderPass(VK_NULL_HANDLE),
+    _VulkanImageSampler(VK_NULL_HANDLE),
+    _VulkanImageCommandPool(VK_NULL_HANDLE),
     _VulkanImageCommandBuffer(nullptr),
     _ImGuiFontAtlas(nullptr),
     _VkAcquireNextImageKHR(nullptr),
@@ -1061,12 +1060,12 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 {
     std::shared_ptr<uint64_t> image;
     VkResult result;
-    VkImage vulkanImage = nullptr;
-    VkImageView vulkanImageView = nullptr;
-    VkDeviceMemory vulkanImageMemory = nullptr;
+    VkImage vulkanImage = VK_NULL_HANDLE;
+    VkImageView vulkanImageView = VK_NULL_HANDLE;
+    VkDeviceMemory vulkanImageMemory = VK_NULL_HANDLE;
     VulkanDescriptorSet_t vulkanImageDescriptor;
-    VkDeviceMemory uploadBufferMemory = nullptr;
-    VkBuffer uploadBuffer = nullptr;
+    VkDeviceMemory uploadBufferMemory = VK_NULL_HANDLE;
+    VkBuffer uploadBuffer = VK_NULL_HANDLE;
 
     if (!_CreateImageObjects())
         goto OnErrorCreateImage;
@@ -1250,7 +1249,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
 
-        result = _vkQueueSubmit(_VulkanQueue, 1, &endInfo, nullptr);
+        result = _vkQueueSubmit(_VulkanQueue, 1, &endInfo, VK_NULL_HANDLE);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
@@ -1270,7 +1269,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     struct VulkanImage_t
     {
         ImTextureID ImageId;
-        VkDeviceMemory VulkanImageMemory = nullptr;
+        VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
         uint32_t ImagePoolId;
     };
 
@@ -1297,12 +1296,12 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     return image;
 
 OnErrorCreateImage:
-    if (vulkanImageDescriptor.DescriptorSet != nullptr) _ReleaseDescriptor(vulkanImageDescriptor.DescriptorPoolId, vulkanImageDescriptor.DescriptorSet);
-    if (uploadBuffer                        != nullptr) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , nullptr);
-    if (uploadBufferMemory                  != nullptr) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, nullptr);
-    if (vulkanImageView                     != nullptr) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , nullptr);
-    if (vulkanImageMemory                   != nullptr) _vkFreeMemory      (_VulkanDevice, vulkanImageMemory , nullptr);
-    if (vulkanImage                         != nullptr) _vkDestroyImage    (_VulkanDevice, vulkanImage       , nullptr);
+    if (vulkanImageDescriptor.DescriptorSet != VK_NULL_HANDLE) _ReleaseDescriptor(vulkanImageDescriptor.DescriptorPoolId, vulkanImageDescriptor.DescriptorSet);
+    if (uploadBuffer                        != VK_NULL_HANDLE) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , nullptr);
+    if (uploadBufferMemory                  != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, nullptr);
+    if (vulkanImageView                     != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , nullptr);
+    if (vulkanImageMemory                   != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, vulkanImageMemory , nullptr);
+    if (vulkanImage                         != VK_NULL_HANDLE) _vkDestroyImage    (_VulkanDevice, vulkanImage       , nullptr);
 
     return std::shared_ptr<uint64_t>(nullptr);
 }

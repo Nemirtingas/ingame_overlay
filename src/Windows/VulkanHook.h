@@ -41,20 +41,20 @@ private:
 
     struct VulkanFrame_t
     {
-        VkImageView RenderTarget = nullptr;
-        VkImage BackBuffer = nullptr;
-        VkFramebuffer Framebuffer = nullptr;
-        VkCommandPool CommandPool = nullptr;
-        VkCommandBuffer CommandBuffer = nullptr;
-        VkSemaphore Semaphore = nullptr;
-        VkFence Fence = nullptr;
+        VkImageView RenderTarget = VK_NULL_HANDLE;
+        VkImage BackBuffer = VK_NULL_HANDLE;
+        VkFramebuffer Framebuffer = VK_NULL_HANDLE;
+        VkCommandPool CommandPool = VK_NULL_HANDLE;
+        VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
+        VkSemaphore Semaphore = VK_NULL_HANDLE;
+        VkFence Fence = VK_NULL_HANDLE;
     };
 
     struct VulkanDescriptorSet_t
     {
         constexpr static uint32_t InvalidDescriptorPoolId = 0xffffffff;
 
-        VkDescriptorSet DescriptorSet = nullptr;
+        VkDescriptorSet DescriptorSet = VK_NULL_HANDLE;
         uint32_t DescriptorPoolId = InvalidDescriptorPoolId;
     };
 
