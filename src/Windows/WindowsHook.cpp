@@ -361,14 +361,6 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             return true;
     }
     
-    // Protect against recursive call of the WindowProc...
-    if (_RecurseCallCount > 16)
-        return true;
-    
-    //++inst->_RecurseCallCount;
-    // Call the overlay window procedure
-    //auto res = CallWindowProc(WindowsHook_t::Inst()->_GameWndProc, hWnd, uMsg, wParam, lParam);
-    //--inst->_RecurseCallCount;
     return false;
 }
 
@@ -590,7 +582,7 @@ WindowsHook_t::WindowsHook_t() :
     _Initialized(false),
     _Hooked(false),
     _GameHwnd(nullptr),
-    _RecurseCallCount(0),
+    _SavedCursorPos{},
     _DefaultClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),

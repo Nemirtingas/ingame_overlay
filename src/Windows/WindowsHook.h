@@ -37,7 +37,6 @@ private:
     // Variables
     bool _Hooked;
     bool _Initialized;
-    int _RecurseCallCount;
     HWND _GameHwnd;
     POINT _SavedCursorPos;
     RECT _SavedClipCursor;
