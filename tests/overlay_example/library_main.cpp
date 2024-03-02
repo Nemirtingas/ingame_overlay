@@ -20,7 +20,7 @@ struct OverlayData_t
 
     ImFontAtlas* FontAtlas;
     InGameOverlay::RendererHook_t* Renderer;
-    std::mutex OverlayMutex;
+    std::recursive_mutex OverlayMutex;
     char OverlayInputTextBuffer[256]{};
     bool Show;
     bool Stop;
@@ -62,7 +62,9 @@ void shared_library_load(void* hmodule)
 
     OverlayData->Worker = std::thread([]()
     {
-        std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+        //std::this_thread::sleep_for(5s);
+
+        std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
         // Try to detect Renderer for an infinite amount of time.
         auto future = InGameOverlay::DetectRenderer();
         InGameOverlay::StopRendererDetection();
@@ -94,7 +96,7 @@ void shared_library_load(void* hmodule)
             // overlay_proc is called  when the process wants to swap buffers.
             OverlayData->Renderer->OverlayProc = []()
             {
-                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
                 if (!OverlayData->Show)
                     return;
@@ -141,7 +143,7 @@ void shared_library_load(void* hmodule)
             // Called on Renderer hook status change
             OverlayData->Renderer->OverlayHookReady = [](InGameOverlay::OverlayHookState hookState)
             {
-                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
                 if (hookState == InGameOverlay::OverlayHookState::Removing)
                     OverlayData->Show = false;
@@ -161,7 +163,7 @@ void shared_library_load(void* hmodule)
 
             OverlayData->Renderer->StartHook([]()
             {
-                std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
                 if (OverlayData->Show)
                 {
@@ -183,7 +185,7 @@ void shared_library_load(void* hmodule)
 void shared_library_unload(void* hmodule)
 {
     {
-        std::lock_guard<std::mutex> lk(OverlayData->OverlayMutex);
+        std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
         if (OverlayData->Worker.joinable())
             OverlayData->Worker.join();
 
