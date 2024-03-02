@@ -579,14 +579,31 @@ BOOL WINAPI WindowsHook_t::_MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilt
 /////////////////////////////////////////////////////////////////////////////////////
 
 WindowsHook_t::WindowsHook_t() :
-    _Initialized(false),
     _Hooked(false),
+    _Initialized(false),
     _GameHwnd(nullptr),
     _SavedCursorPos{},
+    _SavedClipCursor{},
     _DefaultClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
-    _KeyCombinationPushed(false)
+    _KeyCombinationPushed(false),
+    _TranslateMessage(nullptr),
+    _DefWindowProcA(nullptr),
+    _DefWindowProcW(nullptr),
+    _GetRawInputBuffer(nullptr),
+    _GetRawInputData(nullptr),
+    _GetKeyState(nullptr),
+    _GetAsyncKeyState(nullptr),
+    _GetKeyboardState(nullptr),
+    _GetCursorPos(nullptr),
+    _SetCursorPos(nullptr),
+    _GetClipCursor(nullptr),
+    _ClipCursor(nullptr),
+    _GetMessageA(nullptr),
+    _GetMessageW(nullptr),
+    _PeekMessageA(nullptr),
+    _PeekMessageW(nullptr)
 {
 }
 
