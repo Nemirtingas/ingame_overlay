@@ -27,6 +27,12 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLXHook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
+
 OpenGLXHook_t* OpenGLXHook_t::_Instance = nullptr;
 
 constexpr decltype(OpenGLXHook_t::DLL_NAME) OpenGLXHook_t::DLL_NAME;
@@ -46,17 +52,13 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
 
         _X11Hooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(GLXSwapBuffers);
+        EndHook();
+
         SPDLOG_INFO("Hooked OpenGLX");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        UnhookAll();
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>((void**)&_GLXSwapBuffers, (void*)&OpenGLXHook_t::_MyGLXSwapBuffers)
-        );
-        EndHook();
     }
     return true;
 }

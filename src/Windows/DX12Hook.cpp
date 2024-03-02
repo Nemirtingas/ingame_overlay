@@ -25,6 +25,12 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
+
 DX12Hook_t* DX12Hook_t::_Instance = nullptr;
 
 template<typename T>
@@ -52,7 +58,7 @@ static inline uint32_t GetHeapUsedIndex(uint32_t heapId)
     return heapId & 0xffff;
 }
 
-bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -67,32 +73,24 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(ID3D12DeviceRelease);
+        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
+        TRY_HOOK_FUNCTION(ID3D12CommandQueueExecuteCommandLists);
+
+        if (_IDXGISwapChain1Present1 != nullptr)
+            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+
+        if (_IDXGISwapChain3ResizeBuffers1 != nullptr)
+            TRY_HOOK_FUNCTION(IDXGISwapChain3ResizeBuffers1);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 12");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_ID3D12DeviceRelease                  , &DX12Hook_t::_MyID3D12DeviceRelease),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent                , &DX12Hook_t::_MyIDXGISwapChainPresent),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget           , &DX12Hook_t::_MyIDXGISwapChainResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers          , &DX12Hook_t::_MyIDXGISwapChainResizeBuffers),
-            std::make_pair<void**, void*>(&(PVOID&)_ID3D12CommandQueueExecuteCommandLists, &DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists)
-        );
-        if (_IDXGISwapChain1Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChain1Present1, &DX12Hook_t::_MyIDXGISwapChain1Present1)
-            );
-        }
-        if (_IDXGISwapChain3ResizeBuffers1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChain3ResizeBuffers1, &DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1)
-            );
-        }
-        EndHook();
     }
     return true;
 }
@@ -519,7 +517,6 @@ DX12Hook_t::DX12Hook_t():
     _ID3D12CommandQueueExecuteCommandLists(nullptr),
     _IDXGISwapChain1Present1(nullptr)
 {
-    SPDLOG_WARN("DX12 support is experimental, don't complain if it doesn't work as expected.");
 }
 
 DX12Hook_t::~DX12Hook_t()

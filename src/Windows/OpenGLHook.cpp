@@ -27,9 +27,15 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLHook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
+
 OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
-bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -44,17 +50,13 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         _WindowsHooked = true;
 
-        SPDLOG_INFO("Hooked OpenGL");
-        
-        _Hooked = true;
-        
-        _ImGuiFontAtlas = imgui_font_atlas;
-
         BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_WGLSwapBuffers, &OpenGLHook_t::_MyWGLSwapBuffers)
-        );
+        TRY_HOOK_FUNCTION(WGLSwapBuffers);
         EndHook();
+
+        SPDLOG_INFO("Hooked OpenGL");
+        _Hooked = true;
+        _ImGuiFontAtlas = imgui_font_atlas;
     }
     return true;
 }

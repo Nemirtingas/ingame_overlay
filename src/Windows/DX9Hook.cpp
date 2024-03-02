@@ -19,12 +19,17 @@
 
 #include "DX9Hook.h"
 #include "WindowsHook.h"
-#include "DirectXVTables.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx9.h>
 
 namespace InGameOverlay {
+
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
 
 DX9Hook_t* DX9Hook_t::_Instance = nullptr;
 
@@ -38,7 +43,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -53,36 +58,21 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(IDirect3DDevice9Release);
+        TRY_HOOK_FUNCTION(IDirect3DDevice9Reset);
+        TRY_HOOK_FUNCTION(IDirect3DDevice9Present);
+        if (_IDirect3DDevice9ExPresentEx != nullptr)
+            TRY_HOOK_FUNCTION(IDirect3DDevice9ExPresentEx);
+
+        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
+            TRY_HOOK_FUNCTION(IDirect3DSwapChain9SwapChainPresent);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 9");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Release, &DX9Hook_t::_MyIDirect3DDevice9Release),
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Reset  , &DX9Hook_t::_MyIDirect3DDevice9Reset),
-            std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9Present, &DX9Hook_t::_MyIDirect3DDevice9Present)
-        );
-        if (_IDirect3DDevice9ExPresentEx != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExPresentEx, &DX9Hook_t::_MyIDirect3DDevice9ExPresentEx)
-            );
-        }
-        if (_IDirect3DDevice9ExResetEx != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DDevice9ExResetEx, &DX9Hook_t::_MyIDirect3DDevice9ExResetEx)
-            );
-        }
-        if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDirect3DSwapChain9SwapChainPresent, &DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent)
-            );
-        }
-        EndHook();
     }
     return true;
 }

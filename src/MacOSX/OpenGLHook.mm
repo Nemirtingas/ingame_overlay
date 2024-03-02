@@ -28,6 +28,12 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLHook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
+
 OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
 decltype(OpenGLHook_t::DLL_NAME) OpenGLHook_t::DLL_NAME;
@@ -50,7 +56,6 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
-
         _NSViewHooked = true;
 
         if (_NSOpenGLContextFlushBufferMethod != nullptr)
@@ -59,11 +64,8 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         }
         else if (_CGLFlushDrawable != nullptr)
         {
-            UnhookAll();
             BeginHook();
-            HookFunc(
-                std::make_pair<void**, void*>((void**)&_CGLFlushDrawable, (void*)&OpenGLHook_t::_MyCGLFlushDrawable)
-            );
+            TRY_HOOK_FUNCTION(CGLFlushDrawable);
             EndHook();
         }
 

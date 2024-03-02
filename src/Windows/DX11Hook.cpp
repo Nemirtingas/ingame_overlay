@@ -25,6 +25,12 @@
 
 namespace InGameOverlay {
 
+#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX11Hook_t::_My##NAME))) { \
+    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    UnhookAll();\
+    return false;\
+} } while(0)
+
 DX11Hook_t* DX11Hook_t::_Instance = nullptr;
 
 template<typename T>
@@ -47,7 +53,7 @@ static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, I
     return ret;
 }
 
-bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
     {
@@ -62,25 +68,20 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         _WindowsHooked = true;
 
+        BeginHook();
+        TRY_HOOK_FUNCTION(ID3D11DeviceRelease);
+        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
+
+        if (_IDXGISwapChain1Present1 != nullptr)
+            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+
+        EndHook();
+
         SPDLOG_INFO("Hooked DirectX 11");
         _Hooked = true;
-
         _ImGuiFontAtlas = imgui_font_atlas;
-
-        BeginHook();
-        HookFuncs(
-            std::make_pair<void**, void*>(&(PVOID&)_ID3D11DeviceRelease        , &DX11Hook_t::_MyID3D11DeviceRelease),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainPresent      , &DX11Hook_t::_MyIDXGISwapChainPresent),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeTarget , &DX11Hook_t::_MyIDXGISwapChainResizeTarget),
-            std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChainResizeBuffers, &DX11Hook_t::_MyIDXGISwapChainResizeBuffers)
-        );
-        if (_IDXGISwapChain1Present1 != nullptr)
-        {
-            HookFuncs(
-                std::make_pair<void**, void*>(&(PVOID&)_IDXGISwapChain1Present1, &DX11Hook_t::_MyIDXGISwapChain1Present1)
-            );
-        }
-        EndHook();
     }
     return true;
 }
