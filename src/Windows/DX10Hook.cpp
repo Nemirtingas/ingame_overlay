@@ -107,9 +107,6 @@ void DX10Hook_t::_UpdateHookDeviceRefCount()
 
 bool DX10Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
-    // Disabled to see if it actually affects the overlay.
-    return true;
-
     ID3D10Texture2D* pBackBuffer;
     ID3D10RenderTargetView* pRenderTargetView;
     bool result = true;
@@ -202,8 +199,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
 
         ImGui::Render();
 
-        // Activate this if you enable _RenderTargetView creation
-        //_Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
+        _Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
         ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
     }
 }
