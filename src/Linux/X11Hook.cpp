@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -31,7 +31,7 @@ constexpr decltype(X11Hook_t::DLL_NAME) X11Hook_t::DLL_NAME;
 
 X11Hook_t* X11Hook_t::_inst = nullptr;
 
-uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
+static uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
         InGameOverlay::ToggleKey lib_key;
@@ -64,11 +64,52 @@ uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
     return 0;
 }
 
-bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
+static bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
 {
     int iKeyCodeToFind = XKeysymToKeycode(d, keySym);
 
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
+}
+
+void X11Hook_t::_StartXcbHook()
+{
+    constexpr static char XCB_DLL_NAME[] = "libxcb.so";
+
+    void* hXcb = System::Library::GetLibraryHandle(XCB_DLL_NAME);
+    if (hXcb == nullptr)
+    {
+        INGAMEOVERLAY_INFO("Failed to hook xcb: Cannot find {}", XCB_DLL_NAME);
+        return;
+    }
+
+    System::Library::Library libXcb;
+    auto xcbPath = System::Library::GetLibraryPath(hXcb);
+
+    if (!libXcb.OpenLibrary(xcbPath, false))
+    {
+        INGAMEOVERLAY_INFO("Failed to hook xcb: Cannot load {}", xcbPath);
+        return;
+    }
+
+    struct {
+        void** func_ptr;
+        void* hook_ptr;
+        const char* func_name;
+    } hook_array[] = {
+        { (void**)&_XcbPollForEvent, (void*)&X11Hook_t::MyXcbPollForEvent, "xcb_poll_for_event" },
+    };
+
+    for (auto& entry : hook_array)
+    {
+        *entry.func_ptr = libXcb.GetSymbol<void*>(entry.func_name);
+        if (entry.func_ptr == nullptr)
+        {
+            INGAMEOVERLAY_WARN("Failed to hook xcb: Event function {} missing.", entry.func_name);
+            return;
+        }
+    }
+
+    INGAMEOVERLAY_INFO("Hooked xcb");
 }
 
 bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
@@ -77,20 +118,20 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
     {
         if (!_key_combination_callback)
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination callback.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination callback.");
             return false;
         }
 
         if (toggle_keys.empty())
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination.");
             return false;
         }
 
         void* hX11 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hX11 == nullptr)
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot find {}", DLL_NAME);
+            INGAMEOVERLAY_WARN("Failed to hook X11: Cannot find {}", DLL_NAME);
             return false;
         }
 
@@ -99,7 +140,7 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
 
         if (!libX11.OpenLibrary(LibraryName, false))
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot load {}", LibraryName);
+            INGAMEOVERLAY_WARN("Failed to hook X11: Cannot load {}", LibraryName);
             return false;
         }
 
@@ -118,12 +159,14 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
             *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
             if (entry.func_ptr == nullptr)
             {
-                SPDLOG_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
+                INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
                 return false;
             }
         }
 
-        SPDLOG_INFO("Hooked X11");
+        _StartXcbHook();
+
+        INGAMEOVERLAY_INFO("Hooked X11");
 
         _KeyCombinationCallback = std::move(_key_combination_callback);
         
@@ -350,26 +393,35 @@ int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 {
     X11Hook_t* inst = X11Hook_t::Inst();
 
-    int res = inst->_XEventsQueued(display, mode);
+    auto res = inst->_XEventsQueued(display, mode);
 
-    if( res )
-    {
+    if (res)
         res = inst->_CheckForOverlay(display, res);
-    }
 
     return res;
 }
 
 int X11Hook_t::MyXPending(Display* display)
 {
-    int res = Inst()->_XPending(display);
+    X11Hook_t* inst = X11Hook_t::Inst();
 
-    if( res )
-    {
-        res = Inst()->_CheckForOverlay(display, res);
-    }
+    auto res = inst->_XPending(display);
+
+    if (res)
+        res = inst->_CheckForOverlay(display, res);
 
     return res;
+}
+
+xcb_generic_event_t* X11Hook_t::MyXcbPollForEvent(xcb_connection_t* c)
+{
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    auto* xcbEvent = inst->_XcbPollForEvent(c);
+
+    INGAMEOVERLAY_DEBUG("FIXME: Implement xcb event handler");
+
+    return xcbEvent;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -389,7 +441,7 @@ X11Hook_t::X11Hook_t() :
 
 X11Hook_t::~X11Hook_t()
 {
-    SPDLOG_INFO("X11 Hook removed");
+    INGAMEOVERLAY_INFO("X11 Hook removed");
 
     ResetRenderState();
 

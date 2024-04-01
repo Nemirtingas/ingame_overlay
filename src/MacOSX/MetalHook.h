@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it

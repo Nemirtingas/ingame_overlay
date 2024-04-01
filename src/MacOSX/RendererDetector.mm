@@ -257,7 +257,7 @@ private:
             System::Library::Library libOpenGL;
             if (!libOpenGL.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect OpenGL", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
                 return;
             }
 
@@ -266,7 +266,7 @@ private:
 
             if (_NSOpenGLContextFlushBufferMethod != nullptr)
             {
-                SPDLOG_INFO("Hooked NSOpenGLContext::flushBuffer to detect OpenGL");
+                INGAMEOVERLAY_INFO("Hooked NSOpenGLContext::flushBuffer to detect OpenGL");
 
                 _NSOpenGLContextFlushBuffer = (decltype(_NSOpenGLContextFlushBuffer))method_setImplementation(_NSOpenGLContextFlushBufferMethod, (IMP)_MyNSOpenGLContextFlushBuffer);
             }
@@ -274,7 +274,7 @@ private:
             auto CGLFlushDrawable = libOpenGL.GetSymbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
             if (CGLFlushDrawable != nullptr)
             {
-                SPDLOG_INFO("Hooked CGLFlushDrawable to detect OpenGL");
+                INGAMEOVERLAY_INFO("Hooked CGLFlushDrawable to detect OpenGL");
 
                 _OpenGLHooked = true;
 
@@ -286,7 +286,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook CGLFlushDrawable to detect OpenGL");
+                INGAMEOVERLAY_WARN("Failed to Hook CGLFlushDrawable to detect OpenGL");
             }
         }
     }
@@ -298,7 +298,7 @@ private:
             System::Library::Library libMetal;
             if (!libMetal.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect Metal", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect Metal", libraryPath);
                 return;
             }
 
@@ -329,7 +329,7 @@ private:
 
             if(hooked_count > 0)
             {
-                SPDLOG_INFO("Hooked *CommandBuffer::commit to detect Metal");
+                INGAMEOVERLAY_INFO("Hooked *CommandBuffer::commit to detect Metal");
                     
                 _MetalHooked = true;
                     
@@ -441,7 +441,7 @@ public:
                 return _RendererHook;
             }
 
-            SPDLOG_TRACE("Started renderer detection.");
+            INGAMEOVERLAY_TRACE("Started renderer detection.");
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
                 { OpenGLHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGL },
@@ -482,7 +482,7 @@ public:
             }
             _StopDetectionConditionVariable.notify_all();
 
-            SPDLOG_TRACE("Renderer detection done {}.", (void*)_RendererHook);
+            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
 
             return _RendererHook;
         });
@@ -520,14 +520,13 @@ static inline void SetupSpdLog()
 
         sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-        auto logger = std::make_shared<spdlog::logger>("RendererDetectorDebugLogger", sinks);
+        auto logger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
 
         spdlog::register_logger(logger);
 
-        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
-        spdlog::set_level(spdlog::level::trace);
+        logger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
+        logger->set_level(spdlog::level::trace);
         logger->flush_on(spdlog::level::trace);
-        spdlog::set_default_logger(logger);
     });
 }
 

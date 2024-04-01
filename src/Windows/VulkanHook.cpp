@@ -29,13 +29,13 @@ VulkanHook_t* VulkanHook_t::_Instance = nullptr;
 
 bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
-    SPDLOG_WARN("Vulkan overlay is not yet supported.");
+    INGAMEOVERLAY_WARN("Vulkan overlay is not yet supported.");
     return false;
     if (!_Hooked)
     {
         if (_VkQueuePresentKHR == nullptr)
         {
-            SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
         }
 
@@ -44,7 +44,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         _WindowsHooked = true;
 
-        SPDLOG_INFO("Hooked Vulkan");
+        INGAMEOVERLAY_INFO("Hooked Vulkan");
         _Hooked = true;
 
         _ImGuiFontAtlas = imgui_font_atlas;
@@ -119,7 +119,7 @@ VulkanHook_t::VulkanHook_t():
 
 VulkanHook_t::~VulkanHook_t()
 {
-    SPDLOG_INFO("VulkanHook_t Hook removed");
+    INGAMEOVERLAY_INFO("VulkanHook_t Hook removed");
 
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();

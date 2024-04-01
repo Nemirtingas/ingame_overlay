@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -27,6 +27,8 @@
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
 
+#include <xcb/xcb.h>
+
 namespace InGameOverlay {
 
 class X11Hook_t :
@@ -43,8 +45,6 @@ private:
     bool _Initialized;
     Window _GameWnd;
 
-    // In (bool): Is toggle wanted
-    // Out(bool): Is the overlay visible, if true, inputs will be disabled
     std::function<void()> _KeyCombinationCallback;
     std::set<uint32_t> _NativeKeyCombination;
     Window _SavedRoot;
@@ -61,15 +61,18 @@ private:
     // Functions
     X11Hook_t();
     int _CheckForOverlay(Display *d, int num_events);
+    void _StartXcbHook();
 
     // Hook to X11 window messages
     decltype(::XQueryPointer)* _XQueryPointer;
     decltype(::XEventsQueued)* _XEventsQueued;
     decltype(::XPending)* _XPending;
+    decltype(::xcb_poll_for_event)* _XcbPollForEvent;
 
     static Bool MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return);
     static int MyXEventsQueued(Display * display, int mode);
     static int MyXPending(Display* display);
+    static xcb_generic_event_t* MyXcbPollForEvent(xcb_connection_t* c);
 
 public:
     std::string LibraryName;

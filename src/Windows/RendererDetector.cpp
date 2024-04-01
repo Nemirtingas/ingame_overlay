@@ -55,7 +55,7 @@
 #endif
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME); } } while(0)
 
 namespace InGameOverlay {
 
@@ -273,7 +273,7 @@ private:
             if (_DX11Hooked)
             {
                 pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&pDevice)));
-                if (pDevice != nullptr)
+                if (pDevice != nullptr && _DX10Hooked)
                 {
                     // It seems that when you are using a DX10 device, sometimes, the swapchain has a DX11 device.
                     ID3D10Device* pD10Device = nullptr;
@@ -564,7 +564,7 @@ private:
             System::Library::Library libD3d9;
             if (!libD3d9.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX9", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect DX9", libraryPath);
                 return;
             }
 
@@ -602,7 +602,7 @@ private:
 
             if (pDevice != nullptr)
             {
-                SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
+                INGAMEOVERLAY_INFO("Hooked D3D9::Present to detect DX Version");
 
                 _DX9Hooked = true;
 
@@ -623,7 +623,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to hook D3D9::Present to detect DX Version");
+                INGAMEOVERLAY_WARN("Failed to hook D3D9::Present to detect DX Version");
             }
 
             if (pSwapChain) pSwapChain->Release();
@@ -639,7 +639,7 @@ private:
             System::Library::Library libD3d10;
             if (!libD3d10.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX10", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect DX10", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
@@ -693,7 +693,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX10 detection");
+                INGAMEOVERLAY_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX10 detection");
 
                 auto D3D10CreateDeviceAndSwapChain = libD3d10.GetSymbol<decltype(::D3D10CreateDeviceAndSwapChain)>("D3D10CreateDeviceAndSwapChain");
 
@@ -719,7 +719,7 @@ private:
 
             if (pSwapChain != nullptr)
             {
-                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 _DX10Hooked = true;
 
@@ -742,7 +742,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
             if (pDevice)pDevice->Release();
             if (pSwapChain)pSwapChain->Release();
@@ -756,7 +756,7 @@ private:
             System::Library::Library libD3d11;
             if (!libD3d11.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX11", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect DX11", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
@@ -810,7 +810,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX11 detection");
+                INGAMEOVERLAY_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX11 detection");
 
                 auto D3D11CreateDeviceAndSwapChain = libD3d11.GetSymbol<decltype(::D3D11CreateDeviceAndSwapChain)>("D3D11CreateDeviceAndSwapChain");
 
@@ -836,7 +836,7 @@ private:
 
             if (pSwapChain != nullptr)
             {
-                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 _DX11Hooked = true;
 
@@ -859,7 +859,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
 
             if (pDevice) pDevice->Release();
@@ -874,13 +874,13 @@ private:
             System::Library::Library libD3d12;
             if (!libD3d12.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect DX12", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect DX12", libraryPath);
                 return;
             }
             std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
             if (dxgiPath.empty())
             {
-                SPDLOG_WARN("Failed to load dxgi.dll to detect DX12");
+                INGAMEOVERLAY_WARN("Failed to load dxgi.dll to detect DX12");
                 return;
             }
 
@@ -935,7 +935,7 @@ private:
 
             if (pCommandQueue != nullptr && pSwapChain != nullptr)
             {
-                SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
 
                 _DX12Hooked = true;
 
@@ -958,7 +958,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+                INGAMEOVERLAY_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
 
             if (pSwapChain) pSwapChain->Release();
@@ -975,14 +975,14 @@ private:
             System::Library::Library libOpenGL;
             if (!libOpenGL.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect OpenGL", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
                 return;
             }
 
             auto _WGLSwapBuffers = libOpenGL.GetSymbol<decltype(::SwapBuffers)>("wglSwapBuffers");
             if (_WGLSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
+                INGAMEOVERLAY_INFO("Hooked wglSwapBuffers to detect OpenGL");
 
                 _OpenGLHooked = true;
 
@@ -994,7 +994,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
+                INGAMEOVERLAY_WARN("Failed to Hook wglSwapBuffers to detect OpenGL");
             }
         }
     }
@@ -1008,7 +1008,7 @@ private:
             System::Library::Library libVulkan;
             if (!libVulkan.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect Vulkan", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", libraryPath);
                 return;
             }
 
@@ -1084,7 +1084,7 @@ private:
 
             if (vkQueuePresentKHR != nullptr /* && (vkAcquireNextImageKHR != nullptr || vkAcquireNextImage2KHR != nullptr)*/)
             {
-                SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
+                INGAMEOVERLAY_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
 
                 _VulkanHooked = true;
 
@@ -1096,7 +1096,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
+                INGAMEOVERLAY_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
             }
         }
     }
@@ -1187,7 +1187,7 @@ public:
                 return _RendererHook;
             }
 
-            SPDLOG_TRACE("Started renderer detection.");
+            INGAMEOVERLAY_TRACE("Started renderer detection.");
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
                 { OpenGLHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGL },
@@ -1232,7 +1232,7 @@ public:
             }
             _StopDetectionConditionVariable.notify_all();
 
-            SPDLOG_TRACE("Renderer detection done {}.", (void*)_RendererHook);
+            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
 
             return _RendererHook;
         });
@@ -1274,14 +1274,13 @@ static inline void SetupSpdLog()
 
         sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-        auto logger = std::make_shared<spdlog::logger>("RendererDetectorDebugLogger", sinks);
+        auto logger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
 
         spdlog::register_logger(logger);
 
-        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
-        spdlog::set_level(spdlog::level::trace);
+        logger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
+        logger->set_level(spdlog::level::trace);
         logger->flush_on(spdlog::level::trace);
-        spdlog::set_default_logger(logger);
     });
 }
 

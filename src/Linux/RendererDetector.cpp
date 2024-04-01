@@ -34,7 +34,7 @@
 #include "OpenGLXHook.h"
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME); } } while(0)
 
 #ifdef INGAMEOVERLAY_USE_SPDLOG
 
@@ -137,14 +137,14 @@ private:
             System::Library::Library libGLX;
             if (!libGLX.OpenLibrary(libraryPath, false))
             {
-                SPDLOG_WARN("Failed to load {} to detect OpenGLX", libraryPath);
+                INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGLX", libraryPath);
                 return;
             }
 
             auto _GLXSwapBuffers = libGLX.GetSymbol<decltype(::glXSwapBuffers)>("glXSwapBuffers");
             if (_GLXSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
+                INGAMEOVERLAY_INFO("Hooked glXSwapBuffers to detect OpenGLX");
 
                 _OpenGLXHooked = true;
 
@@ -156,7 +156,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
+                INGAMEOVERLAY_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
             }
         }
     }
@@ -235,7 +235,7 @@ public:
                 return _RendererHook;
             }
 
-            SPDLOG_TRACE("Started renderer detection.");
+            INGAMEOVERLAY_TRACE("Started renderer detection.");
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
                 { OpenGLXHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGLX },
@@ -275,7 +275,7 @@ public:
             }
             _StopDetectionConditionVariable.notify_all();
 
-            SPDLOG_TRACE("Renderer detection done {}.", (void*)_RendererHook);
+            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
 
             return _RendererHook;
         });
@@ -313,14 +313,13 @@ static inline void SetupSpdLog()
 
         sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-        auto logger = std::make_shared<spdlog::logger>("RendererDetectorDebugLogger", sinks);
+        auto logger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
 
         spdlog::register_logger(logger);
 
-        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
-        spdlog::set_level(spdlog::level::trace);
+        logger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
+        logger->set_level(spdlog::level::trace);
         logger->flush_on(spdlog::level::trace);
-        spdlog::set_default_logger(logger);
     });
 }
 

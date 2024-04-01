@@ -26,7 +26,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -49,7 +49,7 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
     {
         if (_IDirect3DDevice9Release == nullptr || _IDirect3DDevice9Reset == nullptr || _IDirect3DDevice9Present == nullptr)
         {
-            SPDLOG_WARN("Failed to hook DirectX 9: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook DirectX 9: Rendering functions missing.");
             return false;
         }
 
@@ -70,7 +70,7 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
         EndHook();
 
-        SPDLOG_INFO("Hooked DirectX 9");
+        INGAMEOVERLAY_INFO("Hooked DirectX 9");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -217,7 +217,7 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
     auto inst = DX9Hook_t::Inst();
     auto result = (_this->*inst->_IDirect3DDevice9Release)();
 
-    SPDLOG_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    INGAMEOVERLAY_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
     if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
@@ -227,7 +227,7 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* _this, D3DPRESENT_PARAMETERS* pPresentationParameters)
 {
-    SPDLOG_INFO("IDirect3DDevice9::Reset");
+    INGAMEOVERLAY_INFO("IDirect3DDevice9::Reset");
     auto inst = DX9Hook_t::Inst();
     inst->_ResetRenderState(OverlayHookState::Reset);
     return (_this->*inst->_IDirect3DDevice9Reset)(pPresentationParameters);
@@ -235,7 +235,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Reset(IDirect3DDevice9* 
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
 {
-    SPDLOG_INFO("IDirect3DDevice9::Present");
+    INGAMEOVERLAY_INFO("IDirect3DDevice9::Present");
     auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
@@ -243,7 +243,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Present(IDirect3DDevice9
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
-    SPDLOG_INFO("IDirect3DDevice9Ex::PresentEx");
+    INGAMEOVERLAY_INFO("IDirect3DDevice9Ex::PresentEx");
     auto inst = DX9Hook_t::Inst();
     inst->_PrepareForOverlay(_this, hDestWindowOverride);
     return (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
@@ -251,7 +251,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExPresentEx(IDirect3DDev
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExResetEx(IDirect3DDevice9Ex* _this, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode)
 {
-    SPDLOG_INFO("IDirect3DDevice9Ex::ResetEx");
+    INGAMEOVERLAY_INFO("IDirect3DDevice9Ex::ResetEx");
     auto inst = DX9Hook_t::Inst();
     inst->_ResetRenderState(OverlayHookState::Reset);
     return (_this->*inst->_IDirect3DDevice9ExResetEx)(pPresentationParameters, pFullscreenDisplayMode);
@@ -259,7 +259,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9ExResetEx(IDirect3DDevic
 
 HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
 {
-    SPDLOG_INFO("IDirect3DSwapChain9::Present");
+    INGAMEOVERLAY_INFO("IDirect3DSwapChain9::Present");
     IDirect3DDevice9* pDevice;
     auto inst = DX9Hook_t::Inst();
 
@@ -299,7 +299,7 @@ DX9Hook_t::DX9Hook_t():
 
 DX9Hook_t::~DX9Hook_t()
 {
-    SPDLOG_INFO("DX9 Hook removed");
+    INGAMEOVERLAY_INFO("DX9 Hook removed");
 
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
