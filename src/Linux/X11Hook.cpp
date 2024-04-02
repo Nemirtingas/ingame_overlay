@@ -185,7 +185,10 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
         
         for (auto& entry : hook_array)
         {
-            HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr));
+            if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+            {
+                INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+            }
         }
 
         EndHook();

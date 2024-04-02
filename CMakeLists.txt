@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.15)
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
     src/BaseHook.cpp
+    src/Internal.cpp
     src/Windows/RendererDetector.cpp
     src/Windows/DX9Hook.cpp
     src/Windows/DX10Hook.cpp
@@ -61,6 +62,7 @@ elseif(APPLE)
 
   set(INGAMEOVERLAY_SOURCES
     src/BaseHook.cpp
+    src/Internal.cpp
     src/MacOSX/RendererDetector.mm
     src/MacOSX/NSViewHook.mm
     src/MacOSX/OpenGLHook.mm
@@ -94,6 +96,7 @@ elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
     src/BaseHook.cpp
+    src/Internal.cpp
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
