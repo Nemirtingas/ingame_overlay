@@ -20,5 +20,16 @@
 #include "InternalIncludes.h"
 
 #ifdef INGAMEOVERLAY_USE_SPDLOG
-std::shared_ptr<spdlog::logger> _InGameOverlayLogger;
+static std::shared_ptr<spdlog::logger> _InGameOverlayLogger;
+
+std::shared_ptr<spdlog::logger> GetLogger()
+{
+	return _InGameOverlayLogger;
+}
+
+void SetLogger(std::shared_ptr<spdlog::logger> logger)
+{
+	_InGameOverlayLogger = logger;
+}
+
 #endif

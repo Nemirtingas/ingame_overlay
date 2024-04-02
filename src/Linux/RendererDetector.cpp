@@ -313,11 +313,13 @@ static inline void SetupSpdLog()
 
         sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-        _InGameOverlayLogger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
+        auto logger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
 
-        _InGameOverlayLogger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
-        _InGameOverlayLogger->set_level(spdlog::level::trace);
-        _InGameOverlayLogger->flush_on(spdlog::level::trace);
+        logger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
+        logger->set_level(spdlog::level::trace);
+        logger->flush_on(spdlog::level::trace);
+
+        SetLogger(logger);
     });
 }
 
