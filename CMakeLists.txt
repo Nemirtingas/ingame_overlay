@@ -205,6 +205,8 @@ target_link_libraries(ingame_overlay
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:X11>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb-keysyms>
 )
 
 target_compile_options(ingame_overlay

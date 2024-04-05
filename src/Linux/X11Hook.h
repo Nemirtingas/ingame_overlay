@@ -28,6 +28,7 @@
 #include <X11/Xutil.h> // XEvent keysym
 
 #include <xcb/xcb.h>
+#include <xcb/xcb_keysyms.h>
 
 namespace InGameOverlay {
 
@@ -57,10 +58,14 @@ private:
     bool _KeyCombinationPushed;
     bool _ApplicationInputsHidden;
     bool _OverlayInputsHidden;
+    bool _UsesXcb;
+    xcb_query_pointer_reply_t* _XcbSavedPointerReply;
+    std::map<xcb_connection_t*, xcb_generic_event_t*> _NextConnectionEvent;
 
     // Functions
     X11Hook_t();
     int _CheckForOverlay(Display *d, int num_events);
+    xcb_generic_event_t* _XcbCheckForOverlay(xcb_connection_t* xcbConnection, xcb_generic_event_t* event);
     void _StartXcbHook();
 
     // Hook to X11 window messages
@@ -68,11 +73,13 @@ private:
     decltype(::XEventsQueued)* _XEventsQueued;
     decltype(::XPending)* _XPending;
     decltype(::xcb_poll_for_event)* _XcbPollForEvent;
+    decltype(::xcb_query_pointer_reply)* _XcbQueryPointerReply;
 
     static Bool MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return);
     static int MyXEventsQueued(Display * display, int mode);
     static int MyXPending(Display* display);
     static xcb_generic_event_t* MyXcbPollForEvent(xcb_connection_t* c);
+    static xcb_query_pointer_reply_t* MyXcbQueryPointerReply(xcb_connection_t* c, xcb_query_pointer_cookie_t cookie, xcb_generic_error_t** e);
 
 public:
     std::string LibraryName;

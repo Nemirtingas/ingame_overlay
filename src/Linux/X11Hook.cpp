@@ -71,6 +71,23 @@ static bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
+static bool XcbGetKeyState(xcb_connection_t* xcbConnection, int keySym, uint8_t szKey[32])
+{
+    xcb_key_symbols_t* keySymbols = xcb_key_symbols_alloc(xcbConnection);
+
+    xcb_keycode_t* keyCodeToFind = xcb_key_symbols_get_keycode(keySymbols, keySym);
+    int iKeyCodeToFind = keyCodeToFind == nullptr ? 0 : *keyCodeToFind;
+
+    xcb_key_symbols_free(keySymbols);
+
+    bool r = iKeyCodeToFind == 0 ? false : szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
+
+    free(keyCodeToFind);
+
+    return r;
+}
+
+
 void X11Hook_t::_StartXcbHook()
 {
     constexpr static char XCB_DLL_NAME[] = "libxcb.so";
@@ -96,7 +113,8 @@ void X11Hook_t::_StartXcbHook()
         void* hook_ptr;
         const char* func_name;
     } hook_array[] = {
-        { (void**)&_XcbPollForEvent, (void*)&X11Hook_t::MyXcbPollForEvent, "xcb_poll_for_event" },
+        { (void**)&_XcbPollForEvent     , (void*)&X11Hook_t::MyXcbPollForEvent     , "xcb_poll_for_event" },
+        { (void**)&_XcbQueryPointerReply, (void*)&X11Hook_t::MyXcbQueryPointerReply, "xcb_query_pointer_reply" },
     };
 
     for (auto& entry : hook_array)
@@ -108,6 +126,18 @@ void X11Hook_t::_StartXcbHook()
             return;
         }
     }
+
+    BeginHook();
+
+    for (auto& entry : hook_array)
+    {
+        if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+        {
+            INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        }
+    }
+
+    EndHook();
 
     INGAMEOVERLAY_INFO("Hooked xcb");
 }
@@ -265,13 +295,13 @@ bool X11Hook_t::PrepareForOverlay(Display *display, Window wnd)
 
 /////////////////////////////////////////////////////////////////////////////////////
 // X11 window hooks
-bool IgnoreEvent(XEvent &event)
+static bool IgnoreXEvent(XEvent &event)
 {
     switch(event.type)
     {
         // Keyboard
         case KeyPress: case KeyRelease:
-        // MouseButton
+        // Mouse button
         case ButtonPress: case ButtonRelease:
         // Mouse move
         case MotionNotify:
@@ -282,95 +312,188 @@ bool IgnoreEvent(XEvent &event)
     return false;
 }
 
+static bool IgnoreXcbEvent(xcb_generic_event_t* event)
+{
+    switch (event->response_type)
+    {
+        // Keyboard
+        case XCB_KEY_PRESS: case XCB_KEY_RELEASE:
+        // Mouse button
+        case XCB_BUTTON_PRESS: case XCB_BUTTON_RELEASE:
+        // Mouse move
+        case XCB_MOTION_NOTIFY:
+        // Copy to clipboard request
+        case XCB_SELECTION_REQUEST:
+            return true;
+    }
+
+    return false;
+}
+
 int X11Hook_t::_CheckForOverlay(Display *d, int num_events)
 {
     char szKey[32];
 
-    if( _Initialized )
+    if (!_Initialized)
+        return num_events;
+
+    XEvent event, nextEvent;
+    XEvent* pNextEvent;
+    while(num_events)
     {
-        XEvent event, nextEvent;
-        XEvent* pNextEvent;
-        while(num_events)
+        bool hide_app_inputs = _ApplicationInputsHidden;
+        bool hide_overlay_inputs = _OverlayInputsHidden;
+
+        XPeekEvent(d, &event);
+
+        if (event.type == KeyRelease && num_events > 1)
         {
-            bool hide_app_inputs = _ApplicationInputsHidden;
-            bool hide_overlay_inputs = _OverlayInputsHidden;
+            XNextEvent(d, &event);
+            XPeekEvent(d, &nextEvent);
+            XPutBackEvent(d, &event);
+            pNextEvent = &nextEvent;
+            // Consume only 1 event because we don't want to send the KeyRelease event
+            // but we still want to send the KeyPress event.
+        }
+        else
+        {
+            pNextEvent = nullptr;
+        }
 
-            XPeekEvent(d, &event);
-
-            if (event.type == KeyRelease && num_events > 1)
+        // Is the event is a key press
+        if (event.type == KeyPress || event.type == KeyRelease)
+        {
+            XQueryKeymap(d, szKey);
+            int key_count = 0;
+            for (auto const& key : _NativeKeyCombination)
             {
-                XNextEvent(d, &event);
-                XPeekEvent(d, &nextEvent);
-                XPutBackEvent(d, &event);
-                pNextEvent = &nextEvent;
-                // Consume only 1 event because we don't want to send the KeyRelease event
-                // but we still want to send the KeyPress event.
+                if (GetKeyState(d, key, szKey))
+                    ++key_count;
+            }
+
+            if (key_count == _NativeKeyCombination.size())
+            {// All shortcut keys are pressed
+                if (!_KeyCombinationPushed)
+                {
+                    _KeyCombinationCallback();
+
+                    if (_OverlayInputsHidden)
+                        hide_overlay_inputs = true;
+
+                    if (_ApplicationInputsHidden)
+                    {
+                        hide_app_inputs = true;
+
+                        // Save the last known cursor pos when opening the overlay
+                        // so we can spoof the XQueryPointer return value.
+                        _XQueryPointer(d, _GameWnd, &_SavedRoot, &_SavedChild, &_SavedCursorRX, &_SavedCursorRY, &_SavedCursorX, &_SavedCursorY, &_SavedMask);
+                    }
+
+                    _KeyCombinationPushed = true;
+                }
             }
             else
             {
-                pNextEvent = nullptr;
+                _KeyCombinationPushed = false;
             }
-
-            // Is the event is a key press
-            if (event.type == KeyPress || event.type == KeyRelease)
-            {
-                XQueryKeymap(d, szKey);
-                int key_count = 0;
-                for (auto const& key : _NativeKeyCombination)
-                {
-                    if (GetKeyState(d, key, szKey))
-                        ++key_count;
-                }
-
-                if (key_count == _NativeKeyCombination.size())
-                {// All shortcut keys are pressed
-                    if (!_KeyCombinationPushed)
-                    {
-                        _KeyCombinationCallback();
-
-                        if (_OverlayInputsHidden)
-                            hide_overlay_inputs = true;
-
-                        if (_ApplicationInputsHidden)
-                        {
-                            hide_app_inputs = true;
-
-                            // Save the last known cursor pos when opening the overlay
-                            // so we can spoof the XQueryPointer return value.
-                            _XQueryPointer(d, _GameWnd, &_SavedRoot, &_SavedChild, &_SavedCursorRX, &_SavedCursorRY, &_SavedCursorX, &_SavedCursorY, &_SavedMask);
-                        }
-
-                        _KeyCombinationPushed = true;
-                    }
-                }
-                else
-                {
-                    _KeyCombinationPushed = false;
-                }
-            }
-
-            if (event.type == FocusIn || event.type == FocusOut)
-            {
-                ImGui::GetIO().SetAppAcceptingEvents(event.type == FocusIn);
-            }
-
-            if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
-            {
-                ImGui_ImplX11_EventHandler(event, pNextEvent);
-            }
-
-            if (!hide_app_inputs || !IgnoreEvent(event))
-            {
-                if(num_events)
-                    num_events = 1;
-                break;
-            }
-
-            XNextEvent(d, &event);
-            --num_events;
         }
+
+        if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
+        {
+            ImGui_ImplX11_EventHandler(event, pNextEvent);
+        }
+
+        if (!hide_app_inputs || !IgnoreXEvent(event))
+        {
+            if(num_events)
+                num_events = 1;
+            break;
+        }
+
+        XNextEvent(d, &event);
+        --num_events;
     }
     return num_events;
+}
+
+xcb_generic_event_t* X11Hook_t::_XcbCheckForOverlay(xcb_connection_t* xcbConnection, xcb_generic_event_t* xcbEvent)
+{
+    if (!_Initialized)
+        return xcbEvent;
+
+    bool hide_app_inputs = _ApplicationInputsHidden;
+    bool hide_overlay_inputs = _OverlayInputsHidden;
+    xcb_generic_event_t* nextEvent = nullptr;
+
+    if (xcbEvent->response_type == XCB_KEY_RELEASE)
+    {
+        nextEvent = _XcbPollForEvent(xcbConnection);
+        if (nextEvent != nullptr)
+            _NextConnectionEvent[xcbConnection] = nextEvent;
+    }
+
+    // Is the event is a key press
+    if (xcbEvent->response_type == XCB_KEY_PRESS || xcbEvent->response_type == XCB_KEY_RELEASE)
+    {
+        // XCB keyEvent->detail == Xlib event.xkey.keycode
+        // XCB keyEvent->state  == Xlib event.xkey.state
+
+        xcb_query_keymap_reply_t* keymap = xcb_query_keymap_reply(xcbConnection, xcb_query_keymap(xcbConnection), NULL);
+        if (keymap != nullptr)
+        {
+            int key_count = 0;
+            for (auto const& key : _NativeKeyCombination)
+            {
+                if (XcbGetKeyState(xcbConnection, key, keymap->keys))
+                    ++key_count;
+            }
+
+            free(keymap);
+
+            if (key_count == _NativeKeyCombination.size())
+            {// All shortcut keys are pressed
+                if (!_KeyCombinationPushed)
+                {
+                    _KeyCombinationCallback();
+
+                    if (_OverlayInputsHidden)
+                        hide_overlay_inputs = true;
+
+                    if (_ApplicationInputsHidden)
+                    {
+                        hide_app_inputs = true;
+
+                        // Save the last known cursor pos when opening the overlay
+                        // so we can spoof the xcb_query_pointer return value.
+                        if (_XcbSavedPointerReply != nullptr)
+                            free(_XcbSavedPointerReply);
+
+                        xcb_query_pointer_cookie_t pointerCookie = xcb_query_pointer(xcbConnection, xcb_setup_roots_iterator(xcb_get_setup(xcbConnection)).data->root);
+                        _XcbSavedPointerReply = _XcbQueryPointerReply(xcbConnection, pointerCookie, nullptr);
+                    }
+
+                    _KeyCombinationPushed = true;
+                }
+            }
+            else
+            {
+                _KeyCombinationPushed = false;
+            }
+        }
+
+
+        if (!hide_overlay_inputs || xcbEvent->response_type == XCB_FOCUS_IN || xcbEvent->response_type == XCB_FOCUS_OUT)
+        {
+            //ImGui_ImplX11_EventHandler(xcbEvent, pNextEvent);
+        }
+
+        if (!hide_app_inputs || !IgnoreXcbEvent(xcbEvent))
+            return xcbEvent;
+
+        return nullptr;
+    }
+
+    return xcbEvent;
 }
 
 Bool X11Hook_t::MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return)
@@ -398,7 +521,7 @@ int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 
     auto res = inst->_XEventsQueued(display, mode);
 
-    if (res)
+    if (!inst->_UsesXcb && res)
         res = inst->_CheckForOverlay(display, res);
 
     return res;
@@ -410,7 +533,7 @@ int X11Hook_t::MyXPending(Display* display)
 
     auto res = inst->_XPending(display);
 
-    if (res)
+    if (!inst->_UsesXcb && res)
         res = inst->_CheckForOverlay(display, res);
 
     return res;
@@ -420,11 +543,40 @@ xcb_generic_event_t* X11Hook_t::MyXcbPollForEvent(xcb_connection_t* c)
 {
     X11Hook_t* inst = X11Hook_t::Inst();
 
+    inst->_UsesXcb = true;
+
+    if (inst->_NextConnectionEvent[c] != nullptr)
+    {
+        auto* xcbEvent = inst->_NextConnectionEvent[c];
+        inst->_NextConnectionEvent[c] = nullptr;
+        return xcbEvent;
+    }
+
     auto* xcbEvent = inst->_XcbPollForEvent(c);
 
-    INGAMEOVERLAY_DEBUG("FIXME: Implement xcb event handler");
+    if (xcbEvent != nullptr)
+    {
+        if (inst->_XcbCheckForOverlay(c, xcbEvent) == nullptr)
+        {
+            free(xcbEvent);
+            xcbEvent = nullptr;
+        }
+    }
 
     return xcbEvent;
+}
+
+xcb_query_pointer_reply_t* X11Hook_t::MyXcbQueryPointerReply(xcb_connection_t* c, xcb_query_pointer_cookie_t cookie, xcb_generic_error_t** e)
+{
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    auto* pointerReply = inst->_XcbQueryPointerReply(c, cookie, e);
+    if (inst->_Initialized && inst->_ApplicationInputsHidden && pointerReply != nullptr)
+    {
+        *pointerReply = *inst->_XcbSavedPointerReply;
+    }
+
+    return pointerReply;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -436,9 +588,13 @@ X11Hook_t::X11Hook_t() :
     _KeyCombinationPushed(false),
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
+    _UsesXcb(false),
+    _XcbSavedPointerReply(nullptr),
     _XQueryPointer(nullptr),
     _XEventsQueued(nullptr),
-    _XPending(nullptr)
+    _XPending(nullptr),
+    _XcbPollForEvent(nullptr),
+    _XcbQueryPointerReply(nullptr)
 {
 }
 
