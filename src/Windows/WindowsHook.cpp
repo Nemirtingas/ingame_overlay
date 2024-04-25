@@ -371,13 +371,10 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, 
     if (!inst->_Initialized)
         return res;
 
-    if (!inst->_OverlayInputsHidden)
+    if (!inst->_OverlayInputsHidden && pData != nullptr)
     {
-        if (pData != nullptr)
-        {
-            for (int i = 0; i < res; ++i)
-                inst->_RawEvent(pData[i]);
-        }
+        for (int i = 0; i < res; ++i)
+            inst->_RawEvent(pData[i]);
     }
 
     if (!inst->_ApplicationInputsHidden)
@@ -393,7 +390,7 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiComman
     if (!inst->_Initialized || pData == nullptr)
         return res;
 
-    if (uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
+    if (!inst->_OverlayInputsHidden && uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         inst->_RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
     if (!inst->_ApplicationInputsHidden)
