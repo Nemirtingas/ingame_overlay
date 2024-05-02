@@ -203,7 +203,7 @@ public:
 
             bool cancel = false;
             {
-                System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
+                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
 
                 if (!_DetectionCancelled)
                 {
@@ -267,7 +267,7 @@ public:
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
             {
-                System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
+                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
                 
                 _ExitDetection();
 
@@ -289,7 +289,7 @@ public:
                 return;
         }
         {
-            System::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
+            auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
             _DetectionCancelled = true;
         }
         _StopDetectionConditionVariable.notify_all();
