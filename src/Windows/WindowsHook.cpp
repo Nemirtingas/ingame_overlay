@@ -220,6 +220,15 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
     {
         if (!_OverlayInputsHidden)
         {
+            std::vector<WindowsHookEvent_t> windowEvents;
+            {
+                std::lock_guard<std::mutex> lk(_WindowEventsMutex);
+                windowEvents = std::move(_WindowEvents);
+            }
+
+            for (auto const& event : windowEvents)
+                ImGui_ImplWin32_WndProcHandler(event.hWnd, event.msg, event.wParam, event.lParam);
+
             ImGui_ImplWin32_NewFrame();
             // Read keyboard modifiers inputs
             //auto& io = ImGui::GetIO();
@@ -262,6 +271,12 @@ bool IgnoreMsg(UINT uMsg)
     return false;
 }
 
+void WindowsHook_t::_AppendEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    std::lock_guard<std::mutex> lk(_WindowEventsMutex);
+    _WindowEvents.emplace_back(hWnd, uMsg, wParam, lParam);
+}
+
 void WindowsHook_t::_RawEvent(RAWINPUT& raw)
 {
     switch (raw.header.dwType)
@@ -289,7 +304,7 @@ void WindowsHook_t::_RawEvent(RAWINPUT& raw)
             POINT p;
             _GetCursorPos(&p);
             ::ScreenToClient(_GameHwnd, &p);
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+            _AppendEvent(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
         }
         break;
 
@@ -348,14 +363,10 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         }
     
         if (uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
-        {
             ImGui::GetIO().SetAppAcceptingEvents(uMsg == WM_SETFOCUS);
-        }
     
         if (!hide_overlay_inputs || uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
-        {
-            ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-        }
+            _AppendEvent(hWnd, uMsg, wParam, lParam);
     
         if (hide_app_inputs && IgnoreMsg(uMsg))
             return true;
