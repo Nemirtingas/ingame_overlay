@@ -135,6 +135,12 @@ option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
 
+if(WIN32)
+option(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS "Build Windows shaders." OFF)
+else()
+set(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS "" CACHE BOOL OFF FORCE)
+endif()
+
 find_package(Threads REQUIRED)
 
 if(NOT ${IMGUI_USER_CONFIG} STREQUAL "")
@@ -241,6 +247,24 @@ set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 if(${INGAMEOVERLAY_BUILD_TESTS})
 
   if(WIN32)
+    if(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS)
+      add_executable(windows_shaders
+        tests/windows_shaders_precompile/shaders.h
+        tests/windows_shaders_precompile/sha256.h
+        tests/windows_shaders_precompile/sha256.cpp
+        tests/windows_shaders_precompile/main.cpp
+        tests/windows_shaders_precompile/dx9_shaders.cpp
+        tests/windows_shaders_precompile/dx10_shaders.cpp
+        tests/windows_shaders_precompile/dx11_shaders.cpp
+        tests/windows_shaders_precompile/dx12_shaders.cpp
+      )
+	  
+      target_link_libraries(windows_shaders
+        PRIVATE
+        d3dcompiler
+      )
+    endif()
+  
     add_executable(dx9_app
       tests/dx9/main.cpp
       deps/ImGui/imgui.cpp
