@@ -494,7 +494,9 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 {
     SPDLOG_INFO("ID3D12CommandQueue::ExecuteCommandLists");
     auto inst = DX12Hook_t::Inst();
-    inst->_CommandQueue = _this;
+    if (_this->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+        inst->_CommandQueue = _this;
+
     (_this->*inst->_ID3D12CommandQueueExecuteCommandLists)(NumCommandLists, ppCommandLists);
 }
 
