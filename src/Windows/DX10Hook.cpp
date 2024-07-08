@@ -112,6 +112,10 @@ bool DX10Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     ID3D10RenderTargetView* pRenderTargetView;
     bool result = true;
 
+    // Happens when the functions have been hooked, but the DX hook is not setup yet.
+    if (_Device == nullptr)
+        return false;
+
     if (!SUCCEEDED(pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer))) || pBackBuffer == nullptr)
         return false;
 

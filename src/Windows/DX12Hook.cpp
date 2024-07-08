@@ -219,6 +219,11 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
     IDXGISwapChain3* pSwapChain3 = nullptr;
     DXGI_SWAP_CHAIN_DESC sc_desc;
+
+    // Happens when the functions have been hooked, but the DX hook is not setup yet.
+    if (_Device == nullptr)
+        return false;
+
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
     if (pSwapChain3 == nullptr)
         return false;
