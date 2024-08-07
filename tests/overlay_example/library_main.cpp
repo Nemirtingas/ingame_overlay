@@ -54,6 +54,44 @@ Image CreateImageFromData(void const* data, size_t data_len)
     return res;
 }
 
+InGameOverlay::RendererHook_t* test_renderer_detector()
+{
+    InGameOverlay::RendererHook_t* rendererHook = nullptr;
+    // Try to detect Renderer for an infinite amount of time.
+    auto future = InGameOverlay::DetectRenderer();
+    InGameOverlay::StopRendererDetection();
+    // Try to detect Renderer for at most 4 seconds.
+    auto future2 = InGameOverlay::DetectRenderer(4s);
+    auto future3 = InGameOverlay::DetectRenderer(4s);
+    auto future4 = InGameOverlay::DetectRenderer(4s);
+
+    //InGameOverlay::StopRendererDetection();
+    std::thread([]() { std::this_thread::sleep_for(20ms); InGameOverlay::DetectRenderer(); }).detach();
+    InGameOverlay::FreeDetector();
+
+    future.wait();
+    if (future.valid())
+    {
+        rendererHook = future.get();
+        if (rendererHook == nullptr)
+        {
+            future = InGameOverlay::DetectRenderer(4s);
+            future.wait();
+            if (future.valid())
+                rendererHook = future.get();
+        }
+
+        InGameOverlay::FreeDetector();
+    }
+
+    return rendererHook;
+}
+
+InGameOverlay::RendererHook_t* test_fixed_renderer(InGameOverlay::RendererHookType_t hookType)
+{
+    return InGameOverlay::CreateRendererHook(hookType, true);
+}
+
 void shared_library_load(void* hmodule)
 {
     OverlayData = new OverlayData_t();
@@ -65,120 +103,97 @@ void shared_library_load(void* hmodule)
         //std::this_thread::sleep_for(5s);
 
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
-        // Try to detect Renderer for an infinite amount of time.
-        auto future = InGameOverlay::DetectRenderer();
-        InGameOverlay::StopRendererDetection();
-        // Try to detect Renderer for at most 4 seconds.
-        auto future2 = InGameOverlay::DetectRenderer(4s);
-        auto future3 = InGameOverlay::DetectRenderer(4s);
-        auto future4 = InGameOverlay::DetectRenderer(4s);
-        
-        //InGameOverlay::StopRendererDetection();
-        std::thread([]() { std::this_thread::sleep_for(20ms); InGameOverlay::DetectRenderer(); }).detach();
-        InGameOverlay::FreeDetector();
 
-        future.wait();
-        if (future.valid())
+        //OverlayData->Renderer = test_renderer_detector();
+        OverlayData->Renderer = test_fixed_renderer(InGameOverlay::RendererHookType_t::DirectX9);
+        if (OverlayData->Renderer == nullptr)
+            return;
+
+        // overlay_proc is called  when the process wants to swap buffers.
+        OverlayData->Renderer->OverlayProc = []()
         {
-            OverlayData->Renderer = future.get();
-            if (OverlayData->Renderer == nullptr)
-            {
-                future = InGameOverlay::DetectRenderer(4s);
-                future.wait();
-                if (future.valid())
-                    OverlayData->Renderer = future.get();
-            }
+            std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
-            InGameOverlay::FreeDetector();
-            if (OverlayData->Renderer == nullptr)
+            if (!OverlayData->Show)
                 return;
 
-            // overlay_proc is called  when the process wants to swap buffers.
-            OverlayData->Renderer->OverlayProc = []()
+            static std::weak_ptr<uint64_t> image;
+            auto sharedImage = image.lock();
+            if (sharedImage == nullptr)
             {
-                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
+                auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
 
+                image = OverlayData->Renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+
+                sharedImage = image.lock();
+            }
+
+            auto& io = ImGui::GetIO();
+            float width = io.DisplaySize.x;
+            float height = io.DisplaySize.y;
+
+            ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
+            ImGui::SetNextWindowSize(ImVec2{ width, height });
+
+            ImGui::SetNextWindowBgAlpha(0.50);
+
+            if (ImGui::Begin("Overlay", &OverlayData->Show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
+            {
                 if (!OverlayData->Show)
-                    return;
-
-                static std::weak_ptr<uint64_t> image;
-                auto sharedImage = image.lock();
-                if (sharedImage == nullptr)
-                {
-                    auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
-
-                    image = OverlayData->Renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
-
-                    sharedImage = image.lock();
-                }
-
-                auto& io = ImGui::GetIO();
-                float width = io.DisplaySize.x;
-                float height = io.DisplaySize.y;
-
-                ImGui::SetNextWindowPos(ImVec2{ 0, 0 });
-                ImGui::SetNextWindowSize(ImVec2{ width, height });
-
-                ImGui::SetNextWindowBgAlpha(0.50);
-
-                if (ImGui::Begin("Overlay", &OverlayData->Show, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus))
-                {
-                    if (!OverlayData->Show)
-                    {
-                        OverlayData->Renderer->HideAppInputs(false);
-                        OverlayData->Renderer->HideOverlayInputs(true);
-                    }
-
-                    ImGui::TextUnformatted("Hello from overlay !");
-                    ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
-                    ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName().c_str());
-                    ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
-
-                    if (sharedImage != nullptr)
-                        ImGui::Image(*sharedImage, { 64, 64 });
-                }
-                ImGui::End();
-            };
-
-            // Called on Renderer hook status change
-            OverlayData->Renderer->OverlayHookReady = [](InGameOverlay::OverlayHookState hookState)
-            {
-                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
-
-                if (hookState == InGameOverlay::OverlayHookState::Removing)
-                    OverlayData->Show = false;
-            };
-
-            OverlayData->FontAtlas = new ImFontAtlas();
-
-            ImFontConfig fontcfg;
-
-            fontcfg.OversampleH = fontcfg.OversampleV = 1;
-            fontcfg.PixelSnapH = true;
-            fontcfg.GlyphRanges = OverlayData->FontAtlas->GetGlyphRangesDefault();
-
-            OverlayData->FontAtlas->AddFontDefault(&fontcfg);
-
-            OverlayData->FontAtlas->Build();
-
-            OverlayData->Renderer->StartHook([]()
-            {
-                std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
-
-                if (OverlayData->Show)
                 {
                     OverlayData->Renderer->HideAppInputs(false);
                     OverlayData->Renderer->HideOverlayInputs(true);
-                    OverlayData->Show = false;
                 }
-                else
-                {
-                    OverlayData->Renderer->HideAppInputs(true);
-                    OverlayData->Renderer->HideOverlayInputs(false);
-                    OverlayData->Show = true;
-                }
-            }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
-        }
+
+                ImGui::TextUnformatted("Hello from overlay !");
+                ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
+                ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName().c_str());
+                ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
+
+                if (sharedImage != nullptr)
+                    ImGui::Image(*sharedImage, { 64, 64 });
+            }
+            ImGui::End();
+        };
+
+        // Called on Renderer hook status change
+        OverlayData->Renderer->OverlayHookReady = [](InGameOverlay::OverlayHookState hookState)
+        {
+            std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
+
+            if (hookState == InGameOverlay::OverlayHookState::Removing)
+                OverlayData->Show = false;
+        };
+
+        OverlayData->FontAtlas = new ImFontAtlas();
+
+        ImFontConfig fontcfg;
+
+        fontcfg.OversampleH = fontcfg.OversampleV = 1;
+        fontcfg.PixelSnapH = true;
+        fontcfg.GlyphRanges = OverlayData->FontAtlas->GetGlyphRangesDefault();
+
+        OverlayData->FontAtlas->AddFontDefault(&fontcfg);
+
+        OverlayData->FontAtlas->Build();
+
+        OverlayData->Renderer->StartHook([]()
+        {
+            std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
+
+            if (OverlayData->Show)
+            {
+                OverlayData->Renderer->HideAppInputs(false);
+                OverlayData->Renderer->HideOverlayInputs(true);
+                OverlayData->Show = false;
+            }
+            else
+            {
+                OverlayData->Renderer->HideAppInputs(true);
+                OverlayData->Renderer->HideOverlayInputs(false);
+                OverlayData->Show = true;
+            }
+        }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
     });
 }
 

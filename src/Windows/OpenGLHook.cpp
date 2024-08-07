@@ -180,6 +180,11 @@ const std::string& OpenGLHook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t OpenGLHook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::OpenGL;
+}
+
 void OpenGLHook_t::LoadFunctions(WGLSwapBuffers_t pfnwglSwapBuffers)
 {
     _WGLSwapBuffers = pfnwglSwapBuffers;

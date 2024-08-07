@@ -35,8 +35,6 @@ namespace InGameOverlay {
 
 OpenGLXHook_t* OpenGLXHook_t::_Instance = nullptr;
 
-constexpr decltype(OpenGLXHook_t::DLL_NAME) OpenGLXHook_t::DLL_NAME;
-
 bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
@@ -205,6 +203,11 @@ OpenGLXHook_t* OpenGLXHook_t::Inst()
 const std::string& OpenGLXHook_t::GetLibraryName() const
 {
     return LibraryName;
+}
+
+RendererHookType_t OpenGLXHook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::OpenGL;
 }
 
 void OpenGLXHook_t::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)

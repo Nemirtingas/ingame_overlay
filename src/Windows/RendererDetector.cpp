@@ -53,11 +53,593 @@
 #ifdef GetModuleHandle
     #undef GetModuleHandle
 #endif
+#ifdef GetSystemDirectory
+    #undef GetSystemDirectory
+#endif
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
     SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
 
 namespace InGameOverlay {
+
+static constexpr const char DXGI_DLL_NAME[] = "dxgi.dll";
+static constexpr const char DX9_DLL_NAME[] = "d3d9.dll";
+static constexpr const char DX10_DLL_NAME[] = "d3d10.dll";
+static constexpr const char DX11_DLL_NAME[] = "d3d11.dll";
+static constexpr const char DX12_DLL_NAME[] = "d3d12.dll";
+static constexpr const char OPENGL_DLL_NAME[] = "opengl32.dll";
+static constexpr const char VULKAN_DLL_NAME[] = "vulkan-1.dll";
+
+struct DirectX9Driver_t
+{
+    std::string LibraryPath;
+    decltype(&IDirect3DDevice9::Release) pfnRelease;
+    decltype(&IDirect3DDevice9::Present) pfnPresent;
+    decltype(&IDirect3DDevice9::Reset) pfnReset;
+    decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
+    decltype(&IDirect3DDevice9Ex::ResetEx) pfnResetEx;
+    decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
+};
+
+struct DirectX10Driver_t
+{
+    std::string LibraryPath;
+    decltype(&ID3D10Device::Release) pfnRelease;
+    decltype(&IDXGISwapChain::Present) pfnPresent;
+    decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
+    decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
+    decltype(&IDXGISwapChain1::Present1) pfnPresent1;
+};
+
+struct DirectX11Driver_t
+{
+    std::string LibraryPath;
+    decltype(&ID3D11Device::Release) pfnRelease;
+    decltype(&IDXGISwapChain::Present) pfnPresent;
+    decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
+    decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
+    decltype(&IDXGISwapChain1::Present1) pfnPresent1;
+};
+
+struct DirectX12Driver_t
+{
+    std::string LibraryPath;
+    decltype(&ID3D12Device::Release) pfnRelease;
+    decltype(&IDXGISwapChain::Present) pfnPresent;
+    decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
+    decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
+    decltype(&IDXGISwapChain1::Present1) pfnPresent1;
+    decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1;
+    decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists;
+};
+
+struct OpenGLDriver_t
+{
+    std::string LibraryPath;
+    decltype(::SwapBuffers)* wglSwapBuffers;
+};
+
+static std::wstring RandomString(size_t length)
+{
+    wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+
+    std::uniform_int_distribution<uint32_t> dis(0, 61);
+    std::wstring randomString(length, 0);
+    for (int i = 0; i < length; ++i)
+        randomString[i] = random_str[dis(gen)];
+
+    return randomString;
+}
+
+static std::string GetSystemDirectory()
+{
+    std::wstring tmp(4096, L'\0');
+    tmp.resize(GetSystemDirectoryW(&tmp[0], static_cast<UINT>(tmp.size())));
+    auto systemDirectory = System::Encoding::WCharToUtf8(tmp);
+
+    System::String::ToLower(systemDirectory);
+    return systemDirectory;
+}
+
+static std::string FindPreferedModulePath(std::string const& systemDirectory, std::string const& name)
+{
+    std::string res;
+    std::string tmp;
+    auto modules = System::GetModules();
+    for (auto& item : modules)
+    {
+        tmp = System::String::CopyLower(item);
+        if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
+        {
+            if (strncmp(tmp.c_str(), systemDirectory.c_str(), systemDirectory.length()) == 0)
+                return item;
+
+            // I don't care which one is picked if we can't find a library in the system32 folder...
+            res = std::move(item);
+        }
+    }
+
+    return res;
+}
+
+static std::wstring CreateDummyHWND(HWND* dummyHwnd, ATOM* dummyAtom)
+{
+    auto dummyWindowClassName = RandomString(64);
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    // Register a window class for creating our render window with.
+    WNDCLASSEXW windowClass = {};
+
+    windowClass.cbSize = sizeof(WNDCLASSEX);
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = DefWindowProc;
+    windowClass.cbClsExtra = 0;
+    windowClass.cbWndExtra = 0;
+    windowClass.hInstance = hInst;
+    windowClass.hIcon = NULL;
+    windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
+    windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    windowClass.lpszMenuName = NULL;
+    windowClass.lpszClassName = dummyWindowClassName.c_str();
+    windowClass.hIconSm = NULL;
+
+    *dummyAtom = ::RegisterClassExW(&windowClass);
+
+    if (*dummyAtom > 0)
+    {
+        *dummyHwnd = ::CreateWindowExW(
+            NULL,
+            dummyWindowClassName.c_str(),
+            L"",
+            WS_OVERLAPPEDWINDOW,
+            0,
+            0,
+            1,
+            1,
+            NULL,
+            NULL,
+            hInst,
+            nullptr
+        );
+
+        assert(dummyHwnd && "Failed to create window");
+    }
+
+    return dummyWindowClassName;
+}
+
+static void DestroyDummyHWND(HWND dummyWindowHandle, const wchar_t* dummyWindowClassName)
+{
+    if (dummyWindowHandle != nullptr)
+    {
+        DestroyWindow(dummyWindowHandle);
+        UnregisterClassW(dummyWindowClassName, GetModuleHandleW(nullptr));
+    }
+}
+
+static void GetDXGIFunctions(IDXGISwapChain* pSwapChain, IDXGISwapChain1* pSwapChain1, IDXGISwapChain3* pSwapChain3,
+    decltype(&IDXGISwapChain::Present)* pfnPresent,
+    decltype(&IDXGISwapChain::ResizeBuffers)* pfnResizeBuffers,
+    decltype(&IDXGISwapChain::ResizeTarget)* pfnResizeTarget,
+    decltype(&IDXGISwapChain1::Present1)* pfnPresent1,
+    decltype(&IDXGISwapChain3::ResizeBuffers1)* pfnResizeBuffers1)
+{
+    void** vTable = *reinterpret_cast<void***>(pSwapChain);
+    *(void**)pfnPresent = vTable[(int)IDXGISwapChainVTable::Present];
+    *(void**)pfnResizeBuffers = vTable[(int)IDXGISwapChainVTable::ResizeBuffers];
+    *(void**)pfnResizeTarget = vTable[(int)IDXGISwapChainVTable::ResizeTarget];
+
+    if (pSwapChain1 != nullptr)
+    {
+        vTable = *reinterpret_cast<void***>(pSwapChain1);
+        *(void**)pfnPresent1 = vTable[(int)IDXGISwapChainVTable::Present1];
+    }
+
+    if (pSwapChain3 != nullptr)
+    {
+        vTable = *reinterpret_cast<void***>(pSwapChain3);
+        *(void**)pfnResizeBuffers1 = vTable[(int)IDXGISwapChainVTable::ResizeBuffers1];
+    }
+}
+
+static DirectX9Driver_t GetDX9Driver(std::string const& directX9LibraryPath, HWND windowHandle)
+{
+    DirectX9Driver_t driver{};
+    HMODULE hD3D9 = (HMODULE)System::Library::GetLibraryHandle(directX9LibraryPath.c_str());
+    if (hD3D9 == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to setup DX9", directX9LibraryPath);
+        return driver;
+    }
+
+    IDirect3D9Ex* pD3D = nullptr;
+    IDirect3DDevice9* pDevice = nullptr;
+    IDirect3DSwapChain9* pSwapChain = nullptr;
+
+    auto Direct3DCreate9Ex = (decltype(::Direct3DCreate9Ex)*)System::Library::GetSymbol(hD3D9, "Direct3DCreate9Ex");
+
+    D3DPRESENT_PARAMETERS params = {};
+    params.BackBufferWidth = 1;
+    params.BackBufferHeight = 1;
+    params.hDeviceWindow = windowHandle;
+    params.BackBufferCount = 1;
+    params.Windowed = TRUE;
+    params.SwapEffect = D3DSWAPEFFECT_DISCARD;
+
+    if (Direct3DCreate9Ex != nullptr)
+    {
+        Direct3DCreate9Ex(D3D_SDK_VERSION, &pD3D);
+        pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
+    }
+
+    if (pDevice == nullptr)
+    {
+        if (pD3D != nullptr)
+        {
+            pD3D->Release();
+            pD3D = nullptr;
+        }
+
+        Direct3DCreate9Ex = nullptr;
+        auto Direct3DCreate9 = (decltype(::Direct3DCreate9)*)System::Library::GetSymbol(hD3D9, "Direct3DCreate9");
+        if (Direct3DCreate9 != nullptr)
+        {
+            // D3DDEVTYPE_HAL
+            pD3D = reinterpret_cast<IDirect3D9Ex*>(Direct3DCreate9(D3D_SDK_VERSION));
+            pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, &pDevice);
+        }
+    }
+
+    if (pDevice != nullptr)
+    {
+        pDevice->GetSwapChain(0, &pSwapChain);
+
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)driver.pfnRelease = vTable[(int)IDirect3DDevice9VTable::Release];
+        (void*&)driver.pfnPresent = vTable[(int)IDirect3DDevice9VTable::Present];
+        (void*&)driver.pfnReset = vTable[(int)IDirect3DDevice9VTable::Reset];
+
+        if (Direct3DCreate9Ex != nullptr)
+        {
+            (void*&)driver.pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
+            (void*&)driver.pfnResetEx = vTable[(int)IDirect3DDevice9VTable::ResetEx];
+        }
+
+        if (pSwapChain != nullptr)
+        {
+            vTable = *reinterpret_cast<void***>(pSwapChain);
+            (void*&)driver.pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
+        }
+
+        driver.LibraryPath = System::Library::GetLibraryPath(hD3D9);
+    }
+
+    if (pSwapChain) pSwapChain->Release();
+    if (pDevice) pDevice->Release();
+    if (pD3D) pD3D->Release();
+
+    return driver;
+}
+
+static DirectX10Driver_t GetDX10Driver(std::string const& directX10LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+{
+    DirectX10Driver_t driver{};
+
+    HMODULE hD3D10 = (HMODULE)System::Library::GetLibraryHandle(directX10LibraryPath.c_str());
+    if (hD3D10 == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX10", directX10LibraryPath);
+        return driver;
+    }
+    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    if (dxgi == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX10", dxgiLibraryPath);
+        return driver;
+    }
+
+    IDXGISwapChain1* pSwapChain1 = nullptr;
+    IDXGISwapChain* pSwapChain = nullptr;
+    ID3D10Device* pDevice = nullptr;
+    int version = 0;
+
+    IDXGIFactory2* pDXGIFactory = nullptr;
+
+    auto D3D10CreateDevice = (decltype(::D3D10CreateDevice)*)System::Library::GetSymbol(hD3D10, "D3D10CreateDevice");
+    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+
+    if (D3D10CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
+    {
+        D3D10CreateDevice(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &pDevice);
+        if (pDevice != nullptr)
+        {
+            CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
+            if (pDXGIFactory != nullptr)
+            {
+                DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
+                SwapChainDesc.BufferCount = 2;
+                SwapChainDesc.Width = 1;
+                SwapChainDesc.Height = 1;
+                SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                SwapChainDesc.Stereo = FALSE;
+                SwapChainDesc.SampleDesc = { 1, 0 };
+                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                SwapChainDesc.Scaling = DXGI_SCALING_NONE;
+                SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+
+                pDXGIFactory->CreateSwapChainForHwnd(pDevice, windowHandle, &SwapChainDesc, NULL, NULL, &pSwapChain1);
+                pSwapChain = pSwapChain1;
+            }
+        }
+    }
+
+    if (pDXGIFactory) pDXGIFactory->Release();
+
+    if (pDevice != nullptr && pSwapChain == nullptr)
+    {
+        SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX10 detection");
+
+        auto D3D10CreateDeviceAndSwapChain = (decltype(::D3D10CreateDeviceAndSwapChain)*)System::Library::GetSymbol(hD3D10, "D3D10CreateDeviceAndSwapChain");
+        if (D3D10CreateDeviceAndSwapChain != nullptr)
+        {
+            DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
+
+            SwapChainDesc.BufferCount = 1;
+            SwapChainDesc.BufferDesc.Width = 1;
+            SwapChainDesc.BufferDesc.Height = 1;
+            SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
+            SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
+            SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            SwapChainDesc.OutputWindow = windowHandle;
+            SwapChainDesc.SampleDesc.Count = 1;
+            SwapChainDesc.SampleDesc.Quality = 0;
+            SwapChainDesc.Windowed = TRUE;
+
+            D3D10CreateDeviceAndSwapChain(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice);
+        }
+    }
+
+    if (pSwapChain != nullptr)
+    {
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)driver.pfnRelease = vTable[(int)ID3D10DeviceVTable::Release];
+
+        GetDXGIFunctions(pSwapChain, pSwapChain1, nullptr,
+            &driver.pfnPresent,
+            &driver.pfnResizeBuffers,
+            &driver.pfnResizeTarget,
+            &driver.pfnPresent1,
+            nullptr);
+
+        driver.LibraryPath = System::Library::GetLibraryPath(hD3D10);
+    }
+    else
+    {
+        SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
+    }
+    if (pDevice)pDevice->Release();
+    if (pSwapChain)pSwapChain->Release();
+
+    return driver;
+}
+
+static DirectX11Driver_t GetDX11Driver(std::string const& directX11LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+{
+    DirectX11Driver_t driver{};
+
+    HMODULE hD3D11 = (HMODULE)System::Library::GetLibraryHandle(directX11LibraryPath.c_str());
+    if (hD3D11 == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX11", directX11LibraryPath);
+        return driver;
+    }
+    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    if (dxgi == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX11", dxgiLibraryPath);
+        return driver;
+    }
+
+    IDXGISwapChain* pSwapChain = nullptr;
+    ID3D11Device* pDevice = nullptr;
+    int version = 0;
+
+    IDXGIFactory2* pDXGIFactory = nullptr;
+
+    auto D3D11CreateDevice = (decltype(::D3D11CreateDevice)*)System::Library::GetSymbol(hD3D11, "D3D11CreateDevice");
+    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+
+    if (D3D11CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
+    {
+        D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &pDevice, NULL, NULL);
+        if (pDevice != nullptr)
+        {
+            CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
+            if (pDXGIFactory != nullptr)
+            {
+                DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
+                SwapChainDesc.BufferCount = 2;
+                SwapChainDesc.Width = 1;
+                SwapChainDesc.Height = 1;
+                SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                SwapChainDesc.Stereo = FALSE;
+                SwapChainDesc.SampleDesc = { 1, 0 };
+                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                SwapChainDesc.Scaling = DXGI_SCALING_NONE;
+                SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+
+                pDXGIFactory->CreateSwapChainForHwnd(pDevice, windowHandle, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
+            }
+        }
+    }
+
+    if (pDXGIFactory) pDXGIFactory->Release();
+
+    if (pDevice != nullptr && pSwapChain != nullptr)
+    {
+        version = 1;
+    }
+    else
+    {
+        SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX11 detection");
+
+        auto D3D11CreateDeviceAndSwapChain = (decltype(::D3D11CreateDeviceAndSwapChain)*)System::Library::GetSymbol(hD3D11, "D3D11CreateDeviceAndSwapChain");
+        if (D3D11CreateDeviceAndSwapChain != nullptr)
+        {
+            DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
+
+            SwapChainDesc.BufferCount = 1;
+            SwapChainDesc.BufferDesc.Width = 1;
+            SwapChainDesc.BufferDesc.Height = 1;
+            SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
+            SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
+            SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            SwapChainDesc.OutputWindow = windowHandle;
+            SwapChainDesc.SampleDesc.Count = 1;
+            SwapChainDesc.SampleDesc.Quality = 0;
+            SwapChainDesc.Windowed = TRUE;
+
+            D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, NULL, D3D11_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice, NULL, NULL);
+        }
+    }
+
+    if (pSwapChain != nullptr)
+    {
+        void** vTable = *reinterpret_cast<void***>(pDevice);
+        (void*&)driver.pfnRelease = vTable[(int)ID3D11DeviceVTable::Release];
+
+        GetDXGIFunctions(pSwapChain, version > 0 ? reinterpret_cast<IDXGISwapChain1*>(pSwapChain) : nullptr, nullptr,
+            &driver.pfnPresent,
+            &driver.pfnResizeBuffers,
+            &driver.pfnResizeTarget,
+            &driver.pfnPresent1,
+            nullptr);
+
+        driver.LibraryPath = System::Library::GetLibraryPath(hD3D11);
+    }
+
+    if (pDevice) pDevice->Release();
+    if (pSwapChain) pSwapChain->Release();
+
+    return driver;
+}
+
+static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+{
+    DirectX12Driver_t driver{};
+
+    HMODULE hD3D12 = (HMODULE)System::Library::GetLibraryHandle(directX12LibraryPath.c_str());
+    if (hD3D12 == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX12", directX12LibraryPath);
+        return driver;
+    }
+    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    if (dxgi == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect DX12", dxgiLibraryPath);
+        return driver;
+    }
+
+    IDXGIFactory4* pDXGIFactory = nullptr;
+    IDXGISwapChain1* pSwapChain = nullptr;
+    ID3D12CommandQueue* pCommandQueue = nullptr;
+    ID3D12Device* pDevice = nullptr;
+
+    auto D3D12CreateDevice = (decltype(::D3D12CreateDevice)*)System::Library::GetSymbol(hD3D12, "D3D12CreateDevice");
+    if (D3D12CreateDevice != nullptr)
+    {
+        D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&pDevice));
+
+        if (pDevice != nullptr)
+        {
+            D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+            queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+            pDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&pCommandQueue));
+
+            if (pCommandQueue != nullptr)
+            {
+                decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+                if (CreateDXGIFactory1 != nullptr)
+                {
+                    CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
+                    if (pDXGIFactory != nullptr)
+                    {
+                        DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
+                        SwapChainDesc.BufferCount = 2;
+                        SwapChainDesc.Width = 1;
+                        SwapChainDesc.Height = 1;
+                        SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                        SwapChainDesc.Stereo = FALSE;
+                        SwapChainDesc.SampleDesc = { 1, 0 };
+                        SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+                        SwapChainDesc.Scaling = DXGI_SCALING_NONE;
+                        SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+                        SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+
+                        pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, windowHandle, &SwapChainDesc, NULL, NULL, &pSwapChain);
+                    }
+                }
+            }
+        }//if (pDevice != nullptr)
+    }//if (D3D12CreateDevice != nullptr)
+
+    if (pCommandQueue != nullptr && pSwapChain != nullptr)
+    {
+        IDXGISwapChain3* pSwapChain3;
+
+        pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
+
+        {
+            void** vTable = *reinterpret_cast<void***>(pDevice);
+            (void*&)driver.pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
+        }
+        {
+            void** vTable = *reinterpret_cast<void***>(pCommandQueue);
+            (void*&)driver.pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
+        }
+
+        GetDXGIFunctions(pSwapChain, pSwapChain, pSwapChain3,
+            &driver.pfnPresent,
+            &driver.pfnResizeBuffers,
+            &driver.pfnResizeTarget,
+            &driver.pfnPresent1,
+            &driver.pfnResizeBuffer1);
+
+        driver.LibraryPath = System::Library::GetLibraryPath(hD3D12);
+
+        if (pSwapChain3 != nullptr) pSwapChain3->Release();
+    }
+
+    if (pSwapChain) pSwapChain->Release();
+    if (pDXGIFactory) pDXGIFactory->Release();
+    if (pCommandQueue) pCommandQueue->Release();
+    if (pDevice) pDevice->Release();
+
+    return driver;
+}
+
+static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
+{
+    OpenGLDriver_t driver{};
+
+    HMODULE hOpenGL = (HMODULE)System::Library::GetLibraryHandle(openGLLibraryPath.c_str());
+    if (hOpenGL == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect OpenGL", openGLLibraryPath);
+        return driver;
+    }
+
+    driver.wglSwapBuffers = (decltype(::SwapBuffers)*)System::Library::GetSymbol(hOpenGL, "wglSwapBuffers");
+    driver.LibraryPath = System::Library::GetLibraryPath(hOpenGL);
+    return driver;
+}
 
 class RendererDetector_t
 {
@@ -148,103 +730,8 @@ private:
         _DetectionCount(0),
         _DetectionCancelled(false)
     {
-        std::wstring tmp(4096, L'\0');
-        tmp.resize(GetSystemDirectoryW(&tmp[0], static_cast<UINT>(tmp.size())));
-        _SystemDirectory = System::Encoding::WCharToUtf8(tmp);
-
-        System::String::ToLower(_SystemDirectory);
-
-        wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        std::random_device rd;
-        std::mt19937_64 gen(rd());
-
-        std::uniform_int_distribution<uint32_t> dis(0, 61);
-        _DummyWindowClassName.resize(64);
-        for (int i = 0; i < 64; ++i)
-            _DummyWindowClassName[i] = random_str[dis(gen)];
-    }
-
-    std::string _FindPreferedModulePath(std::string const& name)
-    {
-        std::string res;
-        std::string tmp;
-        auto modules = System::GetModules();
-        for (auto& item : modules)
-        {
-            tmp = System::String::CopyLower(item);
-            if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
-            {
-                if (strncmp(tmp.c_str(), _SystemDirectory.c_str(), _SystemDirectory.length()) == 0)
-                    return item;
-
-                // I don't care which one is picked if we can't find a library in the system32 folder...
-                res = std::move(item);
-            }
-        }
-
-        return res;
-    }
-
-    HWND _CreateHWND()
-    {
-        if (_DummyWindowHandle == nullptr)
-        {
-            HINSTANCE hInst = GetModuleHandleW(nullptr);
-            if (_DummyWindowAtom == 0)
-            {
-                // Register a window class for creating our render window with.
-                WNDCLASSEXW windowClass = {};
-
-                windowClass.cbSize = sizeof(WNDCLASSEX);
-                windowClass.style = CS_HREDRAW | CS_VREDRAW;
-                windowClass.lpfnWndProc = DefWindowProc;
-                windowClass.cbClsExtra = 0;
-                windowClass.cbWndExtra = 0;
-                windowClass.hInstance = hInst;
-                windowClass.hIcon = NULL;
-                windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-                windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-                windowClass.lpszMenuName = NULL;
-                windowClass.lpszClassName = _DummyWindowClassName.c_str();
-                windowClass.hIconSm = NULL;
-
-                _DummyWindowAtom = ::RegisterClassExW(&windowClass);
-            }
-
-            if (_DummyWindowAtom > 0)
-            {
-                _DummyWindowHandle = ::CreateWindowExW(
-                    NULL,
-                    _DummyWindowClassName.c_str(),
-                    L"",
-                    WS_OVERLAPPEDWINDOW,
-                    0,
-                    0,
-                    1,
-                    1,
-                    NULL,
-                    NULL,
-                    hInst,
-                    nullptr
-                );
-
-                assert(_DummyWindowHandle && "Failed to create window");
-            }
-        }
-
-        return _DummyWindowHandle;
-    }
-
-    void _DestroyHWND()
-    {
-        if (_DummyWindowHandle != nullptr)
-        {
-            DestroyWindow(_DummyWindowHandle);
-            UnregisterClassW(_DummyWindowClassName.c_str(), GetModuleHandleW(nullptr));
-
-            _DummyWindowHandle = nullptr;
-            _DummyWindowAtom = 0;
-        }
+        _SystemDirectory = GetSystemDirectory();
+        _DummyWindowClassName = RandomString(64);
     }
 
     template<typename T>
@@ -254,7 +741,7 @@ private:
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(detected_renderer);
         detected_renderer = nullptr;
         _DetectionDone = true;
-        _DestroyHWND();
+        DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
     }
 
     void _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
@@ -415,125 +902,55 @@ private:
         return res;
     }
 
-    void _GetDX10Functions(ID3D10Device* pDevice, decltype(&ID3D10Device::Release)& pfnRelease)
+    void _HookDXGI(decltype(&IDXGISwapChain::Present) pfnPresent, decltype(&IDXGISwapChain1::Present1) pfnPresent1)
     {
-        void** vTable = *reinterpret_cast<void***>(pDevice);
-        (void*&)pfnRelease = vTable[(int)ID3D10DeviceVTable::Release];
-    }
-
-    void _GetDX11Functions(ID3D11Device* pDevice, decltype(&ID3D11Device::Release)& pfnRelease)
-    {
-        void** vTable = *reinterpret_cast<void***>(pDevice);
-        (void*&)pfnRelease = vTable[(int)ID3D11DeviceVTable::Release];
-    }
-
-    void _GetDX12Functions(ID3D12Device* pDevice, ID3D12CommandQueue* pCommandQueue, decltype(&ID3D12Device::Release)& pfnRelease, decltype(&ID3D12CommandQueue::ExecuteCommandLists)& pfnExecuteCommandLists)
-    {
-        {
-            void** vTable = *reinterpret_cast<void***>(pDevice);
-            (void*&)pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
-        }
-        {
-            void** vTable = *reinterpret_cast<void***>(pCommandQueue);
-            (void*&)pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
-        }
-    }
-
-    void _HookDXGIPresent(IDXGISwapChain* pSwapChain, decltype(&IDXGISwapChain::Present)& pfnPresent, decltype(&IDXGISwapChain::ResizeBuffers)& pfnResizeBuffers, decltype(&IDXGISwapChain::ResizeTarget)& pfnResizeTarget)
-    {
-        void** vTable = *reinterpret_cast<void***>(pSwapChain);
-        (void*&)pfnPresent = vTable[(int)IDXGISwapChainVTable::Present];
-        (void*&)pfnResizeBuffers = vTable[(int)IDXGISwapChainVTable::ResizeBuffers];
-        (void*&)pfnResizeTarget = vTable[(int)IDXGISwapChainVTable::ResizeTarget];
-
-        if (!_DXGIHooked)
+        if (!_DXGIHooked && pfnPresent != nullptr)
         {
             _DXGIHooked = true;
 
-            (void*&)_IDXGISwapChainPresent = vTable[(int)IDXGISwapChainVTable::Present];
+            _IDXGISwapChainPresent = pfnPresent;
             _DetectionHooks.BeginHook();
             TRY_HOOK_FUNCTION(_IDXGISwapChainPresent, &RendererDetector_t::_MyIDXGISwapChainPresent);
             _DetectionHooks.EndHook();
         }
-    }
-
-    void _HookDXGIPresent1(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain1::Present1)& pfnPresent1)
-    {
-        void** vTable = *reinterpret_cast<void***>(pSwapChain1);
-        (void*&)pfnPresent1 = vTable[(int)IDXGISwapChainVTable::Present1];
-
-        if (!_DXGI1_2Hooked)
+        if (!_DXGI1_2Hooked && pfnPresent1 != nullptr)
         {
             _DXGI1_2Hooked = true;
 
-            (void*&)_IDXGISwapChain1Present1 = vTable[(int)IDXGISwapChainVTable::Present1];
+            _IDXGISwapChain1Present1 = pfnPresent1;
             _DetectionHooks.BeginHook();
             TRY_HOOK_FUNCTION(_IDXGISwapChain1Present1, &RendererDetector_t::_MyIDXGISwapChainPresent1);
             _DetectionHooks.EndHook();
         }
     }
 
-    void _GetDXGISwapChain3Methods(IDXGISwapChain1* pSwapChain1, decltype(&IDXGISwapChain3::ResizeBuffers1)& pfnResizeBuffer1)
+    void _HookDX9Present(
+        decltype(&IDirect3DDevice9::Present) pPresent,
+        decltype(&IDirect3DDevice9Ex::PresentEx) pPresentEx,
+        decltype(&IDirect3DSwapChain9::Present) pSwapChainPresent)
     {
-        IDXGISwapChain3* pSwapChain3;
-
-        if (SUCCEEDED(pSwapChain1->QueryInterface(IID_PPV_ARGS(&pSwapChain3))))
-        {
-            void** vTable = *reinterpret_cast<void***>(pSwapChain3);
-            (void*&)pfnResizeBuffer1 = vTable[(int)IDXGISwapChainVTable::ResizeBuffers1];
-
-            pSwapChain3->Release();
-        }
-    }
-
-    void _HookDX9Present(IDirect3DDevice9* pDevice, bool ex, IDirect3DSwapChain9* pSwapChain,
-        void*& pfnRelease,
-        void*& pfnPresent,
-        void*& pfnReset,
-        void*& pfnPresentEx,
-        void*& pfnResetEx,
-        void*& pfnSwapChainPresent)
-    {
-        void** vTable = *reinterpret_cast<void***>(pDevice);
-        pfnRelease = vTable[(int)IDirect3DDevice9VTable::Release];
-        pfnPresent = vTable[(int)IDirect3DDevice9VTable::Present];
-        pfnReset = vTable[(int)IDirect3DDevice9VTable::Reset];
-
-        (void*&)_IDirect3DDevice9Present = vTable[(int)IDirect3DDevice9VTable::Present];
+        _IDirect3DDevice9Present = pPresent;
 
         _DetectionHooks.BeginHook();
         TRY_HOOK_FUNCTION(_IDirect3DDevice9Present, &RendererDetector_t::_MyDX9Present);
         _DetectionHooks.EndHook();
 
-        if (ex)
+        if (pPresentEx != nullptr)
         {
-            pfnPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
-            (void*&)_IDirect3DDevice9ExPresentEx = vTable[(int)IDirect3DDevice9VTable::PresentEx];
-            pfnResetEx = vTable[(int)IDirect3DDevice9VTable::ResetEx];
+            _IDirect3DDevice9ExPresentEx = pPresentEx;
 
             _DetectionHooks.BeginHook();
             TRY_HOOK_FUNCTION(_IDirect3DDevice9ExPresentEx, &RendererDetector_t::_MyDX9PresentEx);
             _DetectionHooks.EndHook();
         }
-        else
-        {
-            pfnPresentEx = nullptr;
-            _IDirect3DDevice9ExPresentEx = nullptr;
-        }
 
-        if (pSwapChain != nullptr)
+        if (pSwapChainPresent != nullptr)
         {
-            vTable = *reinterpret_cast<void***>(pSwapChain);
-            pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
-            (void*&)_IDirect3DSwapChain9Present = vTable[(int)IDirect3DSwapChain9VTable::Present];
+            _IDirect3DSwapChain9Present = pSwapChainPresent;
 
             _DetectionHooks.BeginHook();
             TRY_HOOK_FUNCTION(_IDirect3DSwapChain9Present, &RendererDetector_t::_MyDX9SwapChainPresent);
             _DetectionHooks.EndHook();
-        }
-        else
-        {
-            pfnSwapChainPresent = nullptr;
         }
     }
 
@@ -557,443 +974,110 @@ private:
         _DetectionHooks.EndHook();
     }
 
-    void _HookDX9(std::string const& libraryPath)
+    void _HookDX9(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX9Hooked)
         {
-            System::Library::Library libD3d9;
-            if (!libD3d9.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect DX9", libraryPath);
-                return;
-            }
-
-            IDirect3D9Ex* pD3D = nullptr;
-            IDirect3DDevice9* pDevice = nullptr;
-            IDirect3DSwapChain9* pSwapChain = nullptr;
-
-            auto Direct3DCreate9Ex = libD3d9.GetSymbol<decltype(::Direct3DCreate9Ex)>("Direct3DCreate9Ex");
-
-            D3DPRESENT_PARAMETERS params = {};
-            params.BackBufferWidth = 1;
-            params.BackBufferHeight = 1;
-            params.hDeviceWindow = _DummyWindowHandle;
-            params.BackBufferCount = 1;
-            params.Windowed = TRUE;
-            params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-
-            if (Direct3DCreate9Ex != nullptr)
-            {
-                Direct3DCreate9Ex(D3D_SDK_VERSION, &pD3D);
-                pD3D->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, NULL, reinterpret_cast<IDirect3DDevice9Ex**>(&pDevice));
-            }
-
-            if (pDevice == nullptr)
-            {
-                if (pD3D != nullptr)
-                {
-                    pD3D->Release();
-                    pD3D = nullptr;
-                }
-
-                Direct3DCreate9Ex = nullptr;
-                auto Direct3DCreate9 = libD3d9.GetSymbol<decltype(::Direct3DCreate9)>("Direct3DCreate9");
-                if (Direct3DCreate9 != nullptr)
-                {
-                    // D3DDEVTYPE_HAL
-                    pD3D = reinterpret_cast<IDirect3D9Ex*>(Direct3DCreate9(D3D_SDK_VERSION));
-                    pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &params, &pDevice);
-                }
-            }
-
-            if (pDevice != nullptr)
+            auto driver = GetDX9Driver(libraryPath, _DummyWindowHandle);
+            if (driver.pfnPresent != nullptr)
             {
                 SPDLOG_INFO("Hooked D3D9::Present to detect DX Version");
-
                 _DX9Hooked = true;
 
-                pDevice->GetSwapChain(0, &pSwapChain);
-
-                decltype(&IDirect3DDevice9::Release) pfnRelease;
-                decltype(&IDirect3DDevice9::Present) pfnPresent;
-                decltype(&IDirect3DDevice9::Reset) pfnReset;
-                decltype(&IDirect3DDevice9Ex::PresentEx) pfnPresentEx;
-                decltype(&IDirect3DDevice9Ex::ResetEx) pfnResetEx;
-                decltype(&IDirect3DSwapChain9::Present) pfnSwapChainPresent;
-
-                _HookDX9Present(pDevice, Direct3DCreate9Ex != nullptr, pSwapChain, (void*&)pfnRelease, (void*&)pfnPresent, (void*&)pfnReset, (void*&)pfnPresentEx, (void*&)pfnResetEx, (void*&)pfnSwapChainPresent);
+                _HookDX9Present(driver.pfnPresent, driver.pfnPresentEx, driver.pfnSwapChainPresent);
 
                 _DX9Hook = DX9Hook_t::Inst();
-                _DX9Hook->LibraryName = libraryPath;
-                _DX9Hook->LoadFunctions(pfnRelease, pfnPresent, pfnReset, pfnPresentEx, pfnResetEx, pfnSwapChainPresent);
+                _DX9Hook->LibraryName = driver.LibraryPath;
+                _DX9Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnReset, driver.pfnPresentEx, driver.pfnResetEx, driver.pfnSwapChainPresent);
             }
             else
             {
                 SPDLOG_WARN("Failed to hook D3D9::Present to detect DX Version");
             }
-
-            if (pSwapChain) pSwapChain->Release();
-            if (pDevice) pDevice->Release();
-            if (pD3D) pD3D->Release();
         }
     }
 
-    void _HookDX10(std::string const& libraryPath)
+    void _HookDX10(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX10Hooked)
         {
-            System::Library::Library libD3d10;
-            if (!libD3d10.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect DX10", libraryPath);
-                return;
-            }
-            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
-
-            IDXGISwapChain* pSwapChain = nullptr;
-            ID3D10Device* pDevice = nullptr;
-            int version = 0;
-
-            if (!dxgiPath.empty())
-            {
-                HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
-                if (dxgi != nullptr)
-                {
-                    IDXGIFactory2* pDXGIFactory = nullptr;
-
-                    auto D3D10CreateDevice = libD3d10.GetSymbol<decltype(::D3D10CreateDevice)>("D3D10CreateDevice");
-                    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
-
-                    if (D3D10CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
-                    {
-                        D3D10CreateDevice(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &pDevice);
-                        if (pDevice != nullptr)
-                        {
-                            CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
-                            if (pDXGIFactory != nullptr)
-                            {
-                                DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
-                                SwapChainDesc.BufferCount = 2;
-                                SwapChainDesc.Width = 1;
-                                SwapChainDesc.Height = 1;
-                                SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                                SwapChainDesc.Stereo = FALSE;
-                                SwapChainDesc.SampleDesc = { 1, 0 };
-                                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                                SwapChainDesc.Scaling = DXGI_SCALING_NONE;
-                                SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-                                SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
-                            }
-                        }
-                    }
-
-                    if (pDXGIFactory) pDXGIFactory->Release();
-                }
-            }
-
-            if (pDevice != nullptr && pSwapChain != nullptr)
-            {
-                version = 1;
-            }
-            else
-            {
-                SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX10 detection");
-
-                auto D3D10CreateDeviceAndSwapChain = libD3d10.GetSymbol<decltype(::D3D10CreateDeviceAndSwapChain)>("D3D10CreateDeviceAndSwapChain");
-
-                if (D3D10CreateDeviceAndSwapChain != nullptr)
-                {
-                    DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
-
-                    SwapChainDesc.BufferCount = 1;
-                    SwapChainDesc.BufferDesc.Width = 1;
-                    SwapChainDesc.BufferDesc.Height = 1;
-                    SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
-                    SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
-                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = _DummyWindowHandle;
-                    SwapChainDesc.SampleDesc.Count = 1;
-                    SwapChainDesc.SampleDesc.Quality = 0;
-                    SwapChainDesc.Windowed = TRUE;
-
-                    D3D10CreateDeviceAndSwapChain(NULL, D3D10_DRIVER_TYPE_NULL, NULL, 0, D3D10_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice);
-                }
-            }
-
-            if (pSwapChain != nullptr)
+            auto driver = GetDX10Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            if (driver.pfnPresent != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
-
                 _DX10Hooked = true;
 
-                decltype(&ID3D10Device::Release) pfnRelease;
-                decltype(&IDXGISwapChain::Present) pfnPresent;
-                decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
-                decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
-                decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
-
-                _GetDX10Functions(pDevice, pfnRelease);
-                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
-                if (version > 0)
-                {
-                    _HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
-                }
+                _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
 
                 _DX10Hook = DX10Hook_t::Inst();
-                _DX10Hook->LibraryName = libraryPath;
-                _DX10Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX10Hook->LibraryName = driver.LibraryPath;
+                _DX10Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
             }
             else
             {
                 SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
-            if (pDevice)pDevice->Release();
-            if (pSwapChain)pSwapChain->Release();
         }
     }
 
-    void _HookDX11(std::string const& libraryPath)
+    void _HookDX11(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX11Hooked)
         {
-            System::Library::Library libD3d11;
-            if (!libD3d11.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect DX11", libraryPath);
-                return;
-            }
-            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
-
-            IDXGISwapChain* pSwapChain = nullptr;
-            ID3D11Device* pDevice = nullptr;
-            int version = 0;
-
-            if (!dxgiPath.empty())
-            {
-                HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
-                if (dxgi != nullptr)
-                {
-                    IDXGIFactory2* pDXGIFactory = nullptr;
-
-                    auto D3D11CreateDevice = libD3d11.GetSymbol<decltype(::D3D11CreateDevice)>("D3D11CreateDevice");
-                    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
-
-                    if (D3D11CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
-                    {
-                        D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, 0, D3D11_SDK_VERSION, &pDevice, NULL, NULL);
-                        if (pDevice != nullptr)
-                        {
-                            CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
-                            if (pDXGIFactory != nullptr)
-                            {
-                                DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
-                                SwapChainDesc.BufferCount = 2;
-                                SwapChainDesc.Width = 1;
-                                SwapChainDesc.Height = 1;
-                                SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                                SwapChainDesc.Stereo = FALSE;
-                                SwapChainDesc.SampleDesc = { 1, 0 };
-                                SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                                SwapChainDesc.Scaling = DXGI_SCALING_NONE;
-                                SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-                                SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-                                pDXGIFactory->CreateSwapChainForHwnd(pDevice, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, reinterpret_cast<IDXGISwapChain1**>(&pSwapChain));
-                            }
-                        }
-                    }
-
-                    if (pDXGIFactory) pDXGIFactory->Release();
-                }
-            }
-
-            if (pDevice != nullptr && pSwapChain != nullptr)
-            {
-                version = 1;
-            }
-            else
-            {
-                SPDLOG_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX11 detection");
-
-                auto D3D11CreateDeviceAndSwapChain = libD3d11.GetSymbol<decltype(::D3D11CreateDeviceAndSwapChain)>("D3D11CreateDeviceAndSwapChain");
-
-                if (D3D11CreateDeviceAndSwapChain != nullptr)
-                {
-                    DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
-
-                    SwapChainDesc.BufferCount = 1;
-                    SwapChainDesc.BufferDesc.Width = 1;
-                    SwapChainDesc.BufferDesc.Height = 1;
-                    SwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    SwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
-                    SwapChainDesc.BufferDesc.RefreshRate.Denominator = 0;
-                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.OutputWindow = _DummyWindowHandle;
-                    SwapChainDesc.SampleDesc.Count = 1;
-                    SwapChainDesc.SampleDesc.Quality = 0;
-                    SwapChainDesc.Windowed = TRUE;
-
-                    D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_NULL, NULL, 0, NULL, NULL, D3D11_SDK_VERSION, &SwapChainDesc, &pSwapChain, &pDevice, NULL, NULL);
-                }
-            }
-
-            if (pSwapChain != nullptr)
+            auto driver = GetDX11Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            if (driver.pfnPresent != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
-
                 _DX11Hooked = true;
 
-                decltype(&ID3D11Device::Release) pfnRelease = nullptr;
-                decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
-                decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
-                decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
-                decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
-
-                _GetDX11Functions(pDevice, pfnRelease);
-                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
-                if (version > 0)
-                {
-                    _HookDXGIPresent1(reinterpret_cast<IDXGISwapChain1*>(pSwapChain), pfnPresent1);
-                }
+                _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
 
                 _DX11Hook = DX11Hook_t::Inst();
-                _DX11Hook->LibraryName = libraryPath;
-                _DX11Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1);
+                _DX11Hook->LibraryName = driver.LibraryPath;
+                _DX11Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
             }
             else
             {
                 SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
-
-            if (pDevice) pDevice->Release();
-            if (pSwapChain) pSwapChain->Release();
         }
     }
 
-    void _HookDX12(std::string const& libraryPath)
+    void _HookDX12(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX12Hooked)
         {
-            System::Library::Library libD3d12;
-            if (!libD3d12.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect DX12", libraryPath);
-                return;
-            }
-            std::string dxgiPath = _FindPreferedModulePath("dxgi.dll");
-            if (dxgiPath.empty())
-            {
-                SPDLOG_WARN("Failed to load dxgi.dll to detect DX12");
-                return;
-            }
-
-            IDXGIFactory4* pDXGIFactory = nullptr;
-            IDXGISwapChain1* pSwapChain = nullptr;
-            ID3D12CommandQueue* pCommandQueue = nullptr;
-            ID3D12Device* pDevice = nullptr;
-
-            auto D3D12CreateDevice = libD3d12.GetSymbol<decltype(::D3D12CreateDevice)>("D3D12CreateDevice");
-
-            if (D3D12CreateDevice != nullptr)
-            {
-                D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&pDevice));
-
-                if (pDevice != nullptr)
-                {
-                    DXGI_SWAP_CHAIN_DESC1 SwapChainDesc = {};
-                    SwapChainDesc.BufferCount = 2;
-                    SwapChainDesc.Width = 1;
-                    SwapChainDesc.Height = 1;
-                    SwapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    SwapChainDesc.Stereo = FALSE;
-                    SwapChainDesc.SampleDesc = { 1, 0 };
-                    SwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                    SwapChainDesc.Scaling = DXGI_SCALING_NONE;
-                    SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-                    SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-
-                    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-                    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-                    queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-                    pDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&pCommandQueue));
-
-                    if (pCommandQueue != nullptr)
-                    {
-                        HMODULE dxgi = GetModuleHandleA(dxgiPath.c_str());
-                        if (dxgi != nullptr)
-                        {
-                            decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetProcAddress(dxgi, "CreateDXGIFactory1");
-                            if (CreateDXGIFactory1 != nullptr)
-                            {
-                                CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
-                                if (pDXGIFactory != nullptr)
-                                {
-                                    pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, _DummyWindowHandle, &SwapChainDesc, NULL, NULL, &pSwapChain);
-                                }
-                            }
-                        }
-                    }
-                }//if (pDevice != nullptr)
-            }//if (D3D12CreateDevice != nullptr)
-
-            if (pCommandQueue != nullptr && pSwapChain != nullptr)
+            auto driver = GetDX12Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            if (driver.pfnPresent != nullptr)
             {
                 SPDLOG_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
-
                 _DX12Hooked = true;
 
-                decltype(&ID3D12Device::Release) pfnRelease = nullptr;
-                decltype(&IDXGISwapChain::Present) pfnPresent = nullptr;
-                decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers = nullptr;
-                decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget = nullptr;
-                decltype(&IDXGISwapChain1::Present1) pfnPresent1 = nullptr;
-                decltype(&IDXGISwapChain3::ResizeBuffers1) pfnResizeBuffer1 = nullptr;
-                decltype(&ID3D12CommandQueue::ExecuteCommandLists) pfnExecuteCommandLists = nullptr;
-
-                _GetDX12Functions(pDevice, pCommandQueue, pfnRelease, pfnExecuteCommandLists);
-                _GetDXGISwapChain3Methods(pSwapChain, pfnResizeBuffer1);
-                _HookDXGIPresent(pSwapChain, pfnPresent, pfnResizeBuffers, pfnResizeTarget);
-                _HookDXGIPresent1(pSwapChain, pfnPresent1);
+                _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
 
                 _DX12Hook = DX12Hook_t::Inst();
-                _DX12Hook->LibraryName = libraryPath;
-                _DX12Hook->LoadFunctions(pfnRelease, pfnPresent, pfnResizeBuffers, pfnResizeTarget, pfnPresent1, pfnResizeBuffer1, pfnExecuteCommandLists);
+                _DX12Hook->LibraryName = driver.LibraryPath;
+                _DX12Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
             }
             else
             {
                 SPDLOG_WARN("Failed to Hook IDXGISwapChain::Present to detect DX Version");
             }
-
-            if (pSwapChain) pSwapChain->Release();
-            if (pDXGIFactory) pDXGIFactory->Release();
-            if (pCommandQueue) pCommandQueue->Release();
-            if (pDevice) pDevice->Release();
         }
     }
 
-    void _HookOpenGL(std::string const& libraryPath)
+    void _HookOpenGL(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLHooked)
         {
-            System::Library::Library libOpenGL;
-            if (!libOpenGL.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect OpenGL", libraryPath);
-                return;
-            }
-
-            auto _WGLSwapBuffers = libOpenGL.GetSymbol<decltype(::SwapBuffers)>("wglSwapBuffers");
-            if (_WGLSwapBuffers != nullptr)
+            auto driver = GetOpenGLDriver(libraryPath);
+            if (driver.wglSwapBuffers != nullptr)
             {
                 SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
-
                 _OpenGLHooked = true;
 
                 _OpenGLHook = OpenGLHook_t::Inst();
-                _OpenGLHook->LibraryName = libraryPath;
+                _OpenGLHook->LibraryName = driver.LibraryPath;
                 _OpenGLHook->LoadFunctions(_WGLSwapBuffers);
 
                 _HookWGLSwapBuffers(_WGLSwapBuffers);
@@ -1005,7 +1089,7 @@ private:
         }
     }
 
-    void _HookVulkan(std::string const& libraryPath)
+    void _HookVulkan(std::string const& libraryPath, bool preferSystemLibraries)
     {
         // Vulkan hook disabled until proper implementation.
         return;
@@ -1109,12 +1193,13 @@ private:
 
     bool _EnterDetection()
     {
-        return _CreateHWND() != nullptr;
+        _DummyWindowClassName = CreateDummyHWND(&_DummyWindowHandle, &_DummyWindowAtom);
+        return _DummyWindowHandle != nullptr;
     }
 
     void _ExitDetection()
     {
-        _DestroyHWND();
+        DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
 
         _DetectionDone = true;
         _DetectionHooks.UnhookAll();
@@ -1137,7 +1222,7 @@ private:
     }
 
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
+    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
     {
         std::lock_guard<std::mutex> lk(_StopDetectionMutex);
 
@@ -1148,7 +1233,7 @@ public:
 
         ++_DetectionCount;
 
-        return std::async(std::launch::async, [this, timeout]() -> InGameOverlay::RendererHook_t*
+        return std::async(std::launch::async, [this, timeout, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
             constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
@@ -1195,13 +1280,14 @@ public:
 
             SPDLOG_TRACE("Started renderer detection.");
 
-            std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
-                { OpenGLHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGL },
-                { VulkanHook_t::DLL_NAME, &RendererDetector_t::_HookVulkan },
-                {   DX12Hook_t::DLL_NAME, &RendererDetector_t::_HookDX12   },
-                {   DX11Hook_t::DLL_NAME, &RendererDetector_t::_HookDX11   },
-                {   DX10Hook_t::DLL_NAME, &RendererDetector_t::_HookDX10   },
-                {    DX9Hook_t::DLL_NAME, &RendererDetector_t::_HookDX9    },
+            std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]
+            {
+                { OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
+                { VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan },
+                {   DX12_DLL_NAME, &RendererDetector_t::_HookDX12   },
+                {   DX11_DLL_NAME, &RendererDetector_t::_HookDX11   },
+                {   DX10_DLL_NAME, &RendererDetector_t::_HookDX10   },
+                {    DX9_DLL_NAME, &RendererDetector_t::_HookDX9    },
             };
             std::string name;
 
@@ -1214,14 +1300,14 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string libraryPath = _FindPreferedModulePath(library.first);
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.first) : library.first;
                     if (!libraryPath.empty())
                     {
                         void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
                         if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle));
+                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
                     }
                 }
@@ -1293,12 +1379,12 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
+std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout);
+    return RendererDetector_t::Inst()->DetectRenderer(timeout, preferSystemLibraries);
 }
 
 void StopRendererDetection()
@@ -1309,6 +1395,119 @@ void StopRendererDetection()
 void FreeDetector()
 {
     delete RendererDetector_t::Inst();
+}
+
+RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries)
+{
+    RendererHook_t* rendererHook = nullptr;
+    std::string systemDirectory = preferSystemLibraries ? GetSystemDirectory() : std::string();
+
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+
+    switch (hookType)
+    {
+        case RendererHookType_t::DirectX9:
+        {
+            HWND dummyWindow;
+            ATOM dummyAtom;
+            auto dummyClassName = CreateDummyHWND(&dummyWindow, &dummyAtom);
+            if (dummyWindow != nullptr)
+            {
+                auto driver = GetDX9Driver(DX9_DLL_NAME, dummyWindow);
+                if (driver.pfnPresent != nullptr)
+                {
+                    auto hook = DX9Hook_t::Inst();
+                    hook->LibraryName = driver.LibraryPath;
+                    hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnReset, driver.pfnPresentEx, driver.pfnResetEx, driver.pfnSwapChainPresent);
+                    rendererHook = hook;
+                }
+                DestroyDummyHWND(dummyWindow, dummyClassName.c_str());
+            }
+        }
+        break;
+
+        case RendererHookType_t::DirectX10:
+        {
+            HWND dummyWindow;
+            ATOM dummyAtom;
+            auto dummyClassName = CreateDummyHWND(&dummyWindow, &dummyAtom);
+            if (dummyWindow != nullptr)
+            {
+                auto driver = GetDX10Driver(DX10_DLL_NAME, DXGI_DLL_NAME, dummyWindow);
+                if (driver.pfnPresent != nullptr)
+                {
+                    auto hook = DX10Hook_t::Inst();
+                    hook->LibraryName = driver.LibraryPath;
+                    hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
+                    rendererHook = hook;
+                }
+                DestroyDummyHWND(dummyWindow, dummyClassName.c_str());
+            }
+        }
+        break;
+
+        case RendererHookType_t::DirectX11:
+        {
+            HWND dummyWindow;
+            ATOM dummyAtom;
+            auto dummyClassName = CreateDummyHWND(&dummyWindow, &dummyAtom);
+            if (dummyWindow != nullptr)
+            {
+                auto driver = GetDX11Driver(DX11_DLL_NAME, DXGI_DLL_NAME, dummyWindow);
+                if (driver.pfnPresent != nullptr)
+                {
+                    auto hook = DX11Hook_t::Inst();
+                    hook->LibraryName = driver.LibraryPath;
+                    hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
+                    rendererHook = hook;
+                }
+                DestroyDummyHWND(dummyWindow, dummyClassName.c_str());
+            }
+        }
+        break;
+
+        case RendererHookType_t::DirectX12:
+        {
+            HWND dummyWindow;
+            ATOM dummyAtom;
+            auto dummyClassName = CreateDummyHWND(&dummyWindow, &dummyAtom);
+            if (dummyWindow != nullptr)
+            {
+                auto driver = GetDX12Driver(DX12_DLL_NAME, DXGI_DLL_NAME, dummyWindow);
+                if (driver.pfnPresent != nullptr)
+                {
+                    auto hook = DX12Hook_t::Inst();
+                    hook->LibraryName = driver.LibraryPath;
+                    hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
+                    rendererHook = hook;
+                }
+                DestroyDummyHWND(dummyWindow, dummyClassName.c_str());
+            }
+        }
+        break;
+
+        case RendererHookType_t::OpenGL:
+        {
+            auto driver = GetOpenGLDriver(OPENGL_DLL_NAME);
+            if (driver.wglSwapBuffers != nullptr)
+            {
+                auto hook = OpenGLHook_t::Inst();
+                hook->LibraryName = driver.LibraryPath;
+                hook->LoadFunctions(driver.wglSwapBuffers);
+                rendererHook = hook;
+            }
+        }
+        break;
+
+        case RendererHookType_t::Vulkan:
+        {
+        }
+        break;
+    }
+
+    return rendererHook;
 }
 
 }// namespace InGameOverlay

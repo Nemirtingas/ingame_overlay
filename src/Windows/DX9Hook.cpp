@@ -322,6 +322,11 @@ const std::string& DX9Hook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t DX9Hook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::DirectX9;
+}
+
 void DX9Hook_t::LoadFunctions(
     decltype(_IDirect3DDevice9Release) ReleaseFcn,
     decltype(_IDirect3DDevice9Present) PresentFcn,

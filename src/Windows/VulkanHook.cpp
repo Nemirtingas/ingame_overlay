@@ -144,6 +144,11 @@ const std::string& VulkanHook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t VulkanHook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::Vulkan;
+}
+
 void VulkanHook_t::LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
 {
     _VkQueuePresentKHR = _vkQueuePresentKHR;

@@ -31,9 +31,6 @@ class DX9Hook_t :
     public RendererHook_t,
     public BaseHook_t
 {
-public:
-    static constexpr const char *DLL_NAME = "d3d9.dll";
-
 private:
     static DX9Hook_t* _Instance;
 
@@ -81,6 +78,7 @@ public:
     virtual bool IsStarted();
     static DX9Hook_t* Inst();
     virtual const std::string& GetLibraryName() const;
+    virtual RendererHookType_t GetRendererHookType() const;
 
     void LoadFunctions(
         decltype(_IDirect3DDevice9Release) ReleaseFcn,
