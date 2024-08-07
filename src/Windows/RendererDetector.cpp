@@ -590,6 +590,12 @@ private:
 
             if (pDevice == nullptr)
             {
+                if (pD3D != nullptr)
+                {
+                    pD3D->Release();
+                    pD3D = nullptr;
+                }
+
                 Direct3DCreate9Ex = nullptr;
                 auto Direct3DCreate9 = libD3d9.GetSymbol<decltype(::Direct3DCreate9)>("Direct3DCreate9");
                 if (Direct3DCreate9 != nullptr)
