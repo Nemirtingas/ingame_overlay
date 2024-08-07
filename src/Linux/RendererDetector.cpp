@@ -45,6 +45,35 @@
 
 namespace InGameOverlay {
 
+static constexpr const char OPENGLX_DLL_NAME[] = "libGLX.so";
+
+struct OpenGLDriver_t
+{
+    std::string LibraryPath;
+    decltype(::glXSwapBuffers)* glXSwapBuffers;
+};
+
+static std::string FindPreferedModulePath(std::string const& name)
+{
+    return name;
+}
+
+static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
+{
+    OpenGLDriver_t driver{};
+
+    void* hOpenGL = System::Library::GetLibraryHandle(openGLLibraryPath.c_str());
+    if (hOpenGL == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect OpenGLX", openGLLibraryPath);
+        return driver;
+    }
+
+    driver.glXSwapBuffers = (decltype(::glXSwapBuffers)*)System::Library::GetSymbol(hOpenGL, "glXSwapBuffers");
+    driver.LibraryPath = System::Library::GetLibraryPath(hOpenGL);
+    return driver;
+}
+
 class RendererDetector_t
 {
     static RendererDetector_t* _Instance;
@@ -99,11 +128,6 @@ private:
         _DetectionCancelled(false)
     {}
 
-    std::string _FindPreferedModulePath(std::string const& name)
-    {
-        return name;
-    }
-
     static void _MyGLXSwapBuffers(Display* dpy, GLXDrawable drawable)
     {
         auto inst = Inst();
@@ -130,29 +154,21 @@ private:
         _DetectionHooks.EndHook();
     }
 
-    void _HookOpenGLX(std::string const& libraryPath)
+    void _HookOpenGLX(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLXHooked)
         {
-            System::Library::Library libGLX;
-            if (!libGLX.OpenLibrary(libraryPath, false))
-            {
-                SPDLOG_WARN("Failed to load {} to detect OpenGLX", libraryPath);
-                return;
-            }
-
-            auto _GLXSwapBuffers = libGLX.GetSymbol<decltype(::glXSwapBuffers)>("glXSwapBuffers");
-            if (_GLXSwapBuffers != nullptr)
+            auto driver = GetOpenGLDriver(libraryPath);
+            if (driver.glXSwapBuffers != nullptr)
             {
                 SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
-
                 _OpenGLXHooked = true;
 
                 _OpenGLXHook = OpenGLXHook_t::Inst();
-                _OpenGLXHook->LibraryName = libraryPath;
-                _OpenGLXHook->LoadFunctions(_GLXSwapBuffers);
+                _OpenGLXHook->LibraryName = driver.LibraryPath;
+                _OpenGLXHook->LoadFunctions(driver.glXSwapBuffers);
 
-                _HookGLXSwapBuffers(_GLXSwapBuffers);
+                _HookGLXSwapBuffers(driver.glXSwapBuffers);
             }
             else
             {
@@ -179,7 +195,7 @@ private:
     }
 
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
+    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
     {
         std::lock_guard<std::mutex> lk(_StopDetectionMutex);
 
@@ -190,7 +206,7 @@ public:
 
         ++_DetectionCount;
 
-        return std::async(std::launch::async, [this, timeout]() -> InGameOverlay::RendererHook_t*
+        return std::async(std::launch::async, [this, timeout, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
             constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
@@ -237,8 +253,8 @@ public:
 
             SPDLOG_TRACE("Started renderer detection.");
 
-            std::pair<std::string, void(RendererDetector_t::*)(std::string const&)> libraries[]{
-                { OpenGLXHook_t::DLL_NAME, &RendererDetector_t::_HookOpenGLX },
+            std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]{
+                { OPENGLX_DLL_NAME, &RendererDetector_t::_HookOpenGLX },
             };
             std::string name;
 
@@ -251,14 +267,14 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string libraryPath = _FindPreferedModulePath(library.first);
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.first) : library.first;
                     if (!libraryPath.empty())
                     {
                         void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
                         if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle));
+                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
                     }
                 }
@@ -326,12 +342,12 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout)
+std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout);
+    return RendererDetector_t::Inst()->DetectRenderer(timeout, preferSystemLibraries);
 }
 
 void StopRendererDetection()
@@ -342,6 +358,37 @@ void StopRendererDetection()
 void FreeDetector()
 {
     delete RendererDetector_t::Inst();
+}
+
+RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries)
+{
+    RendererHook_t* rendererHook = nullptr;
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+
+    switch (hookType)
+    {
+        case RendererHookType_t::OpenGL:
+        {
+            auto driver = GetOpenGLDriver(OPENGLX_DLL_NAME);
+            if (driver.glXSwapBuffers != nullptr)
+            {
+                auto hook = OpenGLXHook_t::Inst();
+                hook->LibraryName = driver.LibraryPath;
+                hook->LoadFunctions(driver.glXSwapBuffers);
+                rendererHook = hook;
+            }
+        }
+        break;
+
+        case RendererHookType_t::Vulkan:
+        {
+        }
+        break;
+    }
+
+    return rendererHook;
 }
 
 }// namespace InGameOverlay

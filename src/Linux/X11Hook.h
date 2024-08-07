@@ -32,9 +32,6 @@ namespace InGameOverlay {
 class X11Hook_t :
     public BaseHook_t
 {
-public:
-    static constexpr const char* DLL_NAME = "libX11.so";
-
 private:
     static X11Hook_t* _inst;
 

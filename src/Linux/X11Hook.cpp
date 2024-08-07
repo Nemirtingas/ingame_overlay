@@ -27,7 +27,7 @@ extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 
 namespace InGameOverlay {
 
-constexpr decltype(X11Hook_t::DLL_NAME) X11Hook_t::DLL_NAME;
+static constexpr const char X11_DLL_NAME[] = "libX11.so";
 
 X11Hook_t* X11Hook_t::_inst = nullptr;
 
@@ -87,10 +87,10 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
             return false;
         }
 
-        void* hX11 = System::Library::GetLibraryHandle(DLL_NAME);
+        void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
         if (hX11 == nullptr)
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot find {}", DLL_NAME);
+            SPDLOG_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
             return false;
         }
 
