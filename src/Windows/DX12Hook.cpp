@@ -321,8 +321,11 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue)
+void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags)
 {
+    if (flags & DXGI_PRESENT_TEST)
+        return;
+
     IDXGISwapChain3* pSwapChain3 = nullptr;
     DXGI_SWAP_CHAIN_DESC sc_desc;
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
@@ -439,7 +442,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
     if (pCommandQueue != nullptr)
-        inst->_PrepareForOverlay(_this, pCommandQueue);
+        inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
     return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
@@ -477,7 +480,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
     if (pCommandQueue != nullptr)
-        inst->_PrepareForOverlay(_this, pCommandQueue);
+        inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
     return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
 }

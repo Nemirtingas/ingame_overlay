@@ -159,7 +159,7 @@ private:
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
-    void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue);
+    void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
 
     // Hook to render functions
     decltype(&ID3D12Device::Release)                   _ID3D12DeviceRelease;

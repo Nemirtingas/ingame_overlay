@@ -159,8 +159,11 @@ void DX10Hook_t::_ResetRenderState(OverlayHookState state)
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain)
+void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 {
+    if (flags & DXGI_PRESENT_TEST)
+        return;
+
     DXGI_SWAP_CHAIN_DESC desc;
     pSwapChain->GetDesc(&desc);
 
@@ -226,7 +229,7 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 {
     SPDLOG_INFO("IDXGISwapChain::Present");
     auto inst = DX10Hook_t::Inst();
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, Flags);
     return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
 
@@ -260,7 +263,7 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 {
     SPDLOG_INFO("IDXGISwapChain1::Present1");
     auto inst = DX10Hook_t::Inst();
-    inst->_PrepareForOverlay(_this);
+    inst->_PrepareForOverlay(_this, Flags);
     return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
 }
 
