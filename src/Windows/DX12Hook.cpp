@@ -554,6 +554,11 @@ const std::string& DX12Hook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t DX12Hook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::DirectX12;
+}
+
 void DX12Hook_t::LoadFunctions(
     decltype(_ID3D12DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,

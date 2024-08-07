@@ -41,6 +41,17 @@ enum class OverlayHookState : uint8_t
     Removing,
 };
 
+enum class RendererHookType_t
+{
+    DirectX9,
+    DirectX10,
+    DirectX11,
+    DirectX12,
+    OpenGL,
+    Vulkan,
+    Metal
+};
+
 class RendererHook_t
 {
 public:
@@ -114,6 +125,12 @@ public:
     /// </summary>
     /// <returns></returns>
     virtual const std::string& GetLibraryName() const = 0;
+
+    /// <summary>
+    ///   Get the current renderer hook type.
+    /// </summary>
+    /// <returns></returns>
+    virtual RendererHookType_t GetRendererHookType() const = 0;
 };
 
 }

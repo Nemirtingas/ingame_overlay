@@ -32,9 +32,6 @@ class DX12Hook_t :
     public RendererHook_t,
     public BaseHook_t
 {
-public:
-    static constexpr const char *DLL_NAME = "d3d12.dll";
-
 private:
     static DX12Hook_t* _Instance;
 
@@ -189,6 +186,7 @@ public:
     virtual bool IsStarted();
     static DX12Hook_t* Inst();
     virtual const std::string& GetLibraryName() const;
+    virtual RendererHookType_t GetRendererHookType() const;
 
     void LoadFunctions(
         decltype(_ID3D12DeviceRelease) releaseFcn,

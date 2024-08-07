@@ -31,9 +31,6 @@ class VulkanHook_t :
     public RendererHook_t,
     public BaseHook_t
 {
-public:
-    static constexpr const char *DLL_NAME = "vulkan-1.dll";
-
 private:
     static VulkanHook_t* _Instance;
 
@@ -66,6 +63,7 @@ public:
     virtual bool IsStarted();
     static VulkanHook_t* Inst();
     virtual const std::string& GetLibraryName() const;
+    virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);

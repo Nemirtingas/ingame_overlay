@@ -309,6 +309,11 @@ const std::string& DX10Hook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t DX10Hook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::DirectX10;
+}
+
 void DX10Hook_t::LoadFunctions(
     decltype(_ID3D10DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,

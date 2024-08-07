@@ -346,6 +346,11 @@ const std::string& DX11Hook_t::GetLibraryName() const
     return LibraryName;
 }
 
+RendererHookType_t DX11Hook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::DirectX11;
+}
+
 void DX11Hook_t::LoadFunctions(
     decltype(_ID3D11DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,
