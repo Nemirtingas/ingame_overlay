@@ -145,15 +145,6 @@ private:
         }
     }
 
-    void _HookGLXSwapBuffers(decltype(::glXSwapBuffers)* __GLXSwapBuffers)
-    {
-        _GLXSwapBuffers = __GLXSwapBuffers;
-
-        _DetectionHooks.BeginHook();
-        TRY_HOOK_FUNCTION(_GLXSwapBuffers, &RendererDetector_t::_MyGLXSwapBuffers);
-        _DetectionHooks.EndHook();
-    }
-
     void _HookOpenGLX(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLXHooked)
@@ -164,11 +155,15 @@ private:
                 SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
                 _OpenGLXHooked = true;
 
+                _GLXSwapBuffers = driver.glXSwapBuffers;
+
                 _OpenGLXHook = OpenGLXHook_t::Inst();
                 _OpenGLXHook->LibraryName = driver.LibraryPath;
-                _OpenGLXHook->LoadFunctions(driver.glXSwapBuffers);
+                _OpenGLXHook->LoadFunctions(_GLXSwapBuffers);
 
-                _HookGLXSwapBuffers(driver.glXSwapBuffers);
+                _DetectionHooks.BeginHook();
+                TRY_HOOK_FUNCTION(_GLXSwapBuffers, &RendererDetector_t::_MyGLXSwapBuffers);
+                _DetectionHooks.EndHook();
             }
             else
             {

@@ -954,15 +954,6 @@ private:
         }
     }
 
-    void _HookWGLSwapBuffers(decltype(::SwapBuffers)* __WGLSwapBuffers)
-    {
-        _WGLSwapBuffers = __WGLSwapBuffers;
-
-        _DetectionHooks.BeginHook();
-        TRY_HOOK_FUNCTION(_WGLSwapBuffers, &RendererDetector_t::_MyWGLSwapBuffers);
-        _DetectionHooks.EndHook();
-    }
-
     void _HookVkQueuePresentKHR(decltype(::vkQueuePresentKHR)* _vkQueuePresentKHR)
     {
         _VkQueuePresentKHR = _vkQueuePresentKHR;
@@ -1076,11 +1067,15 @@ private:
                 SPDLOG_INFO("Hooked wglSwapBuffers to detect OpenGL");
                 _OpenGLHooked = true;
 
+                _WGLSwapBuffers = driver.wglSwapBuffers;
+
                 _OpenGLHook = OpenGLHook_t::Inst();
                 _OpenGLHook->LibraryName = driver.LibraryPath;
                 _OpenGLHook->LoadFunctions(_WGLSwapBuffers);
 
-                _HookWGLSwapBuffers(_WGLSwapBuffers);
+                _DetectionHooks.BeginHook();
+                TRY_HOOK_FUNCTION(_WGLSwapBuffers, &RendererDetector_t::_MyWGLSwapBuffers);
+                _DetectionHooks.EndHook();
             }
             else
             {

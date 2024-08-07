@@ -104,8 +104,8 @@ void shared_library_load(void* hmodule)
 
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
-        //OverlayData->Renderer = test_renderer_detector();
-        OverlayData->Renderer = test_fixed_renderer(InGameOverlay::RendererHookType_t::DirectX9);
+        OverlayData->Renderer = test_renderer_detector();
+        //OverlayData->Renderer = test_fixed_renderer(InGameOverlay::RendererHookType_t::DirectX9);
         if (OverlayData->Renderer == nullptr)
             return;
 
