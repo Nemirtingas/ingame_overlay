@@ -15,7 +15,7 @@
 
 #include "imgui.h"
 #include <backends/imgui_impl_metal.h>
-#include "imgui_impl_osx.h"
+#include "../common/imgui_impl_osx.h"
 @interface AppViewController : NSViewController<NSWindowDelegate>
 @end
 

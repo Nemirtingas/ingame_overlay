@@ -36,8 +36,6 @@ namespace InGameOverlay {
 
 OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
-decltype(OpenGLHook_t::DLL_NAME) OpenGLHook_t::DLL_NAME;
-
 static bool ImGuiOpenGL3Init()
 {
     return ImGui_ImplOpenGL3_Init(nullptr);
@@ -211,6 +209,11 @@ OpenGLHook_t* OpenGLHook_t::Inst()
 const std::string& OpenGLHook_t::GetLibraryName() const
 {
     return LibraryName;
+}
+
+RendererHookType_t OpenGLHook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::OpenGL;
 }
 
 void OpenGLHook_t::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable)

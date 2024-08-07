@@ -42,9 +42,6 @@ class OpenGLHook_t :
     public RendererHook_t,
     public BaseHook_t
 {
-public:
-    static constexpr const char *DLL_NAME = "OpenGL";
-
 private:
     struct OpenGLDriver_t
     {
@@ -89,6 +86,7 @@ public:
     virtual bool IsStarted();
     static OpenGLHook_t* Inst();
     virtual const std::string& GetLibraryName() const;
+    virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);

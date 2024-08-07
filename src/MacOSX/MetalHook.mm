@@ -27,8 +27,6 @@ namespace InGameOverlay {
 
 MetalHook_t* MetalHook_t::_Instance = nullptr;
 
-decltype(MetalHook_t::DLL_NAME) MetalHook_t::DLL_NAME;
-
 bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
 {
     if (!_Hooked)
@@ -204,6 +202,11 @@ MetalHook_t* MetalHook_t::Inst()
 const std::string& MetalHook_t::GetLibraryName() const
 {
     return LibraryName;
+}
+
+RendererHookType_t MetalHook_t::GetRendererHookType() const
+{
+    return RendererHookType_t::Metal;
 }
 
 void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding)

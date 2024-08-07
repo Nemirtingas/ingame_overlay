@@ -34,9 +34,6 @@ class MetalHook_t :
     public RendererHook_t,
     public BaseHook_t
 {
-public:
-    static constexpr const char *DLL_NAME = "Metal";
-
 private:
     static MetalHook_t* _Instance;
 
@@ -84,6 +81,7 @@ public:
     virtual bool IsStarted();
     static MetalHook_t* Inst();
     virtual const std::string& GetLibraryName() const;
+    virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
