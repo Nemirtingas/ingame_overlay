@@ -119,6 +119,18 @@ struct OpenGLDriver_t
     decltype(::SwapBuffers)* wglSwapBuffers;
 };
 
+struct VulkanDriver_t
+{
+    std::string LibraryPath;
+
+    std::function<void* (const char*)> vkLoader;
+    decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR;
+    decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR;
+    decltype(::vkQueuePresentKHR)* vkQueuePresentKHR;
+    decltype(::vkCreateSwapchainKHR)* vkCreateSwapchainKHR;
+    decltype(::vkDestroyDevice)* vkDestroyDevice;
+};
+
 static std::wstring RandomString(size_t length)
 {
     wchar_t random_str[] = L"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -641,57 +653,179 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
     return driver;
 }
 
-enum VulkanDriverType_t
+static int32_t VulkanGetFirstGraphicsQueue(decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* _vkGetPhysicalDeviceQueueFamilyProperties, VkPhysicalDevice physicalDevice)
 {
-    VULKAN_DRIVER_GENERIC = 0,
-    VULKAN_DRIVER_NVIDIA = 1,
-    VULKAN_DRIVER_AMD = 2,
-    VULKAN_DRIVER_INTEL = 3,
-    VULKAN_DRIVER_COUNT = 4
-};
+    uint32_t count;
+    std::vector<VkQueueFamilyProperties> queues;
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
+    queues.resize(count);
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            return i;
+    }
 
-struct VulkanDriverHook_t
+    return -1;
+}
+
+static bool VulkanPhysicalDeviceHasExtension(decltype(::vkEnumerateDeviceExtensionProperties)* _vkEnumerateDeviceExtensionProperties, VkPhysicalDevice vkPhysicalDevice, const char* extensionName)
 {
-    void* DriverHandle;
-    std::vector<std::string> KnownDriverNames;
-    std::string HookedDriverPath;
-    std::function<void*(const char*)> GetProcAddress;
-    decltype(::vkQueueSubmit)* _MyVkQueueSubmit;
+    uint32_t count;
+    std::vector<VkExtensionProperties> extensionProperties;
 
-    decltype(::vkCreateInstance)                       *vkCreateInstance;
-    decltype(::vkDestroyInstance)                      *vkDestroyInstance;
-    decltype(::vkGetInstanceProcAddr)                  *vkGetInstanceProcAddr;
-    decltype(::vkEnumerateInstanceExtensionProperties) *vkEnumerateInstanceExtensionProperties;
+    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, nullptr);
+    extensionProperties.resize(count);
+    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, extensionProperties.data());
 
-    decltype(::vkCreateDevice)                       *vkCreateDevice;
-    decltype(::vkDestroyDevice)                      *vkDestroyDevice;
-    decltype(::vkGetDeviceProcAddr)                  *vkGetDeviceProcAddr;
-    decltype(::vkEnumeratePhysicalDevices)           *vkEnumeratePhysicalDevices;
-    decltype(::vkEnumerateDeviceExtensionProperties) *vkEnumerateDeviceExtensionProperties;
-    decltype(::vkGetPhysicalDeviceProperties)        *vkGetPhysicalDeviceProperties;
-    decltype(::vkQueueSubmit)                        *vkQueueSubmit;
+    for (auto& extension : extensionProperties)
+    {
+        if (strcmp(extension.extensionName, extensionName) != 0)
+            continue;
 
-    decltype(::vkAcquireNextImageKHR)                *vkAcquireNextImageKHR;
-    decltype(::vkQueuePresentKHR)                    *vkQueuePresentKHR;
+        return true;
+    }
 
-    VulkanDriverHook_t():
-        DriverHandle(nullptr),
-        _MyVkQueueSubmit(nullptr),
-        vkCreateInstance(nullptr),
-        vkDestroyInstance(nullptr),
-        vkGetInstanceProcAddr(nullptr),
-        vkEnumerateInstanceExtensionProperties(nullptr),
-        vkCreateDevice(nullptr),
-        vkDestroyDevice(nullptr),
-        vkGetDeviceProcAddr(nullptr),
-        vkEnumeratePhysicalDevices(nullptr),
-        vkEnumerateDeviceExtensionProperties(nullptr),
-        vkGetPhysicalDeviceProperties(nullptr),
-        vkQueueSubmit(nullptr),
-        vkAcquireNextImageKHR(nullptr),
-        vkQueuePresentKHR(nullptr)
-    {}
-};
+    return false;
+}
+
+static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
+{
+    VulkanDriver_t driver{};
+
+    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.c_str());
+    if (hVulkan == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
+        return driver;
+    }
+
+    std::function<void* (const char*)> _vkLoader = [hVulkan](const char* symbolName)
+    {
+        return System::Library::GetSymbol(hVulkan, symbolName);
+    };
+
+    auto _vkCreateInstance = (decltype(::vkCreateInstance)*)_vkLoader("vkCreateInstance");
+    auto _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_vkLoader("vkDestroyInstance");
+    auto _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_vkLoader("vkGetInstanceProcAddr");
+    auto _vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)_vkLoader("vkEnumeratePhysicalDevices");
+    auto _vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_vkLoader("vkGetPhysicalDeviceProperties");
+    auto _vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_vkLoader("vkGetPhysicalDeviceQueueFamilyProperties");
+    auto _vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)_vkLoader("vkEnumerateDeviceExtensionProperties");
+    auto _vkCreateDevice = (decltype(::vkCreateDevice)*)_vkLoader("vkCreateDevice");
+    auto _vkDestroyDevice = (decltype(::vkDestroyDevice)*)_vkLoader("vkDestroyDevice");
+    auto _vkGetDeviceProcAddr = (decltype(::vkGetDeviceProcAddr)*)_vkLoader("vkGetDeviceProcAddr");
+
+    VkInstance _vkInstance = nullptr;
+    VkPhysicalDevice _vkPhysicalDevice = nullptr;
+    VkDevice _vkDevice = nullptr;
+
+    if (_vkCreateInstance == nullptr ||
+        _vkDestroyInstance == nullptr ||
+        _vkGetInstanceProcAddr == nullptr ||
+        _vkEnumeratePhysicalDevices == nullptr ||
+        _vkGetPhysicalDeviceProperties == nullptr ||
+        _vkGetPhysicalDeviceQueueFamilyProperties == nullptr ||
+        _vkCreateDevice == nullptr ||
+        _vkDestroyDevice == nullptr ||
+        _vkGetDeviceProcAddr == nullptr)
+    {
+        return driver;
+    }
+
+    {
+        VkInstanceCreateInfo info = { };
+        const char* instanceExtension = VK_KHR_SURFACE_EXTENSION_NAME;
+
+        info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        info.enabledExtensionCount = 1;
+        info.ppEnabledExtensionNames = &instanceExtension;
+
+        _vkCreateInstance(&info, nullptr, &_vkInstance);
+    }
+    {
+        uint32_t physicalDeviceCount;
+        std::vector<VkPhysicalDevice> physicalDevices;
+        VkPhysicalDeviceProperties physicalDeviceProperties;
+
+        _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, NULL);
+        physicalDevices.resize(physicalDeviceCount);
+        _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, physicalDevices.data());
+
+        for (uint32_t i = 0; i < physicalDeviceCount; ++i)
+        {
+            _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
+            if (!VulkanPhysicalDeviceHasExtension(_vkEnumerateDeviceExtensionProperties, physicalDevices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+                continue;
+
+            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            {
+                _vkPhysicalDevice = physicalDevices[i];
+            }
+            else if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            {
+                _vkPhysicalDevice = physicalDevices[i];
+                break;
+            }
+        }
+    }
+    int32_t queueFamilyIndex = -1;
+    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = VulkanGetFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
+    {
+        _vkDestroyInstance(_vkInstance, nullptr);
+        return driver;
+    }
+
+    {
+        const char* deviceExtension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        const float queuePriority = 1.0f;
+
+        VkDeviceQueueCreateInfo queueInfo = { };
+        queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfo.queueFamilyIndex = queueFamilyIndex;
+        queueInfo.queueCount = 1;
+        queueInfo.pQueuePriorities = &queuePriority;
+
+        VkDeviceCreateInfo createInfo = { };
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos = &queueInfo;
+        createInfo.enabledExtensionCount = 1;
+        createInfo.ppEnabledExtensionNames = &deviceExtension;
+
+        if (_vkCreateDevice(_vkPhysicalDevice, &createInfo, nullptr, &_vkDevice) != VkResult::VK_SUCCESS)
+        {
+            _vkDestroyInstance(_vkInstance, nullptr);
+            return driver;
+        }
+    }
+
+    auto _vkAcquireNextImageKHR = (decltype(::vkAcquireNextImageKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkAcquireNextImageKHR");
+    auto _vkAcquireNextImage2KHR = (decltype(::vkAcquireNextImage2KHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkAcquireNextImage2KHR");
+    auto _vkQueuePresentKHR = (decltype(::vkQueuePresentKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkQueuePresentKHR");
+    auto _vkCreateSwapchainKHR = (decltype(::vkCreateSwapchainKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkCreateSwapchainKHR");
+
+    _vkDestroyDevice(_vkDevice, nullptr);
+    _vkDestroyInstance(_vkInstance, nullptr);
+
+    if (_vkAcquireNextImageKHR == nullptr ||
+        _vkQueuePresentKHR == nullptr ||
+        _vkCreateSwapchainKHR == nullptr)
+    {
+        return driver;
+    }
+
+    driver.vkLoader = std::move(_vkLoader);
+
+    driver.vkAcquireNextImageKHR = _vkAcquireNextImageKHR;
+    driver.vkAcquireNextImage2KHR = _vkAcquireNextImage2KHR;
+    driver.vkQueuePresentKHR = _vkQueuePresentKHR;
+    driver.vkCreateSwapchainKHR = _vkCreateSwapchainKHR;
+    driver.vkDestroyDevice = _vkDestroyDevice;
+
+    driver.LibraryPath = System::Library::GetLibraryPath(hVulkan);
+    return driver;
+}
 
 class RendererDetector_t
 {
@@ -740,8 +874,7 @@ private:
     decltype(&IDirect3DDevice9Ex::PresentEx) _IDirect3DDevice9ExPresentEx;
     decltype(&IDirect3DSwapChain9::Present)  _IDirect3DSwapChain9Present;
     decltype(::SwapBuffers)* _WGLSwapBuffers;
-    std::vector<VulkanDriverHook_t> _VulkanDrivers;
-    bool _VulkanVendorFound;
+    decltype(::vkQueuePresentKHR)* _VkQueuePresentKHR;
 
     bool _DXGIHooked;
     bool _DXGI1_2Hooked;
@@ -760,9 +893,9 @@ private:
     VulkanHook_t* _VulkanHook;
 
     std::string _SystemDirectory;
-    HWND _DummyWindowHandle = nullptr;
+    HWND _DummyWindowHandle;
     std::wstring _DummyWindowClassName;
-    ATOM _DummyWindowAtom = 0;
+    ATOM _DummyWindowAtom;
 
     RendererDetector_t() :
         _RendererHook(false),
@@ -770,13 +903,13 @@ private:
         _DetectionDone(false),
         _DetectionCount(0),
         _DetectionCancelled(false),
-        _IDXGISwapChainPresent(false),
-        _IDXGISwapChain1Present1(false),
-        _IDirect3DDevice9Present(false),
-        _IDirect3DDevice9ExPresentEx(false),
-        _IDirect3DSwapChain9Present(false),
-        _WGLSwapBuffers(false),
-        _VulkanVendorFound(false),
+        _IDXGISwapChainPresent(nullptr),
+        _IDXGISwapChain1Present1(nullptr),
+        _IDirect3DDevice9Present(nullptr),
+        _IDirect3DDevice9ExPresentEx(nullptr),
+        _IDirect3DSwapChain9Present(nullptr),
+        _WGLSwapBuffers(nullptr),
+        _VkQueuePresentKHR(nullptr),
         _DXGIHooked(false),
         _DXGI1_2Hooked(false),
         _DX12Hooked(false),
@@ -790,10 +923,12 @@ private:
         _DX11Hook(nullptr),
         _DX12Hook(nullptr),
         _OpenGLHook(nullptr),
-        _VulkanHook(nullptr)
+        _VulkanHook(nullptr),
+        _SystemDirectory(GetSystemDirectory()),
+        _DummyWindowHandle(nullptr),
+        _DummyWindowClassName(RandomString(64)),
+        _DummyWindowAtom(0)
     {
-        _SystemDirectory = GetSystemDirectory();
-        _DummyWindowClassName = RandomString(64);
     }
 
     template<typename T>
@@ -956,77 +1091,17 @@ private:
         return res;
     }
 
-    void Vulkan_HookDetected(VulkanDriverHook_t const& vulkanDriver)
-    {
-        _VulkanHook->LibraryName = vulkanDriver.HookedDriverPath;
-        _VulkanHook->LoadFunctions(
-            vulkanDriver.vkAcquireNextImageKHR,
-            vulkanDriver.vkQueuePresentKHR,
-            vulkanDriver.vkDestroyDevice,
-            vulkanDriver.GetProcAddress);
-        _HookDetected(_VulkanHook);
-    }
-
-    static VkResult VKAPI_CALL _MyVkQueueSubmitAMD(VkQueue Queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
+    static VkResult VKAPI_CALL _MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
-        auto useThisHook = false;
-        // This is needed because we hook multiple Vulkan drivers,
-        // so wait for all of them to be hooked before trying to detect it.
-        if (inst->_DetectionStarted && inst->_VulkanHooked && !inst->_VulkanVendorFound)
-        {
-            useThisHook = true;
-            inst->_VulkanVendorFound = true;
-        }
-
-        SPDLOG_INFO("[AMD] vkQueueSubmit");
-        auto res = inst->_VulkanDrivers[VULKAN_DRIVER_AMD].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
+        SPDLOG_INFO("vkQueueSubmit");
+        auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
         if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
 
-        inst->Vulkan_HookDetected(inst->_VulkanDrivers[VULKAN_DRIVER_AMD]);
-
-        return res;
-    }
-
-    static VkResult VKAPI_CALL _MyVkQueueSubmitNVidia(VkQueue Queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
-    {
-        auto inst = Inst();
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
-
-        auto useThisHook = false;
-        // This is needed because we hook multiple Vulkan drivers,
-        // so wait for all of them to be hooked before trying to detect it.
-        if (inst->_DetectionStarted && inst->_VulkanHooked && !inst->_VulkanVendorFound)
-        {
-            useThisHook = true;
-            inst->_VulkanVendorFound = true;
-        }
-
-        SPDLOG_INFO("[NVIDIA] vkQueueSubmit");
-        auto res = inst->_VulkanDrivers[VULKAN_DRIVER_NVIDIA].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
-        if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
-            return res;
-
-        if (useThisHook)
-            inst->Vulkan_HookDetected(inst->_VulkanDrivers[VULKAN_DRIVER_NVIDIA]);
-
-        return res;
-    }
-
-    static VkResult VKAPI_CALL _MyVkQueueSubmitGeneric(VkQueue Queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
-    {
-        auto inst = Inst();
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
-
-        SPDLOG_INFO("[GENERIC] vkQueueSubmit");
-        auto res = inst->_VulkanDrivers[VULKAN_DRIVER_GENERIC].vkQueueSubmit(Queue, submitCount, pSubmits, fence);
-        if (!inst->_DetectionStarted || inst->_VulkanVendorFound || !inst->_VulkanHooked || inst->_DetectionDone)
-            return res;
-
-        inst->Vulkan_HookDetected(inst->_VulkanDrivers[VULKAN_DRIVER_GENERIC]);
+        inst->_HookDetected(inst->_VulkanHook);
 
         return res;
     }
@@ -1082,197 +1157,6 @@ private:
             _DetectionHooks.EndHook();
         }
     }
-
-    void _HookVkQueueSubmit(VulkanDriverHook_t& vulkanDriver)
-    {
-        _DetectionHooks.BeginHook();
-        TRY_HOOK_FUNCTION(vulkanDriver.vkQueueSubmit, vulkanDriver._MyVkQueueSubmit);
-        _DetectionHooks.EndHook();
-    }
-
-    void _SetupVulkanGenericDriver()
-    {
-        constexpr const char* WellKnownDrivers[] = {
-            VULKAN_DLL_NAME
-        };
-
-        auto& vulkanDriver = _VulkanDrivers[VULKAN_DRIVER_GENERIC];
-        for (auto wellKnownDriver : WellKnownDrivers)
-        {
-            auto driverHandle = System::Library::GetLibraryHandle(wellKnownDriver);
-            if (driverHandle == nullptr)
-                continue;
-
-            vulkanDriver.GetProcAddress = [driverHandle](const char* name)
-            {
-                return (void*)GetProcAddress((HMODULE)driverHandle, (LPCSTR)name);
-            };
-            vulkanDriver.DriverHandle = driverHandle;
-            vulkanDriver.HookedDriverPath = System::Library::GetLibraryPath(driverHandle);
-        }
-        vulkanDriver.KnownDriverNames.assign(WellKnownDrivers, WellKnownDrivers + (sizeof(WellKnownDrivers) / sizeof(WellKnownDrivers[0])));
-        vulkanDriver._MyVkQueueSubmit = _MyVkQueueSubmitGeneric;
-    }
-
-    void _SetupVulkanNVidiaDriver()
-    {
-#ifdef _WIN64
-        constexpr const char* WellKnownDrivers[] = {
-            "nvoglv64.dll"
-        };
-#else
-        constexpr const char* WellKnownDrivers[] = {
-            "nvoglv32.dll"
-        };
-#endif
-
-        auto& vulkanDriver = _VulkanDrivers[VULKAN_DRIVER_NVIDIA];
-        for (auto wellKnownDriver : WellKnownDrivers)
-        {
-            auto driverHandle = System::Library::GetLibraryHandle(wellKnownDriver);
-            if (driverHandle == nullptr)
-                continue;
-
-            vulkanDriver.GetProcAddress = (void* (*)(const char*))System::Library::GetSymbol(driverHandle, "vkGetProcAddressNV");
-            if (vulkanDriver.GetProcAddress == nullptr)
-                continue;
-
-            vulkanDriver.DriverHandle = driverHandle;
-            vulkanDriver.HookedDriverPath = System::Library::GetLibraryPath(driverHandle);
-        }
-        vulkanDriver.KnownDriverNames.assign(WellKnownDrivers, WellKnownDrivers + (sizeof(WellKnownDrivers) / sizeof(WellKnownDrivers[0])));
-        vulkanDriver._MyVkQueueSubmit = _MyVkQueueSubmitNVidia;
-    }
-
-    void _SetupVulkanAMDDriver()
-    {
-#ifdef _WIN64
-        constexpr const char* WellKnownDrivers[] = {
-            "amdvlk64.dll",
-            //"vulkan64.dll"
-        };
-#else
-        constexpr const char* WellKnownDrivers[] = {
-            "amdvlk32.dll",
-            //"vulkan32.dll"
-        };
-#endif
-
-        auto& vulkanDriver = _VulkanDrivers[VULKAN_DRIVER_AMD];
-        for (auto wellKnownDriver : WellKnownDrivers)
-        {
-            auto driverHandle = System::Library::GetLibraryHandle(wellKnownDriver);
-            if (driverHandle == nullptr)
-                continue;
-
-            vulkanDriver.GetProcAddress = [driverHandle](const char* name)
-            {
-                return (void*)GetProcAddress((HMODULE)driverHandle, (LPCSTR)name);
-            };
-            vulkanDriver.DriverHandle = driverHandle;
-            vulkanDriver.HookedDriverPath = System::Library::GetLibraryPath(driverHandle);
-        }
-        vulkanDriver.KnownDriverNames.assign(WellKnownDrivers, WellKnownDrivers + (sizeof(WellKnownDrivers) / sizeof(WellKnownDrivers[0])));
-        vulkanDriver._MyVkQueueSubmit = _MyVkQueueSubmitAMD;
-    }
-
-    VkDevice _CreateVulkanDriverDevice(VulkanDriverHook_t& vulkanDriver, VkInstance vulkanInstance)
-    {
-        std::vector<VkPhysicalDevice> vulkanPhysicalDevices;
-        uint32_t count;
-        VkDeviceCreateInfo vulkanDeviceCreateInfo{};
-        VkPhysicalDeviceProperties props{};
-        std::vector<VkExtensionProperties> vulkanExtensionProperties;
-        VkDevice vulkanDevice = nullptr;
-
-        vulkanDriver.vkEnumeratePhysicalDevices(vulkanInstance, &count, nullptr);
-        vulkanPhysicalDevices.resize(count);
-        vulkanDriver.vkEnumeratePhysicalDevices(vulkanInstance, &count, vulkanPhysicalDevices.data());
-
-        for (auto& device : vulkanPhysicalDevices)
-        {
-            vulkanDriver.vkGetPhysicalDeviceProperties(device, &props);
-            if (props.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && props.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
-                continue;
-
-            vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
-            vulkanExtensionProperties.resize(count);
-            vulkanDriver.vkEnumerateDeviceExtensionProperties(device, nullptr, &count, vulkanExtensionProperties.data());
-
-            for (auto& ext : vulkanExtensionProperties)
-            {
-                if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
-                    continue;
-
-                vulkanDeviceCreateInfo.sType = VkStructureType::VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-                vulkanDeviceCreateInfo.enabledExtensionCount = 1;
-                const char* str = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-                vulkanDeviceCreateInfo.ppEnabledExtensionNames = &str;
-                if (vulkanDriver.vkCreateDevice(device, &vulkanDeviceCreateInfo, nullptr, &vulkanDevice) == VkResult::VK_SUCCESS && vulkanDevice != nullptr)
-                    return vulkanDevice;
-            }
-        }
-
-        return nullptr;
-    }
-
-    void _SetupVulkanDriver(VulkanDriverHook_t& vulkanDriver)
-    {
-        VkInstanceCreateInfo vulkanInstanceCreateInfo{};
-        VkInstance vulkanInstance = nullptr;
-        VkDevice vulkanDevice = nullptr;
-
-        vulkanInstanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-
-        if (vulkanDriver.GetProcAddress == nullptr)
-            return;
-
-        vulkanDriver.vkCreateInstance = (decltype(::vkCreateInstance)*)vulkanDriver.GetProcAddress("vkCreateInstance");
-        vulkanDriver.vkDestroyInstance = (decltype(::vkDestroyInstance)*)vulkanDriver.GetProcAddress("vkDestroyInstance");
-        vulkanDriver.vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)vulkanDriver.GetProcAddress("vkGetInstanceProcAddr");
-        vulkanDriver.vkEnumerateInstanceExtensionProperties = (decltype(::vkEnumerateInstanceExtensionProperties)*)vulkanDriver.GetProcAddress("vkEnumerateInstanceExtensionProperties");
-
-        if (vulkanDriver.vkCreateInstance == nullptr ||
-            vulkanDriver.vkDestroyInstance == nullptr ||
-            vulkanDriver.vkGetInstanceProcAddr == nullptr ||
-            vulkanDriver.vkEnumerateInstanceExtensionProperties == nullptr)
-            return;
-
-        if (vulkanDriver.vkCreateInstance(&vulkanInstanceCreateInfo, nullptr, &vulkanInstance) != VkResult::VK_SUCCESS || vulkanInstance == nullptr)
-            return;
-
-        vulkanDriver.vkCreateDevice = (decltype(::vkCreateDevice)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkCreateDevice");
-        vulkanDriver.vkDestroyDevice = (decltype(::vkDestroyDevice)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkDestroyDevice");
-        vulkanDriver.vkGetDeviceProcAddr = (decltype(::vkGetDeviceProcAddr)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkGetDeviceProcAddr");
-        vulkanDriver.vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkEnumeratePhysicalDevices");
-        vulkanDriver.vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkEnumerateDeviceExtensionProperties");
-        vulkanDriver.vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)vulkanDriver.vkGetInstanceProcAddr(vulkanInstance, "vkGetPhysicalDeviceProperties");
-
-        if (vulkanDriver.vkCreateDevice == nullptr ||
-            vulkanDriver.vkDestroyDevice == nullptr ||
-            vulkanDriver.vkGetDeviceProcAddr == nullptr ||
-            vulkanDriver.vkEnumeratePhysicalDevices == nullptr ||
-            vulkanDriver.vkEnumerateDeviceExtensionProperties == nullptr ||
-            vulkanDriver.vkGetPhysicalDeviceProperties == nullptr
-            )
-        {
-            vulkanDriver.vkDestroyInstance(vulkanInstance, nullptr);
-            return;
-        }
-
-        vulkanDevice = _CreateVulkanDriverDevice(vulkanDriver, vulkanInstance);
-
-        if (vulkanDevice != nullptr)
-        {
-            vulkanDriver.vkAcquireNextImageKHR = (decltype(::vkAcquireNextImageKHR)*)vulkanDriver.vkGetDeviceProcAddr(vulkanDevice, "vkAcquireNextImageKHR");
-            vulkanDriver.vkQueuePresentKHR = (decltype(::vkQueuePresentKHR)*)vulkanDriver.vkGetDeviceProcAddr(vulkanDevice, "vkQueuePresentKHR");
-            vulkanDriver.vkQueueSubmit = (decltype(::vkQueueSubmit)*)vulkanDriver.vkGetDeviceProcAddr(vulkanDevice, "vkQueueSubmit");
-            vulkanDriver.vkDestroyDevice(vulkanDevice, nullptr);
-        }
-
-        vulkanDriver.vkDestroyInstance(vulkanInstance, nullptr);
-    }
-
     void _HookDX9(std::string const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX9Hooked)
@@ -1396,25 +1280,33 @@ private:
     {
         if (!_VulkanHooked)
         {
-            _VulkanDrivers.resize(VULKAN_DRIVER_COUNT);
-            _SetupVulkanGenericDriver();
-            _SetupVulkanNVidiaDriver();
-            _SetupVulkanAMDDriver();
-
-            for (auto& vulkanDriver : _VulkanDrivers)
+            auto driver = GetVulkanDriver(libraryPath);
+            if (driver.vkQueuePresentKHR != nullptr)
             {
-                _SetupVulkanDriver(vulkanDriver);
+                SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
+                _VulkanHooked = true;
 
-                if (vulkanDriver.vkQueueSubmit == nullptr || vulkanDriver.vkAcquireNextImageKHR == nullptr || vulkanDriver.vkQueuePresentKHR == nullptr)
-                    continue;
+                _VkQueuePresentKHR = driver.vkQueuePresentKHR;
 
-                SPDLOG_INFO("Hooked vkQueueSubmit ({}) to detect Vulkan", vulkanDriver.KnownDriverNames[0]);
-                _HookVkQueueSubmit(vulkanDriver);
+                _VulkanHook = VulkanHook_t::Inst();
+                _VulkanHook->LibraryName = driver.LibraryPath;
+                _VulkanHook->LoadFunctions(
+                    driver.vkLoader,
+                    driver.vkAcquireNextImageKHR,
+                    driver.vkAcquireNextImage2KHR,
+                    driver.vkQueuePresentKHR,
+                    driver.vkCreateSwapchainKHR,
+                    driver.vkDestroyDevice);
+                _VulkanHooked = true;
+
+                _DetectionHooks.BeginHook();
+                TRY_HOOK_FUNCTION(_VkQueuePresentKHR, &RendererDetector_t::_MyvkQueuePresentKHR);
+                _DetectionHooks.EndHook();
             }
-
-            _VulkanHook = VulkanHook_t::Inst();
-
-            _VulkanHooked = true;
+            else
+            {
+                SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
+            }
         }
     }
 
@@ -1509,12 +1401,12 @@ public:
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]
             {
-                { OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
+                //{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
                 { VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan },
-                {   DX12_DLL_NAME, &RendererDetector_t::_HookDX12   },
-                {   DX11_DLL_NAME, &RendererDetector_t::_HookDX11   },
-                {   DX10_DLL_NAME, &RendererDetector_t::_HookDX10   },
-                {    DX9_DLL_NAME, &RendererDetector_t::_HookDX9    },
+                //{   DX12_DLL_NAME, &RendererDetector_t::_HookDX12   },
+                //{   DX11_DLL_NAME, &RendererDetector_t::_HookDX11   },
+                //{   DX10_DLL_NAME, &RendererDetector_t::_HookDX10   },
+                //{    DX9_DLL_NAME, &RendererDetector_t::_HookDX9    },
             };
             std::string name;
 

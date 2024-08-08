@@ -64,11 +64,14 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 {
     if (!_Hooked)
     {
-        if (_VkAcquireNextImageKHR == nullptr || _VkQueuePresentKHR == nullptr || _VkDestroyDevice  == nullptr || _VulkanFunctionLoader == nullptr)
+        if (_VkAcquireNextImageKHR == nullptr || _VkQueuePresentKHR == nullptr || _VkCreateSwapchainKHR == nullptr || _VkDestroyDevice  == nullptr)
         {
             SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
         }
+
+        if (!_CreateVulkanInstance())
+            return false;
 
         if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
@@ -78,6 +81,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
         BeginHook();
         TRY_HOOK_FUNCTION(VkAcquireNextImageKHR);
         TRY_HOOK_FUNCTION(VkQueuePresentKHR);
+        TRY_HOOK_FUNCTION(VkCreateSwapchainKHR);
         TRY_HOOK_FUNCTION(VkDestroyDevice);
         EndHook();
 
@@ -113,6 +117,7 @@ bool VulkanHook_t::_AllocDescriptorPool()
     {
         { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDescriptorCountPerPool },
     };
+
     VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
     descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -121,7 +126,6 @@ bool VulkanHook_t::_AllocDescriptorPool()
     descriptorPoolCreateInfo.pPoolSizes = poolSizes;
     if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == VK_NULL_HANDLE)
         return false;
-
     
     _DescriptorsPools.emplace_back();
     auto& descriptorPool = *_DescriptorsPools.rbegin();
@@ -135,7 +139,7 @@ VulkanHook_t::VulkanDescriptorSet_t VulkanHook_t::_GetFreeDescriptorSetFromPool(
     auto& descriptorsPool = _DescriptorsPools[poolIndex];
     VkDescriptorSet vulkanDescriptorSet = VK_NULL_HANDLE;
     VulkanDescriptorSet_t descriptorSet;
-
+    
     VkDescriptorSetAllocateInfo alloc_info = {};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = descriptorsPool.DescriptorPool;
@@ -145,7 +149,7 @@ VulkanHook_t::VulkanDescriptorSet_t VulkanHook_t::_GetFreeDescriptorSetFromPool(
     
     descriptorSet.DescriptorPoolId = MakeImageDescriptorId(poolIndex, descriptorsPool.UsedDescriptors++);
     descriptorSet.DescriptorSet = vulkanDescriptorSet;
-
+    
     return descriptorSet;
 }
 
@@ -173,119 +177,174 @@ void VulkanHook_t::_ReleaseDescriptor(uint32_t id, VkDescriptorSet descriptorSet
 
 void VulkanHook_t::_CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout)
 {
-    VkDescriptorImageInfo desc_image[1] = {};
-    desc_image[0].sampler = _VulkanImageSampler;
-    desc_image[0].imageView = imageView;
-    desc_image[0].imageLayout = imageLayout;
-    VkWriteDescriptorSet write_desc[1] = {};
-    write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write_desc[0].dstSet = descriptorSet;
-    write_desc[0].descriptorCount = 1;
-    write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write_desc[0].pImageInfo = desc_image;
-    _vkUpdateDescriptorSets(_VulkanDevice, 1, write_desc, 0, nullptr);
+    //VkDescriptorImageInfo desc_image[1] = {};
+    //desc_image[0].sampler = _VulkanImageSampler;
+    //desc_image[0].imageView = imageView;
+    //desc_image[0].imageLayout = imageLayout;
+    //VkWriteDescriptorSet write_desc[1] = {};
+    //write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    //write_desc[0].dstSet = descriptorSet;
+    //write_desc[0].descriptorCount = 1;
+    //write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    //write_desc[0].pImageInfo = desc_image;
+    //_vkUpdateDescriptorSets(_VulkanDevice, 1, write_desc, 0, nullptr);
 }
 
 bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
 {
-    uint32_t backBufferCount;
-    std::vector<VkImage> backBuffers;
-    _vkGetSwapchainImagesKHR(_VulkanDevice, swapChain, &backBufferCount, nullptr);
-    backBuffers.resize(backBufferCount);
-    _vkGetSwapchainImagesKHR(_VulkanDevice, swapChain, &backBufferCount, backBuffers.data());
+    auto vkGetSwapchainImagesKHR = (decltype(::vkGetSwapchainImagesKHR)*)_vkGetDeviceProcAddr(_VulkanDevice, "vkGetSwapchainImagesKHR");
 
-    VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    commandPoolCreateInfo.flags = 0;
-    commandPoolCreateInfo.queueFamilyIndex = _QueueFamilyIndex;
+    uint32_t swapchainImageCount;
+    vkGetSwapchainImagesKHR(_VulkanDevice, swapChain, &swapchainImageCount, NULL);
 
-    VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
-    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    commandBufferAllocateInfo.commandBufferCount = 1;
+    std::vector<VkImage> backbuffers(swapchainImageCount);
+    vkGetSwapchainImagesKHR(_VulkanDevice, swapChain, &swapchainImageCount, backbuffers.data());
 
-    VkImageViewCreateInfo imageViewCreateInfo = {};
-    imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    // TODO: Find a way to use the correct format
-    imageViewCreateInfo.format = VK_FORMAT_B8G8R8A8_UNORM;
-    imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_R;
-    imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_G;
-    imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_B;
-    imageViewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_A;
-    VkImageSubresourceRange image_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-    imageViewCreateInfo.subresourceRange = image_range;
+    _Frames.resize(swapchainImageCount);
+    _FrameSemaphores.resize(swapchainImageCount);
 
-    VkImageView attachment[1];
-    VkFramebufferCreateInfo framebufferCreateInfo = {};
-    framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebufferCreateInfo.renderPass = _VulkanRenderPass;
-    framebufferCreateInfo.attachmentCount = 1;
-    framebufferCreateInfo.pAttachments = attachment;
-    framebufferCreateInfo.width = ImGui::GetIO().DisplaySize.x;
-    framebufferCreateInfo.height = ImGui::GetIO().DisplaySize.y;
-    framebufferCreateInfo.layers = 1;
-
-    VkSemaphoreCreateInfo semaphoreCreateInfo{};
-    semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-
-    VkFenceCreateInfo fenceCreateInfo{};
-    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    _Frames.resize(backBufferCount);
-    for (uint32_t i = 0; i < backBufferCount; i++)
+    for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
         auto& frame = _Frames[i];
+        auto& frameSemaphores = _FrameSemaphores[i];
 
-        if (_vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &frame.CommandPool) != VkResult::VK_SUCCESS || frame.CommandPool == VK_NULL_HANDLE)
-            return false;
+        frame.Backbuffer = backbuffers[i];
 
-        commandBufferAllocateInfo.commandPool = frame.CommandPool;
-        if (_vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &frame.CommandBuffer) != VkResult::VK_SUCCESS || frame.CommandBuffer == VK_NULL_HANDLE)
         {
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
-            return false;
-        }
+            VkCommandPoolCreateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            info.queueFamilyIndex = _VulkanQueueFamily;
 
-        imageViewCreateInfo.image = backBuffers[i];
-        if (_vkCreateImageView(_VulkanDevice, &imageViewCreateInfo, nullptr, &frame.RenderTarget) != VkResult::VK_SUCCESS || frame.RenderTarget == VK_NULL_HANDLE)
+            _vkCreateCommandPool(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.CommandPool);
+        }
         {
-            _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
-            return false;
-        }
+            VkCommandBufferAllocateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            info.commandPool = frame.CommandPool;
+            info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            info.commandBufferCount = 1;
 
-        attachment[0] = frame.RenderTarget;
-        if (_vkCreateFramebuffer(_VulkanDevice, &framebufferCreateInfo, nullptr, &frame.Framebuffer) != VkResult::VK_SUCCESS || frame.Framebuffer == VK_NULL_HANDLE)
+            _vkAllocateCommandBuffers(_VulkanDevice, &info, &frame.CommandBuffer);
+        }
         {
-            _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
-            _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
-            return false;
+            VkFenceCreateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            _vkCreateFence(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Fence);
         }
-
-        if (_vkCreateSemaphore(_VulkanDevice, &semaphoreCreateInfo, nullptr, &frame.Semaphore) != VkResult::VK_SUCCESS || frame.Semaphore == VK_NULL_HANDLE)
         {
-            _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
-            _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
-            _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
-            return false;
+            VkSemaphoreCreateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            _vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frameSemaphores.ImageAcquiredSemaphore);
+            _vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frameSemaphores.RenderCompleteSemaphore);
         }
-
-        if (_vkCreateFence(_VulkanDevice, &fenceCreateInfo, nullptr, &frame.Fence) != VkResult::VK_SUCCESS || frame.Fence == VK_NULL_HANDLE)
-        {
-            _vkDestroySemaphore(_VulkanDevice, frame.Semaphore, nullptr);
-            _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
-            _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
-            _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
-            return false;
-        }
-
-        frame.BackBuffer = backBuffers[i];
     }
+
+    // Create the Render Pass
+    {
+        VkAttachmentDescription attachment = { };
+        attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
+        attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference colorAttachment = { };
+        colorAttachment.attachment = 0;
+        colorAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass = { };
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &colorAttachment;
+
+        VkRenderPassCreateInfo info = { };
+        info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        info.attachmentCount = 1;
+        info.pAttachments = &attachment;
+        info.subpassCount = 1;
+        info.pSubpasses = &subpass;
+
+        _vkCreateRenderPass(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanRenderPass);
+    }
+
+    // Create The Image Views
+    {
+        VkImageViewCreateInfo info = { };
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.format = VK_FORMAT_B8G8R8A8_UNORM;
+
+        info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        info.subresourceRange.baseMipLevel = 0;
+        info.subresourceRange.levelCount = 1;
+        info.subresourceRange.baseArrayLayer = 0;
+        info.subresourceRange.layerCount = 1;
+
+        for (uint32_t i = 0; i < swapchainImageCount; ++i)
+        {
+            auto& frame = _Frames[i];
+            info.image = frame.Backbuffer;
+
+            _vkCreateImageView(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.BackbufferView);
+        }
+    }
+
+    // Create Framebuffer
+    {
+        VkImageView attachment[1];
+        VkFramebufferCreateInfo info = { };
+        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        info.renderPass = _VulkanRenderPass;
+        info.attachmentCount = 1;
+        info.pAttachments = attachment;
+        info.layers = 1;
+
+        for (uint32_t i = 0; i < swapchainImageCount; ++i)
+        {
+            auto& frame = _Frames[i];
+            attachment[0] = frame.BackbufferView;
+
+            _vkCreateFramebuffer(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Framebuffer);
+        }
+    }
+
+    if (_DescriptorsPools.empty())
+    {
+        _AllocDescriptorPool();
+    }
+
+    if (_VulkanImageCommandPool == nullptr)
+    {
+        VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+        commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        commandPoolCreateInfo.flags = 0;
+        commandPoolCreateInfo.queueFamilyIndex = _VulkanQueueFamily;
+        _vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &_VulkanImageCommandPool);
+        
+        VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
+        commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        commandBufferAllocateInfo.commandPool = _VulkanImageCommandPool;
+        commandBufferAllocateInfo.commandBufferCount = 1;
+        _vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &_VulkanImageCommandBuffer);
+
+        VkDescriptorSetLayoutBinding binding[1] = {};
+        binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding[0].descriptorCount = 1;
+        binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo info = {};
+        info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        info.bindingCount = 1;
+        info.pBindings = binding;
+        _vkCreateDescriptorSetLayout(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanDescriptorSetLayout);
+    }
+
+    _HookState = OverlayHookState::Ready;
+
     return true;
 }
 
@@ -293,25 +352,34 @@ void VulkanHook_t::_DestroyRenderTargets()
 {
     for (auto& frame : _Frames)
     {
-        if (frame.Fence != VK_NULL_HANDLE)
-            _vkDestroyFence(_VulkanDevice, frame.Fence, nullptr);
+        if (frame.Fence)
+            _vkDestroyFence(_VulkanDevice, frame.Fence, _VulkanAllocationCallbacks);
 
-        if (frame.Semaphore != VK_NULL_HANDLE)
-            _vkDestroySemaphore(_VulkanDevice, frame.Semaphore, nullptr);
-
-        if (frame.Framebuffer != VK_NULL_HANDLE)
-            _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, nullptr);
-
-        if (frame.RenderTarget != VK_NULL_HANDLE)
-            _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, nullptr);
-
-        if (frame.CommandBuffer != VK_NULL_HANDLE)
+        if (frame.CommandBuffer)
             _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &frame.CommandBuffer);
 
-        if (frame.CommandPool != VK_NULL_HANDLE)
-            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, nullptr);
+        if (frame.CommandPool)
+            _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, _VulkanAllocationCallbacks);
+
+        if (frame.BackbufferView)
+            _vkDestroyImageView(_VulkanDevice, frame.BackbufferView, _VulkanAllocationCallbacks);
+
+        if (frame.Framebuffer)
+            _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, _VulkanAllocationCallbacks);
     }
     _Frames.clear();
+
+    for (auto& frameSemaphores : _FrameSemaphores)
+    {
+        if (frameSemaphores.ImageAcquiredSemaphore)
+            _vkDestroySemaphore(_VulkanDevice, frameSemaphores.ImageAcquiredSemaphore, _VulkanAllocationCallbacks);
+
+        if (frameSemaphores.RenderCompleteSemaphore)
+            _vkDestroySemaphore(_VulkanDevice, frameSemaphores.RenderCompleteSemaphore, _VulkanAllocationCallbacks);
+    }
+    _FrameSemaphores.clear();
+
+    _HookState = OverlayHookState::Reset;
 }
 
 void VulkanHook_t::_ResetRenderState(OverlayHookState state)
@@ -380,148 +448,117 @@ bool VulkanHook_t::_FindApplicationHWND()
 
 void VulkanHook_t::_FreeVulkanRessources()
 {
-    if (_VulkanInstance == nullptr)
-        return;
-
-    if (_VulkanDevice != nullptr)
-    {
-        _DestroyRenderTargets();
-
-        if (_VulkanImageSampler != VK_NULL_HANDLE)
-        {
-            _vkDestroySampler(_VulkanDevice, _VulkanImageSampler, nullptr);
-            _VulkanImageSampler = VK_NULL_HANDLE;
-        }
-
-        if (_VulkanImageCommandBuffer != VK_NULL_HANDLE)
-        {
-            _vkFreeCommandBuffers(_VulkanDevice, _VulkanImageCommandPool, 1, &_VulkanImageCommandBuffer);
-            _VulkanImageCommandBuffer = VK_NULL_HANDLE;
-        }
-
-        if (_VulkanImageCommandPool != VK_NULL_HANDLE)
-        {
-            _vkDestroyCommandPool(_VulkanDevice, _VulkanImageCommandPool, nullptr);
-            _VulkanImageCommandPool = VK_NULL_HANDLE;
-        }
-
-        if (_VulkanDescriptorSetLayout != VK_NULL_HANDLE)
-        {
-            _vkDestroyDescriptorSetLayout(_VulkanDevice, _VulkanDescriptorSetLayout, nullptr);
-            _VulkanDescriptorSetLayout = VK_NULL_HANDLE;
-        }
-
-        _ImageResources.clear();
-        for (auto& pool : _DescriptorsPools)
-        {
-            _vkDestroyDescriptorPool(_VulkanDevice, pool.DescriptorPool, nullptr);
-        }
-        _DescriptorsPools.clear();
-
-        _DestroyRenderPass();
-
-        _VulkanDevice = nullptr;
-    }
-
-    _vkDestroyInstance(_VulkanInstance, nullptr);
-    _VulkanInstance = nullptr;
-    _VulkanPhysicalDevice = nullptr;
 }
 
 bool VulkanHook_t::_CreateVulkanInstance()
 {
-    VkInstanceCreateInfo instanceInfos{};
-    uint32_t propertiesCount;
-    std::vector<VkExtensionProperties> properties;
-    std::vector<const char*> instanceExtensions;
-
-#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_VulkanFunctionLoader(#NAME)
-    LOAD_VULKAN_FUNCTION(vkCreateInstance);
-    LOAD_VULKAN_FUNCTION(vkDestroyInstance);
-    LOAD_VULKAN_FUNCTION(vkGetInstanceProcAddr);
-    LOAD_VULKAN_FUNCTION(vkEnumerateInstanceExtensionProperties);
-#undef LOAD_VULKAN_FUNCTION
-
-    _vkEnumerateInstanceExtensionProperties(nullptr, &propertiesCount, nullptr);
-    properties.resize(propertiesCount);
-    auto err = _vkEnumerateInstanceExtensionProperties(nullptr, &propertiesCount, properties.data());
-
-    for (auto const& extension : { VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME })
-    {
-        if (_IsExtensionAvailable(properties, extension))
-            instanceExtensions.emplace_back(extension);
-    }
+    _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_VulkanLoader("vkGetInstanceProcAddr");
+    _vkCreateInstance = (decltype(::vkCreateInstance)*)_VulkanLoader("vkCreateInstance");
+    _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_VulkanLoader("_vkDestroyInstance");
 
     // Create Vulkan Instance
-    instanceInfos.enabledExtensionCount = (uint32_t)instanceExtensions.size();
-    instanceInfos.ppEnabledExtensionNames = instanceExtensions.data();
-
-    instanceInfos.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    bool result = _vkCreateInstance(&instanceInfos, nullptr, &_VulkanInstance) == VkResult::VK_SUCCESS && _VulkanInstance != nullptr;
-
-    if (result)
     {
-#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_vkGetInstanceProcAddr(_VulkanInstance, #NAME)
-        LOAD_VULKAN_FUNCTION(vkDeviceWaitIdle);
+        _VulkanInstance = nullptr;
+        VkInstanceCreateInfo createInfo = { };
+        constexpr const char* instance_extension = VK_KHR_SURFACE_EXTENSION_NAME;
 
-        LOAD_VULKAN_FUNCTION(vkQueueSubmit);
-        LOAD_VULKAN_FUNCTION(vkQueueWaitIdle);
-        LOAD_VULKAN_FUNCTION(vkGetDeviceQueue);
-        LOAD_VULKAN_FUNCTION(vkCreateRenderPass);
-        LOAD_VULKAN_FUNCTION(vkDestroyRenderPass);
-        LOAD_VULKAN_FUNCTION(vkCmdBeginRenderPass);
-        LOAD_VULKAN_FUNCTION(vkCmdEndRenderPass);
-        LOAD_VULKAN_FUNCTION(vkCreateSemaphore);
-        LOAD_VULKAN_FUNCTION(vkDestroySemaphore);
-        LOAD_VULKAN_FUNCTION(vkCreateBuffer);
-        LOAD_VULKAN_FUNCTION(vkDestroyBuffer);
-        LOAD_VULKAN_FUNCTION(vkMapMemory);
-        LOAD_VULKAN_FUNCTION(vkUnmapMemory);
-        LOAD_VULKAN_FUNCTION(vkFlushMappedMemoryRanges);
-        LOAD_VULKAN_FUNCTION(vkBindBufferMemory);
-        LOAD_VULKAN_FUNCTION(vkCmdCopyBufferToImage);
-        LOAD_VULKAN_FUNCTION(vkBindImageMemory);
-        LOAD_VULKAN_FUNCTION(vkCreateCommandPool);
-        LOAD_VULKAN_FUNCTION(vkResetCommandPool);
-        LOAD_VULKAN_FUNCTION(vkDestroyCommandPool);
-        LOAD_VULKAN_FUNCTION(vkCreateImageView);
-        LOAD_VULKAN_FUNCTION(vkDestroyImageView);
-        LOAD_VULKAN_FUNCTION(vkCreateSampler);
-        LOAD_VULKAN_FUNCTION(vkDestroySampler);
-        LOAD_VULKAN_FUNCTION(vkCreateImage);
-        LOAD_VULKAN_FUNCTION(vkDestroyImage);
-        LOAD_VULKAN_FUNCTION(vkAllocateMemory);
-        LOAD_VULKAN_FUNCTION(vkFreeMemory);
-        LOAD_VULKAN_FUNCTION(vkCmdPipelineBarrier);
-        LOAD_VULKAN_FUNCTION(vkAllocateCommandBuffers);
-        LOAD_VULKAN_FUNCTION(vkBeginCommandBuffer);
-        LOAD_VULKAN_FUNCTION(vkEndCommandBuffer);
-        LOAD_VULKAN_FUNCTION(vkFreeCommandBuffers);
-        LOAD_VULKAN_FUNCTION(vkCreateFramebuffer);
-        LOAD_VULKAN_FUNCTION(vkDestroyFramebuffer);
-        LOAD_VULKAN_FUNCTION(vkCreateFence);
-        LOAD_VULKAN_FUNCTION(vkWaitForFences);
-        LOAD_VULKAN_FUNCTION(vkResetFences);
-        LOAD_VULKAN_FUNCTION(vkDestroyFence);
-        LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
-        LOAD_VULKAN_FUNCTION(vkDestroyDescriptorPool);
-        LOAD_VULKAN_FUNCTION(vkCreateDescriptorSetLayout);
-        LOAD_VULKAN_FUNCTION(vkDestroyDescriptorSetLayout);
-        LOAD_VULKAN_FUNCTION(vkAllocateDescriptorSets);
-        LOAD_VULKAN_FUNCTION(vkUpdateDescriptorSets);
-        LOAD_VULKAN_FUNCTION(vkFreeDescriptorSets);
-        LOAD_VULKAN_FUNCTION(vkGetBufferMemoryRequirements);
-        LOAD_VULKAN_FUNCTION(vkGetImageMemoryRequirements);
-        LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
-        LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
-        LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
-        LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
-        LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
-        LOAD_VULKAN_FUNCTION(vkGetSwapchainImagesKHR);
-#undef LOAD_VULKAN_FUNCTION
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        createInfo.enabledExtensionCount = 1;
+        createInfo.ppEnabledExtensionNames = &instance_extension;
+
+        // Create Vulkan Instance without any debug feature
+        _vkCreateInstance(&createInfo, _VulkanAllocationCallbacks, &_VulkanInstance);
     }
 
-    return result;
+#define LOAD_VULKAN_FUNCTION(NAME) if (_##NAME == nullptr) _##NAME = (decltype(_##NAME))_LoadVulkanFunction(#NAME)
+    LOAD_VULKAN_FUNCTION(vkGetDeviceProcAddr);
+    LOAD_VULKAN_FUNCTION(vkDeviceWaitIdle);
+
+    LOAD_VULKAN_FUNCTION(vkQueueSubmit);
+    LOAD_VULKAN_FUNCTION(vkQueueWaitIdle);
+    LOAD_VULKAN_FUNCTION(vkGetDeviceQueue);
+    LOAD_VULKAN_FUNCTION(vkCreateRenderPass);
+    LOAD_VULKAN_FUNCTION(vkDestroyRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdBeginRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdEndRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCreateSemaphore);
+    LOAD_VULKAN_FUNCTION(vkDestroySemaphore);
+    LOAD_VULKAN_FUNCTION(vkCreateBuffer);
+    LOAD_VULKAN_FUNCTION(vkDestroyBuffer);
+    LOAD_VULKAN_FUNCTION(vkMapMemory);
+    LOAD_VULKAN_FUNCTION(vkUnmapMemory);
+    LOAD_VULKAN_FUNCTION(vkFlushMappedMemoryRanges);
+    LOAD_VULKAN_FUNCTION(vkBindBufferMemory);
+    LOAD_VULKAN_FUNCTION(vkCmdCopyBufferToImage);
+    LOAD_VULKAN_FUNCTION(vkBindImageMemory);
+    LOAD_VULKAN_FUNCTION(vkCreateCommandPool);
+    LOAD_VULKAN_FUNCTION(vkResetCommandPool);
+    LOAD_VULKAN_FUNCTION(vkDestroyCommandPool);
+    LOAD_VULKAN_FUNCTION(vkCreateImageView);
+    LOAD_VULKAN_FUNCTION(vkDestroyImageView);
+    LOAD_VULKAN_FUNCTION(vkCreateSampler);
+    LOAD_VULKAN_FUNCTION(vkDestroySampler);
+    LOAD_VULKAN_FUNCTION(vkCreateImage);
+    LOAD_VULKAN_FUNCTION(vkDestroyImage);
+    LOAD_VULKAN_FUNCTION(vkAllocateMemory);
+    LOAD_VULKAN_FUNCTION(vkFreeMemory);
+    LOAD_VULKAN_FUNCTION(vkCmdPipelineBarrier);
+    LOAD_VULKAN_FUNCTION(vkAllocateCommandBuffers);
+    LOAD_VULKAN_FUNCTION(vkBeginCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkResetCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkEndCommandBuffer);
+    LOAD_VULKAN_FUNCTION(vkFreeCommandBuffers);
+    LOAD_VULKAN_FUNCTION(vkCreateFramebuffer);
+    LOAD_VULKAN_FUNCTION(vkDestroyFramebuffer);
+    LOAD_VULKAN_FUNCTION(vkCreateFence);
+    LOAD_VULKAN_FUNCTION(vkWaitForFences);
+    LOAD_VULKAN_FUNCTION(vkResetFences);
+    LOAD_VULKAN_FUNCTION(vkDestroyFence);
+    LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
+    LOAD_VULKAN_FUNCTION(vkDestroyDescriptorPool);
+    LOAD_VULKAN_FUNCTION(vkCreateDescriptorSetLayout);
+    LOAD_VULKAN_FUNCTION(vkDestroyDescriptorSetLayout);
+    LOAD_VULKAN_FUNCTION(vkAllocateDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkUpdateDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkFreeDescriptorSets);
+    LOAD_VULKAN_FUNCTION(vkGetBufferMemoryRequirements);
+    LOAD_VULKAN_FUNCTION(vkGetImageMemoryRequirements);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
+    LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
+#undef LOAD_VULKAN_FUNCTION
+
+    if (!_GetPhysicalDevice())
+    {
+        _vkDestroyInstance(_VulkanInstance, _VulkanAllocationCallbacks);
+        return false;
+    }
+
+    // Select graphics queue family
+    {
+        _VulkanQueueFamily = uint32_t(-1);
+        uint32_t count;
+        _vkGetPhysicalDeviceQueueFamilyProperties(_VulkanPhysicalDevice, &count, NULL);
+        _VulkanQueueFamilies.resize(count);
+        _vkGetPhysicalDeviceQueueFamilyProperties(_VulkanPhysicalDevice, &count, _VulkanQueueFamilies.data());
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            if (_VulkanQueueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                _VulkanQueueFamily = i;
+                break;
+            }
+        }
+
+        if (_VulkanQueueFamily == uint32_t(-1))
+        {
+            _vkDestroyInstance(_VulkanInstance, _VulkanAllocationCallbacks);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 int32_t VulkanHook_t::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice)
@@ -542,104 +579,37 @@ int32_t VulkanHook_t::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice phys
 
 bool VulkanHook_t::_GetPhysicalDevice()
 {
-    std::vector<VkPhysicalDevice> physicalDevices;
-    std::vector<uint32_t> preferedPhysicalDevicesIndex;
-    std::vector<VkExtensionProperties> extensionProperties;
-    std::vector<VkQueueFamilyProperties> queuesFamilyProperties;
-    VkPhysicalDeviceProperties physicalDevicesProperties;
-    VkQueue vulkanQueue;
-    VkDeviceCreateInfo deviceCreateInfo{};
-    int queueFamilyIndex = -1;
-    uint32_t count = 0;
+    _VulkanPhysicalDevice = nullptr;
+    uint32_t physicalDeviceCount;
+    _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, nullptr);
+    std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
+    _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, physicalDevices.data());
 
-    _vkEnumeratePhysicalDevices(_VulkanInstance, &count, nullptr);
-    physicalDevices.resize(count);
-    _vkEnumeratePhysicalDevices(_VulkanInstance, &count, physicalDevices.data());
-
-    for (uint32_t i = 0; i < physicalDevices.size();)
+    VkPhysicalDeviceProperties properties;
+    for (uint32_t i = 0; i < physicalDeviceCount; ++i)
     {
-        _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDevicesProperties);
-        if (physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            physicalDevicesProperties.deviceType != VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+        _vkGetPhysicalDeviceProperties(physicalDevices[i], &properties);
+        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
         {
-            physicalDevices.erase(physicalDevices.begin() + i);
-            continue;
+            _VulkanPhysicalDevice = physicalDevices[i];
         }
-
-        if (physicalDevicesProperties.deviceType == VkPhysicalDeviceType::VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-            preferedPhysicalDevicesIndex.insert(preferedPhysicalDevicesIndex.begin(), i);
-        else
-            preferedPhysicalDevicesIndex.emplace_back(i);
-
-        ++i;
-    }
-
-    for (auto deviceIndex : preferedPhysicalDevicesIndex)
-    {
-        _vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, nullptr);
-        extensionProperties.resize(count);
-        _vkEnumerateDeviceExtensionProperties(physicalDevices[deviceIndex], nullptr, &count, extensionProperties.data());
-    
-        for (auto& extension : extensionProperties)
+        else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
         {
-            if (strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) != 0)
-                continue;
-    
-            queueFamilyIndex = _GetPhysicalDeviceFirstGraphicsQueue(physicalDevices[deviceIndex]);
-            if (queueFamilyIndex < 0)
-                continue;
-
-            _vkGetDeviceQueue(_VulkanDevice, queueFamilyIndex, 0, &vulkanQueue);
-            
-            _QueueFamilyIndex = queueFamilyIndex;
-            _VulkanPhysicalDevice = physicalDevices[deviceIndex];
-            _VulkanQueue = vulkanQueue;
-            return true;
+            _VulkanPhysicalDevice = physicalDevices[i];
+            break;
         }
     }
+    if (_VulkanPhysicalDevice == nullptr)
+    {
+        _vkDestroyInstance(_VulkanInstance, _VulkanAllocationCallbacks);
+        return false;
+    }
 
-    return false;
+    return true;
 }
 
 bool VulkanHook_t::_CreateRenderPass()
 {
-    VkRenderPass vulkanRenderPass = VK_NULL_HANDLE;
-    VkAttachmentDescription attachment = {};
-    // TODO: Find a way to use the correct format
-    attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
-    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    VkAttachmentReference color_attachment = {};
-    color_attachment.attachment = 0;
-    color_attachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &color_attachment;
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    VkRenderPassCreateInfo info = {};
-    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    info.attachmentCount = 1;
-    info.pAttachments = &attachment;
-    info.subpassCount = 1;
-    info.pSubpasses = &subpass;
-    info.dependencyCount = 1;
-    info.pDependencies = &dependency;
-    if (_vkCreateRenderPass(_VulkanDevice, &info, nullptr, &vulkanRenderPass) != VkResult::VK_SUCCESS || vulkanRenderPass == VK_NULL_HANDLE)
-        return false;
-
-    _VulkanRenderPass = vulkanRenderPass;
     return true;
 }
 
@@ -650,26 +620,6 @@ void VulkanHook_t::_DestroyRenderPass()
         _vkDestroyRenderPass(_VulkanDevice, _VulkanRenderPass, nullptr);
         _VulkanRenderPass = VK_NULL_HANDLE;
     }
-}
-
-bool VulkanHook_t::_SetupVulkanRenderer()
-{
-    if (!_CreateVulkanInstance())
-        return false;
-
-    if (!_GetPhysicalDevice())
-        return false;
-
-    if (!_AllocDescriptorPool())
-        return false;
-
-    if (!_CreateImageObjects())
-        return false;
-
-    if (!_CreateRenderPass())
-        return false;
-
-    return true;
 }
 
 uint32_t VulkanHook_t::_GetVulkanMemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits)
@@ -686,85 +636,106 @@ uint32_t VulkanHook_t::_GetVulkanMemoryType(VkMemoryPropertyFlags properties, ui
 
 bool VulkanHook_t::_CreateImageObjects()
 {
-    VkResult result;
-    VkSampler vulkanSampler = VK_NULL_HANDLE;
-    VkCommandPool vulkanCommandPool = VK_NULL_HANDLE;
-    VkCommandBuffer vulkanCommandBuffer = nullptr;
-    VkDescriptorSetLayout vulkanDescriptorSetLayout = VK_NULL_HANDLE;
+    //VkResult result;
+    //VkSampler vulkanSampler = VK_NULL_HANDLE;
+    //VkCommandPool vulkanCommandPool = VK_NULL_HANDLE;
+    //VkCommandBuffer vulkanCommandBuffer = nullptr;
+    //VkDescriptorSetLayout vulkanDescriptorSetLayout = VK_NULL_HANDLE;
+    //
+    //// Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
+    //VkSamplerCreateInfo samplerCreateInfo = {};
+    //samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    //samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+    //samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+    //samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    //samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    //samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    //samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    //samplerCreateInfo.minLod = -1000;
+    //samplerCreateInfo.maxLod = 1000;
+    //samplerCreateInfo.maxAnisotropy = 1.0f;
+    //result = _vkCreateSampler(_VulkanDevice, &samplerCreateInfo, nullptr, &vulkanSampler);
+    //_CheckVkResult(result);
+    //if (result != VkResult::VK_SUCCESS)
+    //    return false;
+    //
+    //// Create command pool/buffer
+    //VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+    //commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    //commandPoolCreateInfo.flags = 0;
+    //commandPoolCreateInfo.queueFamilyIndex = _QueueFamilyIndex;
+    //result = _vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &vulkanCommandPool);
+    //_CheckVkResult(result);
+    //if (result != VkResult::VK_SUCCESS)
+    //{
+    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
+    //    return false;
+    //}
+    //
+    //VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
+    //commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    //commandBufferAllocateInfo.commandPool = vulkanCommandPool;
+    //commandBufferAllocateInfo.commandBufferCount = 1;
+    //result = _vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &vulkanCommandBuffer);
+    //_CheckVkResult(result);
+    //if (result != VkResult::VK_SUCCESS)
+    //{
+    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
+    //    _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
+    //    return false;
+    //}
+    //
+    //VkDescriptorSetLayoutBinding binding[1] = {};
+    //binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    //binding[0].descriptorCount = 1;
+    //binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    //VkDescriptorSetLayoutCreateInfo info = {};
+    //info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    //info.bindingCount = 1;
+    //info.pBindings = binding;
+    //info.flags = VK_PIPELINE_LAYOUT_CREATE_INDEPENDENT_SETS_BIT_EXT;
+    //result = _vkCreateDescriptorSetLayout(_VulkanDevice, &info, nullptr, &vulkanDescriptorSetLayout);
+    //_CheckVkResult(result);
+    //if (result != VkResult::VK_SUCCESS)
+    //{
+    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
+    //    _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
+    //    return false;
+    //}
 
-    // Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
-    VkSamplerCreateInfo samplerCreateInfo = {};
-    samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-    samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerCreateInfo.minLod = -1000;
-    samplerCreateInfo.maxLod = 1000;
-    samplerCreateInfo.maxAnisotropy = 1.0f;
-    result = _vkCreateSampler(_VulkanDevice, &samplerCreateInfo, nullptr, &vulkanSampler);
-    _CheckVkResult(result);
-    if (result != VkResult::VK_SUCCESS)
-        return false;
-
-    // Create command pool/buffer
-    VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    commandPoolCreateInfo.flags = 0;
-    commandPoolCreateInfo.queueFamilyIndex = _QueueFamilyIndex;
-    result = _vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &vulkanCommandPool);
-    _CheckVkResult(result);
-    if (result != VkResult::VK_SUCCESS)
-    {
-        _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-        return false;
-    }
-
-    VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
-    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    commandBufferAllocateInfo.commandPool = vulkanCommandPool;
-    commandBufferAllocateInfo.commandBufferCount = 1;
-    result = _vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &vulkanCommandBuffer);
-    _CheckVkResult(result);
-    if (result != VkResult::VK_SUCCESS)
-    {
-        _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-        _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
-        return false;
-    }
-
-    VkDescriptorSetLayoutBinding binding[1] = {};
-    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    binding[0].descriptorCount = 1;
-    binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    VkDescriptorSetLayoutCreateInfo info = {};
-    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    info.bindingCount = 1;
-    info.pBindings = binding;
-    result = _vkCreateDescriptorSetLayout(_VulkanDevice, &info, nullptr, &vulkanDescriptorSetLayout);
-    _CheckVkResult(result);
-    if (result != VkResult::VK_SUCCESS)
-    {
-        _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-        _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
-        return false;
-    }
-
-    _VulkanImageSampler = vulkanSampler;
-    _VulkanImageCommandPool = vulkanCommandPool;
-    _VulkanImageCommandBuffer = vulkanCommandBuffer;
-    _VulkanDescriptorSetLayout = vulkanDescriptorSetLayout;
     return true;
 }
 
-void VulkanHook_t::_InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain)
+bool VulkanHook_t::_DoesQueueSupportGraphic(VkQueue queue)
 {
-    if (_HookState != OverlayHookState::Ready)
+    for (uint32_t i = 0; i < _VulkanQueueFamilies.size(); ++i)
     {
-        _VulkanDevice = vulkanDevice;
+        const VkQueueFamilyProperties& family = _VulkanQueueFamilies[i];
+        for (uint32_t j = 0; j < family.queueCount; ++j)
+        {
+            VkQueue it = VK_NULL_HANDLE;
+            _vkGetDeviceQueue(_VulkanDevice, i, j, &it);
 
+            if (queue == it && family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+void VulkanHook_t::_InitializeForOverlay(VkSwapchainKHR vulkanSwapChain)
+{
+}
+
+// Try to make this function and overlay's proc as short as possible or it might affect game's fps.
+void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+{
+    if (_VulkanDevice == nullptr)
+        return;
+
+    if (_HookState == OverlayHookState::Removing)
+    {
         if (!_FindApplicationHWND())
             return;
 
@@ -773,161 +744,173 @@ void VulkanHook_t::_InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR v
 
         WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
 
-        if (!_SetupVulkanRenderer())
+        if (_VulkanQueue == nullptr)
+            _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
+
+        _HookState = OverlayHookState::Reset;
+    }
+
+    const bool queueSupportsGraphic = _DoesQueueSupportGraphic(queue);
+
+    for (int i = 0; i < pPresentInfo->swapchainCount; ++i)
+    {
+        if (_Frames.empty())
         {
-            _FreeVulkanRessources();
-            return;
+            if (!_CreateRenderTargets(pPresentInfo->pSwapchains[0]))
+                return;
         }
 
-        if (!_CreateRenderTargets(vulkanSwapChain))
+        auto& frame = _Frames[pPresentInfo->pImageIndices[i]];
+
+        ImGui_ImplVulkanH_Frame* fd = &_Frames[pPresentInfo->pImageIndices[i]];
+        ImGui_ImplVulkanH_FrameSemaphores* fsd = &_FrameSemaphores[pPresentInfo->pImageIndices[i]];
         {
-            _FreeVulkanRessources();
-            return;
+            _vkWaitForFences(_VulkanDevice, 1, &fd->Fence, VK_TRUE, ~0ull);
+            _vkResetFences(_VulkanDevice, 1, &fd->Fence);
+        }
+        {
+            _vkResetCommandBuffer(fd->CommandBuffer, 0);
+
+            VkCommandBufferBeginInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+            _vkBeginCommandBuffer(fd->CommandBuffer, &info);
+        }
+        {
+            VkRenderPassBeginInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            info.renderPass = _VulkanRenderPass;
+            info.framebuffer = fd->Framebuffer;
+            info.renderArea.extent.width = ImGui::GetIO().DisplaySize.x;
+            info.renderArea.extent.height = ImGui::GetIO().DisplaySize.y;
+
+            _vkCmdBeginRenderPass(fd->CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        ImGui_ImplVulkan_LoadFunctions(_LoadVulkanFunction, this);
+        if (!ImGui::GetIO().BackendRendererUserData)
+        {
+            ImGui_ImplVulkan_InitInfo init_info = { };
+            init_info.Instance = _VulkanInstance;
+            init_info.PhysicalDevice = _VulkanPhysicalDevice;
+            init_info.Device = _VulkanDevice;
+            init_info.QueueFamily = _VulkanQueueFamily;
+            init_info.Queue = _VulkanQueue;
+            init_info.PipelineCache = nullptr;
+            init_info.DescriptorPool = _DescriptorsPools[0].DescriptorPool;
+            init_info.Subpass = 0;
+            init_info.MinImageCount = _Frames.size();
+            init_info.ImageCount = _Frames.size();
+            init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+            init_info.Allocator = _VulkanAllocationCallbacks;
 
-        ++_DescriptorsPools[0].UsedDescriptors;
+            ImGui_ImplVulkan_LoadFunctions(&VulkanHook_t::_LoadVulkanFunction, this);
+            ImGui_ImplVulkan_Init(&init_info, _VulkanRenderPass);
 
-        ImGui_ImplVulkan_InitInfo init_info = {};
-        init_info.PhysicalDevice = _VulkanPhysicalDevice;
-        init_info.Device = _VulkanDevice;
-        init_info.QueueFamily = _QueueFamilyIndex;
-        init_info.Queue = _VulkanQueue;
-        init_info.DescriptorPool = _DescriptorsPools[0].DescriptorPool;
-        init_info.FontSampler = _VulkanImageSampler;
-        init_info.FontCommandPool = _VulkanImageCommandPool;
-        init_info.FontCommandBuffer = _VulkanImageCommandBuffer;
-        init_info.FontDescriptorSet = _GetFreeDescriptorSet().DescriptorSet;
-        init_info.DescriptorSetLayout = _VulkanDescriptorSetLayout;
-        init_info.Subpass = 0;
-        init_info.MinImageCount = _Frames.size();
-        init_info.ImageCount = _Frames.size();
-        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        init_info.CheckVkResultFn = (void(*)(VkResult))_CheckVkResult;
+            ImGui_ImplVulkan_CreateFontsTexture(fd->CommandBuffer);
+        }
 
-        ImGui_ImplVulkan_Init(&init_info);
-
-        _RebuildRenderTargets = false;
-        _HookState = OverlayHookState::Ready;
-
-        OverlayHookReady(_HookState);
-    }
-
-    if (_RebuildRenderTargets)
-    {
-        OverlayHookReady(OverlayHookState::Reset);
-
-        _DestroyRenderTargets();
-
-        if (!_CreateRenderTargets(vulkanSwapChain))
-            _ResetRenderState(OverlayHookState::Removing);
-
-        _RebuildRenderTargets = false;
-    }
-}
-
-// Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-VulkanHook_t::VulkanFrame_t* VulkanHook_t::_PrepareForOverlay(uint32_t frameIndex)
-{
-    if (_HookState != OverlayHookState::Ready || _Frames.empty() || !ImGui_ImplVulkan_NewFrame() || !WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
-        return nullptr;
-
-    auto& frame = _Frames[frameIndex];
-
-    ImGui::NewFrame();
-
-    OverlayProc();
-
-    ImGui::Render();
-
-    _vkWaitForFences(_VulkanDevice, 1, &frame.Fence, VK_TRUE, UINT64_MAX);
-    
-    _vkResetFences(_VulkanDevice, 1, &frame.Fence);
-    
-    {
-        _vkResetCommandPool(_VulkanDevice, frame.CommandPool, 0);
-        VkCommandBufferBeginInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        _vkBeginCommandBuffer(frame.CommandBuffer, &info);
-    }
-    {
-        VkClearValue clearValue{};
-        VkRenderPassBeginInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        info.renderPass = _VulkanRenderPass;
-        info.framebuffer = frame.Framebuffer;
-        info.renderArea.extent.width = ImGui::GetIO().DisplaySize.x;
-        info.renderArea.extent.height = ImGui::GetIO().DisplaySize.y;
-        info.clearValueCount = 1;
-        info.pClearValues = &clearValue;
-        _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
-    }
-       
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer, VK_NULL_HANDLE);
+        ImGui_ImplVulkan_NewFrame();
+        if (!WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
+            return;
         
-    _vkCmdEndRenderPass(frame.CommandBuffer);
-    _vkEndCommandBuffer(frame.CommandBuffer);
-        
-    return &frame;
+        ImGui::NewFrame();
+
+        OverlayProc();
+
+        ImGui::Render();
+
+        // Record dear imgui primitives into command buffer
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), fd->CommandBuffer);
+
+        // Submit command buffer
+        _vkCmdEndRenderPass(fd->CommandBuffer);
+        _vkEndCommandBuffer(fd->CommandBuffer);
+
+        uint32_t waitSemaphoresCount = i == 0 ? pPresentInfo->waitSemaphoreCount : 0;
+        if (waitSemaphoresCount == 0 && !queueSupportsGraphic)
+        {
+            VkPipelineStageFlags stages_wait = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            {
+                VkSubmitInfo info = { };
+                info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+                info.pWaitDstStageMask = &stages_wait;
+
+                info.signalSemaphoreCount = 1;
+                info.pSignalSemaphores = &fsd->RenderCompleteSemaphore;
+
+                _vkQueueSubmit(queue, 1, &info, VK_NULL_HANDLE);
+            }
+            {
+                VkSubmitInfo info = { };
+                info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                info.commandBufferCount = 1;
+                info.pCommandBuffers = &fd->CommandBuffer;
+
+                info.pWaitDstStageMask = &stages_wait;
+                info.waitSemaphoreCount = 1;
+                info.pWaitSemaphores = &fsd->RenderCompleteSemaphore;
+
+                info.signalSemaphoreCount = 1;
+                info.pSignalSemaphores = &fsd->ImageAcquiredSemaphore;
+
+                _vkQueueSubmit(_VulkanQueue, 1, &info, fd->Fence);
+            }
+        }
+        else
+        {
+            std::vector<VkPipelineStageFlags> stages_wait(waitSemaphoresCount, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+            VkSubmitInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            info.commandBufferCount = 1;
+            info.pCommandBuffers = &fd->CommandBuffer;
+
+            info.pWaitDstStageMask = stages_wait.data();
+            info.waitSemaphoreCount = waitSemaphoresCount;
+            info.pWaitSemaphores = pPresentInfo->pWaitSemaphores;
+
+            info.signalSemaphoreCount = 1;
+            info.pSignalSemaphores = &fsd->ImageAcquiredSemaphore;
+
+            _vkQueueSubmit(_VulkanQueue, 1, &info, fd->Fence);
+        }
+    }
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
 {
     auto inst = VulkanHook_t::Inst();
 
-    auto res = inst->_VkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+    inst->_VulkanDevice = device;
+    return inst->_VkAcquireNextImageKHR(device, swapchain, timeout, semaphore, fence, pImageIndex);
+}
 
-    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
-    {
-        inst->_RebuildRenderTargets = true;
-    }
+VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
+{
+    auto inst = VulkanHook_t::Inst();
 
-    inst->_InitializeForOverlay(device, swapchain);
-
-    return res;
+    inst->_VulkanDevice = device;
+    return inst->_VkAcquireNextImage2KHR(device, pAcquireInfo, pImageIndex);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
     auto inst = VulkanHook_t::Inst();
-    auto phookPresentInfos = pPresentInfo;
-    auto hookPresentInfos = *pPresentInfo;
-    std::vector<VkSemaphore> semaphores(pPresentInfo->pWaitSemaphores, pPresentInfo->pWaitSemaphores + pPresentInfo->waitSemaphoreCount);
+    inst->_PrepareForOverlay(queue, pPresentInfo);
+    return inst->_VkQueuePresentKHR(queue, pPresentInfo);
+}
 
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.commandBufferCount = 1;
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    for (uint32_t i = 0; i < pPresentInfo->swapchainCount; ++i)
+VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain)
+{
+    auto inst = VulkanHook_t::Inst();
+    if (inst->_VulkanDevice == device)
     {
-        auto frame = inst->_PrepareForOverlay(pPresentInfo->pImageIndices[i]);
-        if (frame != nullptr)
-        {
-            submitInfo.pSignalSemaphores = &frame->Semaphore;
-            submitInfo.pCommandBuffers = &frame->CommandBuffer;
-            submitInfo.pWaitDstStageMask = &waitStage;
-            auto x = inst->_vkQueueSubmit(queue, 1, &submitInfo, frame->Fence);
-            
-            semaphores.emplace_back(frame->Semaphore);
-            
-            hookPresentInfos.pWaitSemaphores = semaphores.data();
-            hookPresentInfos.waitSemaphoreCount = semaphores.size();
-            phookPresentInfos = &hookPresentInfos;
-        }
+        inst->_ResetRenderState(OverlayHookState::Reset);
+        inst->_DestroyRenderTargets();
     }
-
-    auto res = inst->_VkQueuePresentKHR(queue, phookPresentInfos);
-
-    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
-    {
-        inst->_RebuildRenderTargets = true;
-    }
-
-    return res;
+    return inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
 }
 
 VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator)
@@ -943,26 +926,26 @@ VulkanHook_t::VulkanHook_t():
     _vkDeviceWaitIdle(nullptr),
     _Hooked(false),
     _WindowsHooked(false),
-    _RebuildRenderTargets(true),
     _HookState(OverlayHookState::Removing),
     _MainWindow(nullptr),
-    _VulkanPhysicalDevice(nullptr),
+    _VulkanLoader(nullptr),
+    _VulkanAllocationCallbacks(nullptr),
     _VulkanInstance(nullptr),
-    _VulkanDevice(nullptr),
-    _VulkanQueue(nullptr),
-    _QueueFamilyIndex(0),
-    _VulkanDescriptorSetLayout(VK_NULL_HANDLE),
-    _VulkanRenderPass(VK_NULL_HANDLE),
-    _VulkanImageSampler(VK_NULL_HANDLE),
-    _VulkanImageCommandPool(VK_NULL_HANDLE),
+    _VulkanPhysicalDevice(nullptr),
+    _VulkanImageCommandPool(nullptr),
     _VulkanImageCommandBuffer(nullptr),
+    _VulkanRenderPass(nullptr),
+    _VulkanQueue(nullptr),
+    _VulkanDevice(nullptr),
     _ImGuiFontAtlas(nullptr),
     _VkAcquireNextImageKHR(nullptr),
+    _VkAcquireNextImage2KHR(nullptr),
     _VkQueuePresentKHR(nullptr),
+    _VkCreateSwapchainKHR(nullptr),
     _VkDestroyDevice(nullptr),
     _vkCreateInstance(nullptr),
-    _vkDestroyInstance(nullptr),
     _vkGetInstanceProcAddr(nullptr),
+    _vkGetDeviceProcAddr(nullptr),
     _vkEnumerateInstanceExtensionProperties(nullptr),
     _vkGetDeviceQueue(nullptr),
     _vkQueueSubmit(nullptr),
@@ -995,6 +978,7 @@ VulkanHook_t::VulkanHook_t():
     _vkCmdPipelineBarrier(nullptr),
     _vkAllocateCommandBuffers(nullptr),
     _vkBeginCommandBuffer(nullptr),
+    _vkResetCommandBuffer(nullptr),
     _vkEndCommandBuffer(nullptr),
     _vkFreeCommandBuffers(nullptr),
     _vkCreateFramebuffer(nullptr),
@@ -1012,12 +996,10 @@ VulkanHook_t::VulkanHook_t():
     _vkFreeDescriptorSets(nullptr),
     _vkGetBufferMemoryRequirements(nullptr),
     _vkGetImageMemoryRequirements(nullptr),
-    _vkEnumerateDeviceExtensionProperties(nullptr),
     _vkEnumeratePhysicalDevices(nullptr),
     _vkGetPhysicalDeviceProperties(nullptr),
     _vkGetPhysicalDeviceQueueFamilyProperties(nullptr),
-    _vkGetPhysicalDeviceMemoryProperties(nullptr),
-    _vkGetSwapchainImagesKHR(nullptr)
+    _vkGetPhysicalDeviceMemoryProperties(nullptr)
 {
 }
 
@@ -1050,15 +1032,20 @@ RendererHookType_t VulkanHook_t::GetRendererHookType() const
 }
 
 void VulkanHook_t::LoadFunctions(
+    std::function<void* (const char*)> vkLoader,
     decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR,
+    decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR,
     decltype(::vkQueuePresentKHR)* vkQueuePresentKHR,
-    decltype(::vkDestroyDevice)* vkDestroyDevice,
-    std::function<void* (const char*)> vulkanFunctionLoader)
+    decltype(::vkCreateSwapchainKHR)* vkCreateSwapchainKHR,
+    decltype(::vkDestroyDevice)* vkDestroyDevice)
 {
+    _VulkanLoader = std::move(vkLoader);
+
     _VkAcquireNextImageKHR = vkAcquireNextImageKHR;
+    _VkAcquireNextImage2KHR = vkAcquireNextImage2KHR;
     _VkQueuePresentKHR = vkQueuePresentKHR;
+    _VkCreateSwapchainKHR = vkCreateSwapchainKHR;
     _VkDestroyDevice = vkDestroyDevice;
-    _VulkanFunctionLoader = std::move(vulkanFunctionLoader);
 }
 
 std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)

@@ -25,6 +25,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <backends/imgui_impl_vulkan.h>
+
 namespace InGameOverlay {
 
 class VulkanHook_t :
@@ -44,7 +46,8 @@ private:
         VkFramebuffer Framebuffer = VK_NULL_HANDLE;
         VkCommandPool CommandPool = VK_NULL_HANDLE;
         VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
-        VkSemaphore Semaphore = VK_NULL_HANDLE;
+        VkSemaphore RenderCompleteSemaphore = VK_NULL_HANDLE;
+        VkSemaphore ImageAcquiredSemaphore = VK_NULL_HANDLE;
         VkFence Fence = VK_NULL_HANDLE;
     };
 
@@ -65,22 +68,26 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _RebuildRenderTargets;
     OverlayHookState _HookState;
     HWND _MainWindow;
-    std::function<void* (const char*)> _VulkanFunctionLoader;
-    VkPhysicalDevice _VulkanPhysicalDevice;
+
+    std::function<void* (const char*)> _VulkanLoader;
+    VkAllocationCallbacks* _VulkanAllocationCallbacks;
     VkInstance _VulkanInstance;
-    VkDevice _VulkanDevice;
-    VkQueue _VulkanQueue;
-    uint32_t _QueueFamilyIndex;
-    VkDescriptorSetLayout _VulkanDescriptorSetLayout;
-    std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
-    VkSampler _VulkanImageSampler;
+    VkPhysicalDevice _VulkanPhysicalDevice;
+    std::vector<VkQueueFamilyProperties> _VulkanQueueFamilies;
+    uint32_t _VulkanQueueFamily;
     VkCommandPool _VulkanImageCommandPool;
     VkCommandBuffer _VulkanImageCommandBuffer;
+    VkDescriptorSetLayout _VulkanDescriptorSetLayout;
+    std::vector<ImGui_ImplVulkanH_Frame> _Frames;
+    std::vector<ImGui_ImplVulkanH_FrameSemaphores> _FrameSemaphores;
     VkRenderPass _VulkanRenderPass;
-    std::vector<VulkanFrame_t> _Frames;
+    VkQueue _VulkanQueue;
+    std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
+
+    VkDevice _VulkanDevice;
+
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
@@ -96,8 +103,8 @@ private:
     bool _CreateRenderTargets(VkSwapchainKHR swapChain);
     void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
-    void _InitializeForOverlay(VkDevice vulkanDevice, VkSwapchainKHR vulkanSwapChain);
-    VulkanFrame_t* _PrepareForOverlay(uint32_t frameIndex);
+    void _InitializeForOverlay(VkSwapchainKHR vulkanSwapChain);
+    void _PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
     PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);
@@ -108,17 +115,21 @@ private:
     bool _GetPhysicalDevice();
     bool _CreateRenderPass();
     void _DestroyRenderPass();
-    bool _SetupVulkanRenderer();
     uint32_t _GetVulkanMemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits);
     bool _CreateImageObjects();
+    bool _DoesQueueSupportGraphic(VkQueue queue);
 
     // Hook to render functions
     decltype(::vkAcquireNextImageKHR)* _VkAcquireNextImageKHR;
+    decltype(::vkAcquireNextImage2KHR)* _VkAcquireNextImage2KHR;
     decltype(::vkQueuePresentKHR)* _VkQueuePresentKHR;
+    decltype(::vkCreateSwapchainKHR)* _VkCreateSwapchainKHR;
     decltype(::vkDestroyDevice)* _VkDestroyDevice;
 
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex);
+    static VKAPI_ATTR VkResult VKAPI_CALL _MyVkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex);
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
+    static VKAPI_ATTR VkResult VKAPI_CALL _MyVkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain);
     static VKAPI_ATTR void     VKAPI_CALL _MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator);
 
     decltype(::vkDeviceWaitIdle)* _vkDeviceWaitIdle;
@@ -126,6 +137,7 @@ private:
     decltype(::vkCreateInstance)                         *_vkCreateInstance;
     decltype(::vkDestroyInstance)                        *_vkDestroyInstance;
     decltype(::vkGetInstanceProcAddr)                    *_vkGetInstanceProcAddr;
+    decltype(::vkGetDeviceProcAddr)                      *_vkGetDeviceProcAddr;
     decltype(::vkEnumerateInstanceExtensionProperties)   *_vkEnumerateInstanceExtensionProperties;
     decltype(::vkGetDeviceQueue)                         *_vkGetDeviceQueue;
     decltype(::vkQueueSubmit)                            *_vkQueueSubmit;
@@ -158,6 +170,7 @@ private:
     decltype(::vkCmdPipelineBarrier)                     *_vkCmdPipelineBarrier;
     decltype(::vkAllocateCommandBuffers)                 *_vkAllocateCommandBuffers;
     decltype(::vkBeginCommandBuffer)                     *_vkBeginCommandBuffer;
+    decltype(::vkResetCommandBuffer)                     *_vkResetCommandBuffer;
     decltype(::vkEndCommandBuffer)                       *_vkEndCommandBuffer;
     decltype(::vkFreeCommandBuffers)                     *_vkFreeCommandBuffers;
     decltype(::vkCreateFramebuffer)                      *_vkCreateFramebuffer;
@@ -175,12 +188,10 @@ private:
     decltype(::vkFreeDescriptorSets)                     *_vkFreeDescriptorSets;
     decltype(::vkGetBufferMemoryRequirements)            *_vkGetBufferMemoryRequirements;
     decltype(::vkGetImageMemoryRequirements)             *_vkGetImageMemoryRequirements;
-    decltype(::vkEnumerateDeviceExtensionProperties)     *_vkEnumerateDeviceExtensionProperties;
     decltype(::vkEnumeratePhysicalDevices)               *_vkEnumeratePhysicalDevices;
     decltype(::vkGetPhysicalDeviceProperties)            *_vkGetPhysicalDeviceProperties;
     decltype(::vkGetPhysicalDeviceQueueFamilyProperties) *_vkGetPhysicalDeviceQueueFamilyProperties;
     decltype(::vkGetPhysicalDeviceMemoryProperties)      *_vkGetPhysicalDeviceMemoryProperties;
-    decltype(::vkGetSwapchainImagesKHR)                  *_vkGetSwapchainImagesKHR;
 
 public:
     std::string LibraryName;
@@ -195,10 +206,12 @@ public:
     virtual const std::string& GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(
+        std::function<void*(const char*)> vkLoader,
         decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR,
+        decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR,
         decltype(::vkQueuePresentKHR)* vkQueuePresentKHR,
-        decltype(::vkDestroyDevice)* vkDestroyDevice,
-        std::function<void* (const char*)> vulkanFunctionLoader);
+        decltype(::vkCreateSwapchainKHR)* vkCreateSwapchainKHR,
+        decltype(::vkDestroyDevice)* vkDestroyDevice);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
     virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
