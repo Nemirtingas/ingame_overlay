@@ -803,17 +803,15 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         ImGui_ImplVulkan_InitInfo init_info = { };
         init_info.PhysicalDevice = _VulkanPhysicalDevice;
         init_info.Device = _VulkanDevice;
+        init_info.Queue = _VulkanQueue;
         init_info.PipelineCache = nullptr;
-        init_info.FontCommandPool = _VulkanImageCommandPool;
-        init_info.FontCommandBuffer = _VulkanImageCommandBuffer;
         init_info.FontDescriptorSet = _ImGuiFontDescriptor.DescriptorSet;
-        init_info.FontDescriptorSetLayout = _VulkanImageDescriptorSetLayout;
-        init_info.FontSampler = _VulkanImageSampler;
         init_info.Subpass = 0;
         init_info.MinImageCount = _Frames.size();
         init_info.ImageCount = _Frames.size();
         init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator = _VulkanAllocationCallbacks;
+        init_info.UseDynamicRendering = false;
 
         ImGui_ImplVulkan_Init(&init_info, _VulkanRenderPass);
 
@@ -850,7 +848,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame(_VulkanQueue) && !WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
+        if (ImGui_ImplVulkan_NewFrame() && !WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
             return;
         
         ImGui::NewFrame();
