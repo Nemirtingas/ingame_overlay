@@ -1096,7 +1096,7 @@ private:
         auto inst = Inst();
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
-        SPDLOG_INFO("vkQueueSubmit");
+        SPDLOG_INFO("vkQueuePresentKHR");
         auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
         if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;

@@ -1253,6 +1253,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
             goto OnErrorCreateImage;
 
         _vkDestroyImage(_VulkanDevice, vulkanImage, nullptr);
+        // TODO: Reuse buffer instead of create one per image
         _vkDestroyBuffer(_VulkanDevice, uploadBuffer, nullptr);
         _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
         _vkDestroyImageView(_VulkanDevice, vulkanImageView, nullptr);

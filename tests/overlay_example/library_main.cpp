@@ -180,17 +180,22 @@ void shared_library_load(void* hmodule)
         OverlayData->Renderer->StartHook([]()
         {
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
+            auto& io = ImGui::GetIO();
 
             if (OverlayData->Show)
             {
                 OverlayData->Renderer->HideAppInputs(false);
                 OverlayData->Renderer->HideOverlayInputs(true);
+                io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+                io.MouseDrawCursor = false;
                 OverlayData->Show = false;
             }
             else
             {
                 OverlayData->Renderer->HideAppInputs(true);
                 OverlayData->Renderer->HideOverlayInputs(false);
+                io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+                io.MouseDrawCursor = true;
                 OverlayData->Show = true;
             }
         }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
