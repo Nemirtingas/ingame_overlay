@@ -144,7 +144,7 @@ VulkanHook_t::VulkanDescriptorSet_t VulkanHook_t::_GetFreeDescriptorSetFromPool(
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = descriptorsPool.DescriptorPool;
     alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &_VulkanDescriptorSetLayout;
+    alloc_info.pSetLayouts = &_VulkanImageDescriptorSetLayout;
     auto result = _vkAllocateDescriptorSets(_VulkanDevice, &alloc_info, &vulkanDescriptorSet);
     
     descriptorSet.DescriptorPoolId = MakeImageDescriptorId(poolIndex, descriptorsPool.UsedDescriptors++);
@@ -167,27 +167,35 @@ VulkanHook_t::VulkanDescriptorSet_t VulkanHook_t::_GetFreeDescriptorSet()
     return _GetFreeDescriptorSetFromPool(_DescriptorsPools.size() - 1);
 }
 
-void VulkanHook_t::_ReleaseDescriptor(uint32_t id, VkDescriptorSet descriptorSet)
+void VulkanHook_t::_ReleaseDescriptor(VulkanDescriptorSet_t descriptorSet)
 {
-    auto& pool = _DescriptorsPools[GetImageDescriptorPool(id)];
+    auto& pool = _DescriptorsPools[GetImageDescriptorPool(descriptorSet.DescriptorPoolId)];
 
-    _vkFreeDescriptorSets(_VulkanDevice, pool.DescriptorPool, 1, &descriptorSet);
+    _vkFreeDescriptorSets(_VulkanDevice, pool.DescriptorPool, 1, &descriptorSet.DescriptorSet);
     --pool.UsedDescriptors;
+}
+
+void VulkanHook_t::_DestroyDescriptorPools()
+{
+    for (auto& pool : _DescriptorsPools)
+        _vkDestroyDescriptorPool(_VulkanDevice, pool.DescriptorPool, _VulkanAllocationCallbacks);
+
+    _DescriptorsPools.clear();
 }
 
 void VulkanHook_t::_CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout)
 {
-    //VkDescriptorImageInfo desc_image[1] = {};
-    //desc_image[0].sampler = _VulkanImageSampler;
-    //desc_image[0].imageView = imageView;
-    //desc_image[0].imageLayout = imageLayout;
-    //VkWriteDescriptorSet write_desc[1] = {};
-    //write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    //write_desc[0].dstSet = descriptorSet;
-    //write_desc[0].descriptorCount = 1;
-    //write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    //write_desc[0].pImageInfo = desc_image;
-    //_vkUpdateDescriptorSets(_VulkanDevice, 1, write_desc, 0, nullptr);
+    VkDescriptorImageInfo desc_image[1] = {};
+    desc_image[0].sampler = _VulkanImageSampler;
+    desc_image[0].imageView = imageView;
+    desc_image[0].imageLayout = imageLayout;
+    VkWriteDescriptorSet write_desc[1] = {};
+    write_desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_desc[0].dstSet = descriptorSet;
+    write_desc[0].descriptorCount = 1;
+    write_desc[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write_desc[0].pImageInfo = desc_image;
+    _vkUpdateDescriptorSets(_VulkanDevice, 1, write_desc, 0, nullptr);
 }
 
 bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
@@ -201,14 +209,12 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
     vkGetSwapchainImagesKHR(_VulkanDevice, swapChain, &swapchainImageCount, backbuffers.data());
 
     _Frames.resize(swapchainImageCount);
-    _FrameSemaphores.resize(swapchainImageCount);
 
     for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
         auto& frame = _Frames[i];
-        auto& frameSemaphores = _FrameSemaphores[i];
 
-        frame.Backbuffer = backbuffers[i];
+        frame.BackBuffer = backbuffers[i];
 
         {
             VkCommandPoolCreateInfo info = { };
@@ -216,7 +222,11 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             info.queueFamilyIndex = _VulkanQueueFamily;
 
-            _vkCreateCommandPool(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.CommandPool);
+            if (_vkCreateCommandPool(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.CommandPool) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
         {
             VkCommandBufferAllocateInfo info = { };
@@ -225,125 +235,74 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             info.commandBufferCount = 1;
 
-            _vkAllocateCommandBuffers(_VulkanDevice, &info, &frame.CommandBuffer);
+            if (_vkAllocateCommandBuffers(_VulkanDevice, &info, &frame.CommandBuffer) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
         {
             VkFenceCreateInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-            _vkCreateFence(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Fence);
+            if (_vkCreateFence(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Fence) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
         {
             VkSemaphoreCreateInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            _vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frameSemaphores.ImageAcquiredSemaphore);
-            _vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frameSemaphores.RenderCompleteSemaphore);
+            if (_vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.ImageAcquiredSemaphore) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
+            if (_vkCreateSemaphore(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.RenderCompleteSemaphore) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
-    }
-
-    // Create the Render Pass
-    {
-        VkAttachmentDescription attachment = { };
-        attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
-        attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-        VkAttachmentReference colorAttachment = { };
-        colorAttachment.attachment = 0;
-        colorAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkSubpassDescription subpass = { };
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorAttachment;
-
-        VkRenderPassCreateInfo info = { };
-        info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        info.attachmentCount = 1;
-        info.pAttachments = &attachment;
-        info.subpassCount = 1;
-        info.pSubpasses = &subpass;
-
-        _vkCreateRenderPass(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanRenderPass);
-    }
-
-    // Create The Image Views
-    {
-        VkImageViewCreateInfo info = { };
-        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        info.format = VK_FORMAT_B8G8R8A8_UNORM;
-
-        info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        info.subresourceRange.baseMipLevel = 0;
-        info.subresourceRange.levelCount = 1;
-        info.subresourceRange.baseArrayLayer = 0;
-        info.subresourceRange.layerCount = 1;
-
-        for (uint32_t i = 0; i < swapchainImageCount; ++i)
         {
-            auto& frame = _Frames[i];
-            info.image = frame.Backbuffer;
+            VkImageViewCreateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            info.format = VK_FORMAT_B8G8R8A8_UNORM;
+            info.image = frame.BackBuffer;
 
-            _vkCreateImageView(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.BackbufferView);
+            info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            info.subresourceRange.baseMipLevel = 0;
+            info.subresourceRange.levelCount = 1;
+            info.subresourceRange.baseArrayLayer = 0;
+            info.subresourceRange.layerCount = 1;
+
+            if (_vkCreateImageView(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.RenderTarget) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
-    }
-
-    // Create Framebuffer
-    {
-        VkImageView attachment[1];
-        VkFramebufferCreateInfo info = { };
-        info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        info.renderPass = _VulkanRenderPass;
-        info.attachmentCount = 1;
-        info.pAttachments = attachment;
-        info.layers = 1;
-
-        for (uint32_t i = 0; i < swapchainImageCount; ++i)
         {
-            auto& frame = _Frames[i];
-            attachment[0] = frame.BackbufferView;
+            VkImageView attachment[1] = { frame.RenderTarget };
 
-            _vkCreateFramebuffer(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Framebuffer);
+            VkFramebufferCreateInfo info = { };
+            info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            info.renderPass = _VulkanRenderPass;
+            info.attachmentCount = 1;
+            info.pAttachments = attachment;
+            info.layers = 1;
+            info.width = ImGui::GetIO().DisplaySize.x;
+            info.height = ImGui::GetIO().DisplaySize.y;
+
+            if (_vkCreateFramebuffer(_VulkanDevice, &info, _VulkanAllocationCallbacks, &frame.Framebuffer) != VkResult::VK_SUCCESS)
+            {
+                _DestroyRenderTargets();
+                return false;
+            }
         }
     }
-
-    if (_DescriptorsPools.empty())
-    {
-        _AllocDescriptorPool();
-    }
-
-    if (_VulkanImageCommandPool == nullptr)
-    {
-        VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-        commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        commandPoolCreateInfo.flags = 0;
-        commandPoolCreateInfo.queueFamilyIndex = _VulkanQueueFamily;
-        _vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &_VulkanImageCommandPool);
-        
-        VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
-        commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        commandBufferAllocateInfo.commandPool = _VulkanImageCommandPool;
-        commandBufferAllocateInfo.commandBufferCount = 1;
-        _vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &_VulkanImageCommandBuffer);
-
-        VkDescriptorSetLayoutBinding binding[1] = {};
-        binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding[0].descriptorCount = 1;
-        binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        VkDescriptorSetLayoutCreateInfo info = {};
-        info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        info.bindingCount = 1;
-        info.pBindings = binding;
-        _vkCreateDescriptorSetLayout(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanDescriptorSetLayout);
-    }
-
-    _HookState = OverlayHookState::Ready;
 
     return true;
 }
@@ -361,25 +320,19 @@ void VulkanHook_t::_DestroyRenderTargets()
         if (frame.CommandPool)
             _vkDestroyCommandPool(_VulkanDevice, frame.CommandPool, _VulkanAllocationCallbacks);
 
-        if (frame.BackbufferView)
-            _vkDestroyImageView(_VulkanDevice, frame.BackbufferView, _VulkanAllocationCallbacks);
+        if (frame.RenderTarget)
+            _vkDestroyImageView(_VulkanDevice, frame.RenderTarget, _VulkanAllocationCallbacks);
 
         if (frame.Framebuffer)
             _vkDestroyFramebuffer(_VulkanDevice, frame.Framebuffer, _VulkanAllocationCallbacks);
+
+        if (frame.ImageAcquiredSemaphore)
+            _vkDestroySemaphore(_VulkanDevice, frame.ImageAcquiredSemaphore, _VulkanAllocationCallbacks);
+
+        if (frame.RenderCompleteSemaphore)
+            _vkDestroySemaphore(_VulkanDevice, frame.RenderCompleteSemaphore, _VulkanAllocationCallbacks);
     }
     _Frames.clear();
-
-    for (auto& frameSemaphores : _FrameSemaphores)
-    {
-        if (frameSemaphores.ImageAcquiredSemaphore)
-            _vkDestroySemaphore(_VulkanDevice, frameSemaphores.ImageAcquiredSemaphore, _VulkanAllocationCallbacks);
-
-        if (frameSemaphores.RenderCompleteSemaphore)
-            _vkDestroySemaphore(_VulkanDevice, frameSemaphores.RenderCompleteSemaphore, _VulkanAllocationCallbacks);
-    }
-    _FrameSemaphores.clear();
-
-    _HookState = OverlayHookState::Reset;
 }
 
 void VulkanHook_t::_ResetRenderState(OverlayHookState state)
@@ -448,6 +401,14 @@ bool VulkanHook_t::_FindApplicationHWND()
 
 void VulkanHook_t::_FreeVulkanRessources()
 {
+    _DestroyRenderTargets();
+    _DestroyImageDevices();
+
+    _ReleaseDescriptor(_ImGuiFontDescriptor);
+    _DestroyDescriptorPools();
+
+    _VulkanQueue = nullptr;
+    _VulkanDevice = nullptr;
 }
 
 bool VulkanHook_t::_CreateVulkanInstance()
@@ -608,9 +569,159 @@ bool VulkanHook_t::_GetPhysicalDevice()
     return true;
 }
 
+bool VulkanHook_t::_CreateImageSampler()
+{
+    if (_VulkanImageSampler != VK_NULL_HANDLE)
+        return true;
+
+    // Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
+    VkSamplerCreateInfo samplerInfo = {};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    samplerInfo.minLod = -1000;
+    samplerInfo.maxLod = 1000;
+    samplerInfo.maxAnisotropy = 1.0f;
+    return _vkCreateSampler(_VulkanDevice, &samplerInfo, _VulkanAllocationCallbacks, &_VulkanImageSampler) == VkResult::VK_SUCCESS;
+}
+
+void VulkanHook_t::_DestroyImageSampler()
+{
+    if (_VulkanImageSampler != VK_NULL_HANDLE)
+    {
+        _vkDestroySampler(_VulkanDevice, _VulkanImageSampler, _VulkanAllocationCallbacks);
+        _VulkanImageSampler = VK_NULL_HANDLE;
+    }
+}
+
+bool VulkanHook_t::_CreateImageDescriptorSetLayout()
+{
+    if (_VulkanImageDescriptorSetLayout != VK_NULL_HANDLE)
+        return true;
+
+    VkDescriptorSetLayoutBinding binding[1] = {};
+    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding[0].descriptorCount = 1;
+    binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    info.bindingCount = 1;
+    info.pBindings = binding;
+    return _vkCreateDescriptorSetLayout(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanImageDescriptorSetLayout) == VkResult::VK_SUCCESS;
+}
+
+void VulkanHook_t::_DestroyImageDescriptorSetLayout()
+{
+    if (_VulkanImageDescriptorSetLayout != VK_NULL_HANDLE)
+    {
+        _vkDestroyDescriptorSetLayout(_VulkanDevice, _VulkanImageDescriptorSetLayout, _VulkanAllocationCallbacks);
+        _VulkanImageDescriptorSetLayout = VK_NULL_HANDLE;
+    }
+}
+
+bool VulkanHook_t::_CreateImageCommandPool()
+{
+    if (_VulkanImageCommandPool != VK_NULL_HANDLE)
+        return true;
+
+    VkCommandPoolCreateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    info.flags = 0;
+    info.queueFamilyIndex = _VulkanQueueFamily;
+    return _vkCreateCommandPool(_VulkanDevice, &info, nullptr, &_VulkanImageCommandPool) == VkResult::VK_SUCCESS;
+}
+
+void VulkanHook_t::_DestroyImageCommandPool()
+{
+    if (_VulkanImageCommandPool != VK_NULL_HANDLE)
+    {
+        _vkDestroyCommandPool(_VulkanDevice, _VulkanImageCommandPool, _VulkanAllocationCallbacks);
+        _VulkanImageCommandPool = VK_NULL_HANDLE;
+    }
+}
+
+bool VulkanHook_t::_CreateImageCommandBuffer()
+{
+    if (_VulkanImageCommandBuffer != VK_NULL_HANDLE)
+        return true;
+
+    VkCommandBufferAllocateInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    info.commandPool = _VulkanImageCommandPool;
+    info.commandBufferCount = 1;
+    return _vkAllocateCommandBuffers(_VulkanDevice, &info, &_VulkanImageCommandBuffer) == VkResult::VK_SUCCESS;
+}
+
+void VulkanHook_t::_DestroyImageCommandBuffer()
+{
+    if (_VulkanImageCommandBuffer != VK_NULL_HANDLE)
+    {
+        _vkFreeCommandBuffers(_VulkanDevice, _VulkanImageCommandPool, 1, &_VulkanImageCommandBuffer);
+        _VulkanImageCommandBuffer = VK_NULL_HANDLE;
+    }
+}
+
+bool VulkanHook_t::_CreateImageDevices()
+{
+    if (!_CreateImageSampler())
+        return false;
+
+    if (!_CreateImageDescriptorSetLayout())
+        return false;
+    
+    if (!_CreateImageCommandPool())
+        return false;
+
+    if (!_CreateImageCommandBuffer())
+        return false;
+
+    return true;
+}
+
+void VulkanHook_t::_DestroyImageDevices()
+{
+    _DestroyImageCommandBuffer();
+    _DestroyImageCommandPool();
+    _DestroyImageDescriptorSetLayout();
+    _DestroyImageSampler();
+}
+
 bool VulkanHook_t::_CreateRenderPass()
 {
-    return true;
+    if (_VulkanRenderPass != VK_NULL_HANDLE)
+        return true;
+
+    VkAttachmentDescription attachment = { };
+    attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
+    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachment = { };
+    colorAttachment.attachment = 0;
+    colorAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass = { };
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachment;
+
+    VkRenderPassCreateInfo info = { };
+    info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    info.attachmentCount = 1;
+    info.pAttachments = &attachment;
+    info.subpassCount = 1;
+    info.pSubpasses = &subpass;
+
+    return _vkCreateRenderPass(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanRenderPass) == VkResult::VK_SUCCESS;
 }
 
 void VulkanHook_t::_DestroyRenderPass()
@@ -634,98 +745,25 @@ uint32_t VulkanHook_t::_GetVulkanMemoryType(VkMemoryPropertyFlags properties, ui
     return 0xFFFFFFFF; // Unable to find memoryType
 }
 
-bool VulkanHook_t::_CreateImageObjects()
-{
-    //VkResult result;
-    //VkSampler vulkanSampler = VK_NULL_HANDLE;
-    //VkCommandPool vulkanCommandPool = VK_NULL_HANDLE;
-    //VkCommandBuffer vulkanCommandBuffer = nullptr;
-    //VkDescriptorSetLayout vulkanDescriptorSetLayout = VK_NULL_HANDLE;
-    //
-    //// Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
-    //VkSamplerCreateInfo samplerCreateInfo = {};
-    //samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    //samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
-    //samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
-    //samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    //samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    //samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    //samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    //samplerCreateInfo.minLod = -1000;
-    //samplerCreateInfo.maxLod = 1000;
-    //samplerCreateInfo.maxAnisotropy = 1.0f;
-    //result = _vkCreateSampler(_VulkanDevice, &samplerCreateInfo, nullptr, &vulkanSampler);
-    //_CheckVkResult(result);
-    //if (result != VkResult::VK_SUCCESS)
-    //    return false;
-    //
-    //// Create command pool/buffer
-    //VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-    //commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    //commandPoolCreateInfo.flags = 0;
-    //commandPoolCreateInfo.queueFamilyIndex = _QueueFamilyIndex;
-    //result = _vkCreateCommandPool(_VulkanDevice, &commandPoolCreateInfo, nullptr, &vulkanCommandPool);
-    //_CheckVkResult(result);
-    //if (result != VkResult::VK_SUCCESS)
-    //{
-    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-    //    return false;
-    //}
-    //
-    //VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
-    //commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    //commandBufferAllocateInfo.commandPool = vulkanCommandPool;
-    //commandBufferAllocateInfo.commandBufferCount = 1;
-    //result = _vkAllocateCommandBuffers(_VulkanDevice, &commandBufferAllocateInfo, &vulkanCommandBuffer);
-    //_CheckVkResult(result);
-    //if (result != VkResult::VK_SUCCESS)
-    //{
-    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-    //    _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
-    //    return false;
-    //}
-    //
-    //VkDescriptorSetLayoutBinding binding[1] = {};
-    //binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    //binding[0].descriptorCount = 1;
-    //binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    //VkDescriptorSetLayoutCreateInfo info = {};
-    //info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    //info.bindingCount = 1;
-    //info.pBindings = binding;
-    //info.flags = VK_PIPELINE_LAYOUT_CREATE_INDEPENDENT_SETS_BIT_EXT;
-    //result = _vkCreateDescriptorSetLayout(_VulkanDevice, &info, nullptr, &vulkanDescriptorSetLayout);
-    //_CheckVkResult(result);
-    //if (result != VkResult::VK_SUCCESS)
-    //{
-    //    _vkDestroySampler(_VulkanDevice, vulkanSampler, nullptr);
-    //    _vkDestroyCommandPool(_VulkanDevice, vulkanCommandPool, nullptr);
-    //    return false;
-    //}
-
-    return true;
-}
-
 bool VulkanHook_t::_DoesQueueSupportGraphic(VkQueue queue)
 {
     for (uint32_t i = 0; i < _VulkanQueueFamilies.size(); ++i)
     {
         const VkQueueFamilyProperties& family = _VulkanQueueFamilies[i];
+        if (!(family.queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            continue;
+
         for (uint32_t j = 0; j < family.queueCount; ++j)
         {
             VkQueue it = VK_NULL_HANDLE;
             _vkGetDeviceQueue(_VulkanDevice, i, j, &it);
 
-            if (queue == it && family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            if (queue == it)
                 return true;
         }
     }
 
     return false;
-}
-
-void VulkanHook_t::_InitializeForOverlay(VkSwapchainKHR vulkanSwapChain)
-{
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -747,71 +785,72 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
 
-        _HookState = OverlayHookState::Reset;
+        if (!_CreateRenderPass())
+            return;
+
+        if (_DescriptorsPools.empty() && _AllocDescriptorPool())
+            return;
+
+        if (!_CreateImageDevices())
+            return;
+
+        if (!_CreateRenderTargets(pPresentInfo->pSwapchains[0]))
+            return;
+
+        ImGui_ImplVulkan_LoadFunctions(&VulkanHook_t::_LoadVulkanFunction, this);
+        _ImGuiFontDescriptor = _GetFreeDescriptorSet();
+
+        ImGui_ImplVulkan_InitInfo init_info = { };
+        init_info.PhysicalDevice = _VulkanPhysicalDevice;
+        init_info.Device = _VulkanDevice;
+        init_info.PipelineCache = nullptr;
+        init_info.FontCommandPool = _VulkanImageCommandPool;
+        init_info.FontCommandBuffer = _VulkanImageCommandBuffer;
+        init_info.FontDescriptorSet = _ImGuiFontDescriptor.DescriptorSet;
+        init_info.FontDescriptorSetLayout = _VulkanImageDescriptorSetLayout;
+        init_info.FontSampler = _VulkanImageSampler;
+        init_info.Subpass = 0;
+        init_info.MinImageCount = _Frames.size();
+        init_info.ImageCount = _Frames.size();
+        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        init_info.Allocator = _VulkanAllocationCallbacks;
+
+        ImGui_ImplVulkan_Init(&init_info, _VulkanRenderPass);
+
+        _ResetRenderState(OverlayHookState::Ready);
     }
 
     const bool queueSupportsGraphic = _DoesQueueSupportGraphic(queue);
 
     for (int i = 0; i < pPresentInfo->swapchainCount; ++i)
     {
-        if (_Frames.empty())
-        {
-            if (!_CreateRenderTargets(pPresentInfo->pSwapchains[0]))
-                return;
-        }
-
         auto& frame = _Frames[pPresentInfo->pImageIndices[i]];
 
-        ImGui_ImplVulkanH_Frame* fd = &_Frames[pPresentInfo->pImageIndices[i]];
-        ImGui_ImplVulkanH_FrameSemaphores* fsd = &_FrameSemaphores[pPresentInfo->pImageIndices[i]];
         {
-            _vkWaitForFences(_VulkanDevice, 1, &fd->Fence, VK_TRUE, ~0ull);
-            _vkResetFences(_VulkanDevice, 1, &fd->Fence);
+            _vkWaitForFences(_VulkanDevice, 1, &frame.Fence, VK_TRUE, ~0ull);
+            _vkResetFences(_VulkanDevice, 1, &frame.Fence);
         }
         {
-            _vkResetCommandBuffer(fd->CommandBuffer, 0);
+            _vkResetCommandBuffer(frame.CommandBuffer, 0);
 
             VkCommandBufferBeginInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-            _vkBeginCommandBuffer(fd->CommandBuffer, &info);
+            _vkBeginCommandBuffer(frame.CommandBuffer, &info);
         }
         {
             VkRenderPassBeginInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
             info.renderPass = _VulkanRenderPass;
-            info.framebuffer = fd->Framebuffer;
+            info.framebuffer = frame.Framebuffer;
             info.renderArea.extent.width = ImGui::GetIO().DisplaySize.x;
             info.renderArea.extent.height = ImGui::GetIO().DisplaySize.y;
 
-            _vkCmdBeginRenderPass(fd->CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
+            _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (!ImGui::GetIO().BackendRendererUserData)
-        {
-            ImGui_ImplVulkan_InitInfo init_info = { };
-            init_info.Instance = _VulkanInstance;
-            init_info.PhysicalDevice = _VulkanPhysicalDevice;
-            init_info.Device = _VulkanDevice;
-            init_info.QueueFamily = _VulkanQueueFamily;
-            init_info.Queue = _VulkanQueue;
-            init_info.PipelineCache = nullptr;
-            init_info.DescriptorPool = _DescriptorsPools[0].DescriptorPool;
-            init_info.Subpass = 0;
-            init_info.MinImageCount = _Frames.size();
-            init_info.ImageCount = _Frames.size();
-            init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-            init_info.Allocator = _VulkanAllocationCallbacks;
-
-            ImGui_ImplVulkan_LoadFunctions(&VulkanHook_t::_LoadVulkanFunction, this);
-            ImGui_ImplVulkan_Init(&init_info, _VulkanRenderPass);
-
-            ImGui_ImplVulkan_CreateFontsTexture(fd->CommandBuffer);
-        }
-
-        ImGui_ImplVulkan_NewFrame();
-        if (!WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
+        if (ImGui_ImplVulkan_NewFrame(_VulkanQueue) && !WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
             return;
         
         ImGui::NewFrame();
@@ -821,11 +860,11 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         ImGui::Render();
 
         // Record dear imgui primitives into command buffer
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), fd->CommandBuffer);
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
 
         // Submit command buffer
-        _vkCmdEndRenderPass(fd->CommandBuffer);
-        _vkEndCommandBuffer(fd->CommandBuffer);
+        _vkCmdEndRenderPass(frame.CommandBuffer);
+        _vkEndCommandBuffer(frame.CommandBuffer);
 
         uint32_t waitSemaphoresCount = i == 0 ? pPresentInfo->waitSemaphoreCount : 0;
         if (waitSemaphoresCount == 0 && !queueSupportsGraphic)
@@ -838,7 +877,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
                 info.pWaitDstStageMask = &stages_wait;
 
                 info.signalSemaphoreCount = 1;
-                info.pSignalSemaphores = &fsd->RenderCompleteSemaphore;
+                info.pSignalSemaphores = &frame.RenderCompleteSemaphore;
 
                 _vkQueueSubmit(queue, 1, &info, VK_NULL_HANDLE);
             }
@@ -846,16 +885,16 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
                 VkSubmitInfo info = { };
                 info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 info.commandBufferCount = 1;
-                info.pCommandBuffers = &fd->CommandBuffer;
+                info.pCommandBuffers = &frame.CommandBuffer;
 
                 info.pWaitDstStageMask = &stages_wait;
                 info.waitSemaphoreCount = 1;
-                info.pWaitSemaphores = &fsd->RenderCompleteSemaphore;
+                info.pWaitSemaphores = &frame.RenderCompleteSemaphore;
 
-                info.signalSemaphoreCount = 1;
-                info.pSignalSemaphores = &fsd->ImageAcquiredSemaphore;
+                info.signalSemaphoreCount = 0;
+                info.pSignalSemaphores = &frame.ImageAcquiredSemaphore;
 
-                _vkQueueSubmit(_VulkanQueue, 1, &info, fd->Fence);
+                _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
             }
         }
         else
@@ -865,22 +904,23 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             VkSubmitInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             info.commandBufferCount = 1;
-            info.pCommandBuffers = &fd->CommandBuffer;
+            info.pCommandBuffers = &frame.CommandBuffer;
 
             info.pWaitDstStageMask = stages_wait.data();
             info.waitSemaphoreCount = waitSemaphoresCount;
             info.pWaitSemaphores = pPresentInfo->pWaitSemaphores;
 
             info.signalSemaphoreCount = 1;
-            info.pSignalSemaphores = &fsd->ImageAcquiredSemaphore;
+            info.pSignalSemaphores = pPresentInfo->pWaitSemaphores;
 
-            _vkQueueSubmit(_VulkanQueue, 1, &info, fd->Fence);
+            _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
         }
     }
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
 {
+    SPDLOG_INFO("vkAcquireNextImageKHR");
     auto inst = VulkanHook_t::Inst();
 
     inst->_VulkanDevice = device;
@@ -889,6 +929,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice d
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
 {
+    SPDLOG_INFO("vkAcquireNextImage2KHR");
     auto inst = VulkanHook_t::Inst();
 
     inst->_VulkanDevice = device;
@@ -897,25 +938,37 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice 
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
+    SPDLOG_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
+
     inst->_PrepareForOverlay(queue, pPresentInfo);
     return inst->_VkQueuePresentKHR(queue, pPresentInfo);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain)
 {
+    SPDLOG_INFO("vkCreateSwapchainKHR");
     auto inst = VulkanHook_t::Inst();
+
     if (inst->_VulkanDevice == device)
     {
         inst->_ResetRenderState(OverlayHookState::Reset);
         inst->_DestroyRenderTargets();
     }
-    return inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+    auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
+    if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS)
+    {
+        inst->_CreateRenderTargets(*pSwapchain);
+        inst->_ResetRenderState(OverlayHookState::Ready);
+    }
+    return res;
 }
 
 VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator)
 {
+    SPDLOG_INFO("vkDestroyDevice");
     auto inst = VulkanHook_t::Inst();
+
     if (inst->_VulkanDevice == device)
         inst->_ResetRenderState(OverlayHookState::Removing);
 
@@ -923,30 +976,35 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 }
 
 VulkanHook_t::VulkanHook_t():
-    _vkDeviceWaitIdle(nullptr),
     _Hooked(false),
     _WindowsHooked(false),
     _HookState(OverlayHookState::Removing),
     _MainWindow(nullptr),
     _VulkanLoader(nullptr),
     _VulkanAllocationCallbacks(nullptr),
-    _VulkanInstance(nullptr),
-    _VulkanPhysicalDevice(nullptr),
-    _VulkanImageCommandPool(nullptr),
-    _VulkanImageCommandBuffer(nullptr),
-    _VulkanRenderPass(nullptr),
-    _VulkanQueue(nullptr),
-    _VulkanDevice(nullptr),
+    _VulkanInstance(VK_NULL_HANDLE),
+    _VulkanPhysicalDevice(VK_NULL_HANDLE),
+    _VulkanQueueFamily(uint32_t(-1)),
+    _VulkanImageCommandPool(VK_NULL_HANDLE),
+    _VulkanImageCommandBuffer(VK_NULL_HANDLE),
+    _VulkanImageSampler(VK_NULL_HANDLE),
+    _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
+    _VulkanRenderPass(VK_NULL_HANDLE),
+    _VulkanDevice(VK_NULL_HANDLE),
+    _VulkanQueue(VK_NULL_HANDLE),
     _ImGuiFontAtlas(nullptr),
+
     _VkAcquireNextImageKHR(nullptr),
     _VkAcquireNextImage2KHR(nullptr),
     _VkQueuePresentKHR(nullptr),
     _VkCreateSwapchainKHR(nullptr),
     _VkDestroyDevice(nullptr),
+
     _vkCreateInstance(nullptr),
+    _vkDestroyInstance(nullptr),
     _vkGetInstanceProcAddr(nullptr),
+    _vkDeviceWaitIdle(nullptr),
     _vkGetDeviceProcAddr(nullptr),
-    _vkEnumerateInstanceExtensionProperties(nullptr),
     _vkGetDeviceQueue(nullptr),
     _vkQueueSubmit(nullptr),
     _vkQueueWaitIdle(nullptr),
@@ -1058,17 +1116,16 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     VulkanDescriptorSet_t vulkanImageDescriptor;
     VkDeviceMemory uploadBufferMemory = VK_NULL_HANDLE;
     VkBuffer uploadBuffer = VK_NULL_HANDLE;
-
-    if (!_CreateImageObjects())
-        goto OnErrorCreateImage;
     
-    // Start command buffer
+    size_t uploadSize = width * height * 4 * sizeof(char);
+    
+    // Start command buffer 
     {
         result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
-    
+
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1077,9 +1134,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
     }
-    
-    size_t uploadSize = width * height * 4 * sizeof(char);
-    
+
     // Create the Image:
     {
         VkImageCreateInfo info = {};
@@ -1096,7 +1151,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        result = _vkCreateImage(_VulkanDevice, &info, nullptr, &vulkanImage);
+        result = _vkCreateImage(_VulkanDevice, &info, _VulkanAllocationCallbacks, &vulkanImage);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
@@ -1107,7 +1162,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = req.size;
         alloc_info.memoryTypeIndex = _GetVulkanMemoryType(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, req.memoryTypeBits);
-        result = _vkAllocateMemory(_VulkanDevice, &alloc_info, nullptr, &vulkanImageMemory);
+        result = _vkAllocateMemory(_VulkanDevice, &alloc_info, _VulkanAllocationCallbacks, &vulkanImageMemory);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
@@ -1128,17 +1183,17 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         info.subresourceRange.levelCount = 1;
         info.subresourceRange.layerCount = 1;
-        result = _vkCreateImageView(_VulkanDevice, &info, nullptr, &vulkanImageView);
+        result = _vkCreateImageView(_VulkanDevice, &info, _VulkanAllocationCallbacks, &vulkanImageView);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
     }
-    
+
     // Create the Descriptor Set:
     vulkanImageDescriptor = _GetFreeDescriptorSet();
     if (vulkanImageDescriptor.DescriptorPoolId == VulkanDescriptorSet_t::InvalidDescriptorPoolId)
         goto OnErrorCreateImage;
-
+    
     _CreateImageTexture(vulkanImageDescriptor.DescriptorSet, vulkanImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     
     // Create the Upload Buffer:
@@ -1148,7 +1203,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         buffer_info.size = uploadSize;
         buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        result = _vkCreateBuffer(_VulkanDevice, &buffer_info, nullptr, &uploadBuffer);
+        result = _vkCreateBuffer(_VulkanDevice, &buffer_info, _VulkanAllocationCallbacks, &uploadBuffer);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
@@ -1160,7 +1215,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = req.size;
         alloc_info.memoryTypeIndex = _GetVulkanMemoryType(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, req.memoryTypeBits);
-        result = _vkAllocateMemory(_VulkanDevice, &alloc_info, nullptr, &uploadBufferMemory);
+        result = _vkAllocateMemory(_VulkanDevice, &alloc_info, _VulkanAllocationCallbacks, &uploadBufferMemory);
         _CheckVkResult(result);
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
@@ -1205,7 +1260,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         copyBarrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         copyBarrier[0].subresourceRange.levelCount = 1;
         copyBarrier[0].subresourceRange.layerCount = 1;
-        _vkCmdPipelineBarrier(_VulkanImageCommandBuffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, copyBarrier);
+        _vkCmdPipelineBarrier(_VulkanImageCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, copyBarrier);
     
         VkBufferImageCopy region = {};
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1229,8 +1284,8 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         useBarrier[0].subresourceRange.layerCount = 1;
         _vkCmdPipelineBarrier(_VulkanImageCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, useBarrier);
     }
-    
-    // End command buffer
+
+    // End command buffer 
     {
         VkSubmitInfo endInfo = {};
         endInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1252,24 +1307,26 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
 
-        _vkDestroyImage(_VulkanDevice, vulkanImage, nullptr);
+
         // TODO: Reuse buffer instead of create one per image
         _vkDestroyBuffer(_VulkanDevice, uploadBuffer, nullptr);
         _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
-        _vkDestroyImageView(_VulkanDevice, vulkanImageView, nullptr);
     }
 
     struct VulkanImage_t
     {
-        ImTextureID ImageId;
+        ImTextureID ImageId = 0;
         VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
-        uint32_t ImagePoolId;
+        VulkanDescriptorSet_t ImageDescriptorId;
+        VkImage VulkanImage = VK_NULL_HANDLE;
+        VkImageView VulkanImageView = VK_NULL_HANDLE;
     };
 
     VulkanImage_t* vulkanRendererImage = new VulkanImage_t;
     vulkanRendererImage->ImageId = (ImTextureID)vulkanImageDescriptor.DescriptorSet;
     vulkanRendererImage->VulkanImageMemory = vulkanImageMemory;
-    vulkanRendererImage->ImagePoolId = vulkanImageDescriptor.DescriptorPoolId;
+    vulkanRendererImage->ImageDescriptorId = vulkanImageDescriptor;
+    vulkanRendererImage->VulkanImageView = vulkanImageView;
 
     image = std::shared_ptr<uint64_t>((uint64_t*)vulkanRendererImage, [this](uint64_t* handle)
     {
@@ -1277,8 +1334,10 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         {
             auto vulkanImage = reinterpret_cast<VulkanImage_t*>(handle);
             
-            _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, nullptr);
-            _ReleaseDescriptor(vulkanImage->ImagePoolId, (VkDescriptorSet)vulkanImage->ImageId);
+            _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, nullptr);
+            _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
+            _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
+            _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
 
             delete vulkanImage;
         }
@@ -1289,7 +1348,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     return image;
 
 OnErrorCreateImage:
-    if (vulkanImageDescriptor.DescriptorSet != VK_NULL_HANDLE) _ReleaseDescriptor(vulkanImageDescriptor.DescriptorPoolId, vulkanImageDescriptor.DescriptorSet);
+    if (vulkanImageDescriptor.DescriptorSet != VK_NULL_HANDLE) _ReleaseDescriptor(vulkanImageDescriptor);
     if (uploadBuffer                        != VK_NULL_HANDLE) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , nullptr);
     if (uploadBufferMemory                  != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, nullptr);
     if (vulkanImageView                     != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , nullptr);

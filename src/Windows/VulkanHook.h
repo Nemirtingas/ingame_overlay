@@ -25,8 +25,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <backends/imgui_impl_vulkan.h>
-
 namespace InGameOverlay {
 
 class VulkanHook_t :
@@ -79,14 +77,16 @@ private:
     uint32_t _VulkanQueueFamily;
     VkCommandPool _VulkanImageCommandPool;
     VkCommandBuffer _VulkanImageCommandBuffer;
-    VkDescriptorSetLayout _VulkanDescriptorSetLayout;
-    std::vector<ImGui_ImplVulkanH_Frame> _Frames;
-    std::vector<ImGui_ImplVulkanH_FrameSemaphores> _FrameSemaphores;
+    VkSampler _VulkanImageSampler;
+    VkDescriptorSetLayout _VulkanImageDescriptorSetLayout;
+    std::vector<VulkanFrame_t> _Frames;
     VkRenderPass _VulkanRenderPass;
-    VkQueue _VulkanQueue;
     std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
 
     VkDevice _VulkanDevice;
+    VkQueue _VulkanQueue;
+
+    VulkanDescriptorSet_t _ImGuiFontDescriptor;
 
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
@@ -97,13 +97,14 @@ private:
     bool _AllocDescriptorPool();
     VulkanDescriptorSet_t _GetFreeDescriptorSetFromPool(uint32_t poolIndex);
     VulkanDescriptorSet_t _GetFreeDescriptorSet();
-    void _ReleaseDescriptor(uint32_t id, VkDescriptorSet descriptorSet);
+    void _ReleaseDescriptor(VulkanDescriptorSet_t descriptorSet);
+    void _DestroyDescriptorPools();
     void _CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout);
 
     bool _CreateRenderTargets(VkSwapchainKHR swapChain);
     void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
-    void _InitializeForOverlay(VkSwapchainKHR vulkanSwapChain);
+
     void _PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
@@ -113,18 +114,34 @@ private:
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
     bool _GetPhysicalDevice();
+
+    bool _CreateImageSampler();
+    void _DestroyImageSampler();
+
+    bool _CreateImageDescriptorSetLayout();
+    void _DestroyImageDescriptorSetLayout();
+
+    bool _CreateImageCommandPool();
+    void _DestroyImageCommandPool();
+
+    bool _CreateImageCommandBuffer();
+    void _DestroyImageCommandBuffer();
+
+    bool _CreateImageDevices();
+    void _DestroyImageDevices();
+
     bool _CreateRenderPass();
     void _DestroyRenderPass();
+
     uint32_t _GetVulkanMemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits);
-    bool _CreateImageObjects();
     bool _DoesQueueSupportGraphic(VkQueue queue);
 
     // Hook to render functions
-    decltype(::vkAcquireNextImageKHR)* _VkAcquireNextImageKHR;
+    decltype(::vkAcquireNextImageKHR) * _VkAcquireNextImageKHR;
     decltype(::vkAcquireNextImage2KHR)* _VkAcquireNextImage2KHR;
-    decltype(::vkQueuePresentKHR)* _VkQueuePresentKHR;
-    decltype(::vkCreateSwapchainKHR)* _VkCreateSwapchainKHR;
-    decltype(::vkDestroyDevice)* _VkDestroyDevice;
+    decltype(::vkQueuePresentKHR)     * _VkQueuePresentKHR;
+    decltype(::vkCreateSwapchainKHR)  * _VkCreateSwapchainKHR;
+    decltype(::vkDestroyDevice)       * _VkDestroyDevice;
 
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex);
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex);
@@ -132,13 +149,11 @@ private:
     static VKAPI_ATTR VkResult VKAPI_CALL _MyVkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain);
     static VKAPI_ATTR void     VKAPI_CALL _MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator);
 
-    decltype(::vkDeviceWaitIdle)* _vkDeviceWaitIdle;
-
     decltype(::vkCreateInstance)                         *_vkCreateInstance;
     decltype(::vkDestroyInstance)                        *_vkDestroyInstance;
     decltype(::vkGetInstanceProcAddr)                    *_vkGetInstanceProcAddr;
+    decltype(::vkDeviceWaitIdle)                         *_vkDeviceWaitIdle;
     decltype(::vkGetDeviceProcAddr)                      *_vkGetDeviceProcAddr;
-    decltype(::vkEnumerateInstanceExtensionProperties)   *_vkEnumerateInstanceExtensionProperties;
     decltype(::vkGetDeviceQueue)                         *_vkGetDeviceQueue;
     decltype(::vkQueueSubmit)                            *_vkQueueSubmit;
     decltype(::vkQueueWaitIdle)                          *_vkQueueWaitIdle;
