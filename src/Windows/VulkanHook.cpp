@@ -912,6 +912,9 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
             info.signalSemaphoreCount = waitSemaphoresCount;
             info.pSignalSemaphores = pPresentInfo->pWaitSemaphores;
+            // Vulkan layer validation error, nothing waiting on ImageAcquiredSemaphore :/
+            //info.signalSemaphoreCount = 1;
+            //info.pSignalSemaphores = &frame.ImageAcquiredSemaphore;
 
             _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
         }
