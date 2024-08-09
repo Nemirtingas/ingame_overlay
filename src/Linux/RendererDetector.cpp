@@ -104,6 +104,7 @@ private:
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
 
+    bool _DetectionStarted;
     bool _DetectionDone;
     uint32_t _DetectionCount;
     bool _DetectionCancelled;
@@ -119,13 +120,15 @@ private:
     //VulkanHook_t* _VulkanHook;
 
     RendererDetector_t() :
-        _OpenGLXHooked(false),
         _RendererHook(nullptr),
-        _OpenGLXHook(nullptr),
-        //_VulkanHook(nullptr),
+        _DetectionStarted(false),
         _DetectionDone(false),
         _DetectionCount(0),
-        _DetectionCancelled(false)
+        _DetectionCancelled(false),
+        _GLXSwapBuffers(nullptr),
+        _OpenGLXHooked(false),
+        _OpenGLXHook(nullptr)
+        //_VulkanHook(nullptr),
     {}
 
     static void _MyGLXSwapBuffers(Display* dpy, GLXDrawable drawable)
@@ -133,7 +136,7 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
         inst->_GLXSwapBuffers(dpy, drawable);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return;
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
@@ -275,8 +278,14 @@ public:
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
+                if (!_DetectionStarted)
+                {
+                    std::lock_guard<std::mutex> lck(_RendererMutex);
+                    _DetectionStarted = true;
+                }
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
+            _DetectionStarted = false;
             {
                 auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
                 

@@ -106,6 +106,7 @@ private:
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
     
+    bool _DetectionStarted;
     bool _DetectionDone;
     uint32_t _DetectionCount;
     bool _DetectionCancelled;
@@ -125,15 +126,18 @@ private:
     MetalHook_t* _MetalHook;
     
     RendererDetector_t() :
+        _RendererHook(nullptr),
+        _DetectionStarted(false),
+        _DetectionDone(false),
+        _DetectionCount(0),
+        _DetectionCancelled(false),
+        _NSOpenGLContextFlushBufferMethod(nullptr),
+        _NSOpenGLContextFlushBuffer(nullptr),
         _CGLFlushDrawable(nullptr),
         _OpenGLHooked(false),
         _MetalHooked(false),
-        _RendererHook(nullptr),
         _OpenGLHook(nullptr),
-        _MetalHook(nullptr),
-        _DetectionDone(false),
-        _DetectionCount(0),
-        _DetectionCancelled(false)
+        _MetalHook(nullptr)
     {
         // IGAccel => Intel Graphics Acceleration
         _MetalDriversHooks[IntelDriver].CommandBufferClass = "MTLIGAccelCommandBuffer";
@@ -165,6 +169,9 @@ private:
     
     void _FoundOpenGLRenderer(bool useObjectiveCMethod)
     {
+        if (!_DetectionStarted || _DetectionDone)
+            return;
+
         if (useObjectiveCMethod)
             _OpenGLHook->LoadFunctions(_NSOpenGLContextFlushBufferMethod, nullptr);
 
@@ -185,9 +192,6 @@ private:
         lk.try_lock();
 
         CGLError res = inst->_CGLFlushDrawable(glDrawable);
-        if (inst->_DetectionDone)
-            return res;
-
         inst->_FoundOpenGLRenderer(false);
 
         return res;
@@ -199,21 +203,17 @@ private:
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
         CGLError res = inst->_NSOpenGLContextFlushBuffer(self);
-        if (inst->_DetectionDone)
-            return res;
-
         inst->_FoundOpenGLRenderer(true);
 
         return res;
     }
-
     
     void _FoundMetalRenderer(int driver, id self, SEL sel)
     {
         MetalDriverHook_t& driverHook = _MetalDriversHooks[driver];
         driverHook.CommandBufferCommit(self, sel);
 
-        if (_DetectionDone)
+        if (!_DetectionStarted || _DetectionDone)
             return;
 
         _MetalHook->LoadFunctions(driverHook.CommandBufferRenderCommandWithDescriptorMethod, driverHook.RenderCommandEncoderEndEncodingMethod);
@@ -473,8 +473,14 @@ public:
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
+                if (!_DetectionStarted)
+                {
+                    std::lock_guard<std::mutex> lck(_RendererMutex);
+                    _DetectionStarted = true;
+                }
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
+            _DetectionStarted = false;
             {
                 auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
 

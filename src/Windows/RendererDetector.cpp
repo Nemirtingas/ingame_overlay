@@ -675,6 +675,7 @@ private:
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
 
+    bool _DetectionStarted;
     bool _DetectionDone;
     uint32_t _DetectionCount;
     bool _DetectionCancelled;
@@ -706,11 +707,22 @@ private:
     VulkanHook_t* _VulkanHook;
 
     std::string _SystemDirectory;
-    HWND _DummyWindowHandle = nullptr;
+    HWND _DummyWindowHandle;
     std::wstring _DummyWindowClassName;
-    ATOM _DummyWindowAtom = 0;
+    ATOM _DummyWindowAtom;
 
     RendererDetector_t() :
+        _RendererHook(false),
+        _DetectionStarted(false),
+        _DetectionDone(false),
+        _DetectionCount(0),
+        _DetectionCancelled(false),
+        _IDXGISwapChainPresent(nullptr),
+        _IDXGISwapChain1Present1(nullptr),
+        _IDirect3DDevice9Present(nullptr),
+        _IDirect3DDevice9ExPresentEx(nullptr),
+        _IDirect3DSwapChain9Present(nullptr),
+        _WGLSwapBuffers(nullptr),
         _DXGIHooked(false),
         _DXGI1_2Hooked(false),
         _DX12Hooked(false),
@@ -719,19 +731,17 @@ private:
         _DX9Hooked(false),
         _OpenGLHooked(false),
         _VulkanHooked(false),
-        _RendererHook(nullptr),
         _DX9Hook(nullptr),
         _DX10Hook(nullptr),
         _DX11Hook(nullptr),
         _DX12Hook(nullptr),
         _OpenGLHook(nullptr),
         _VulkanHook(nullptr),
-        _DetectionDone(false),
-        _DetectionCount(0),
-        _DetectionCancelled(false)
+        _SystemDirectory(GetSystemDirectory()),
+        _DummyWindowHandle(nullptr),
+        _DummyWindowClassName(RandomString(64)),
+        _DummyWindowAtom(0)
     {
-        _SystemDirectory = GetSystemDirectory();
-        _DummyWindowClassName = RandomString(64);
     }
 
     template<typename T>
@@ -803,8 +813,9 @@ private:
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
+        SPDLOG_INFO("IDXGISwapChain::Present");
         res = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_DeduceDXVersionFromSwapChain(_this);
@@ -820,8 +831,9 @@ private:
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
+        SPDLOG_INFO("IDXGISwapChain::Present1");
         res = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_DeduceDXVersionFromSwapChain(_this);
@@ -834,8 +846,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DDevice9::Present");
         auto res = (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -848,8 +861,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DDevice9Ex::PresentEx");
         auto res = (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -862,8 +876,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("IDirect3DSwapChain9::Present");
         auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         inst->_HookDetected(inst->_DX9Hook);
@@ -876,8 +891,9 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
+        SPDLOG_INFO("wglSwapBuffers");
         auto res = inst->_WGLSwapBuffers(hDC);
-        if (inst->_DetectionDone)
+        if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
@@ -1308,8 +1324,14 @@ public:
                 }
 
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
+                if (!_DetectionStarted)
+                {
+                    std::lock_guard<std::mutex> lck(_RendererMutex);
+                    _DetectionStarted = true;
+                }
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
+            _DetectionStarted = false;
             {
                 auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
                 
