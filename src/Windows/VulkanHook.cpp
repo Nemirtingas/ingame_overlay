@@ -910,7 +910,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             info.waitSemaphoreCount = waitSemaphoresCount;
             info.pWaitSemaphores = pPresentInfo->pWaitSemaphores;
 
-            info.signalSemaphoreCount = 1;
+            info.signalSemaphoreCount = waitSemaphoresCount;
             info.pSignalSemaphores = pPresentInfo->pWaitSemaphores;
 
             _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
