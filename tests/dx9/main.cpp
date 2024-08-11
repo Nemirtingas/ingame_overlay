@@ -25,9 +25,14 @@ void CleanupDeviceD3D();
 void ResetDevice();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+static const char* ingame_overlay_test_library = "overlay_example.dll";
+
 // Main code
-int main(int, char**)
+int main(int argc, char* argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     // Create application window
     //ImGui_ImplWin32_EnableDpiAwareness();
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("ImGui Example"), NULL };
@@ -77,7 +82,7 @@ int main(int, char**)
     //IM_ASSERT(font != NULL);
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA("overlay_example.dll");
+    HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
 
     // Our state
     bool show_demo_window = true;

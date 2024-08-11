@@ -1,5 +1,3 @@
 /deps/ImGui
 /deps/spdlog
 /OUT
-/tests/common/glfw
-/tests/common/vulkansdk

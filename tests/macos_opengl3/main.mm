@@ -21,6 +21,8 @@
 
 #include <string>
 
+static const char* ingame_overlay_test_library = "liboverlay_example.dylib";
+
 static int isProcessTranslated()
 {
     int ret = 0;
@@ -148,7 +150,7 @@ static std::string getExecutablePath()
     //IM_ASSERT(font != NULL);
 
     std::string exec_path = getExecutablePath();
-    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + "liboverlay_example.dylib";
+    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + ingame_overlay_test_library;
     void* overlay_hook = dlopen(exec_path.c_str(), RTLD_NOW);
     printf("Loading %s: %p\n", exec_path.c_str(), overlay_hook);
 }
@@ -328,6 +330,9 @@ static std::string getExecutablePath()
 
 int main(int argc, const char* argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     @autoreleasepool
     {
         NSApp = [NSApplication sharedApplication];
