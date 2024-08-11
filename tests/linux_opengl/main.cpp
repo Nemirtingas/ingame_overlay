@@ -47,6 +47,8 @@ using namespace gl;
 
 #include <string>
 
+static const char* ingame_overlay_test_library = "liboverlay_example.so";
+
 extern int ImGui_ImplX11_EventHandler(XEvent &event, XEvent *next_event);
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB       0x2091
@@ -118,6 +120,9 @@ static int ctxErrorHandler( Display *dpy, XErrorEvent *ev )
 
 int main(int argc, char* argv[])
 {
+  if (argc > 1)
+    ingame_overlay_test_library = argv[1];
+
   Display *display = XOpenDisplay(NULL);
 
   if (!display)
@@ -388,7 +393,7 @@ int main(int argc, char* argv[])
                  ButtonPressMask | ButtonReleaseMask);
 
     std::string exec_path = getExecutablePath();
-    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + "liboverlay_example.so";
+    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + ingame_overlay_test_library;
     void* overlay_hook = dlopen(exec_path.c_str(), RTLD_NOW);
     printf("Loading %s: %p\n", exec_path.c_str(), overlay_hook);
 

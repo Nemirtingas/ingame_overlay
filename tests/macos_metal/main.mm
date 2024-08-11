@@ -16,6 +16,15 @@
 #include "imgui.h"
 #include <backends/imgui_impl_metal.h>
 #include "../common/imgui_impl_osx.h"
+
+#include <sys/sysctl.h>
+#include <mach-o/dyld_images.h>
+#include <dlfcn.h>
+
+#include <string>
+
+static const char* ingame_overlay_test_library = "liboverlay_example.dylib";
+
 @interface AppViewController : NSViewController<NSWindowDelegate>
 @end
 
@@ -24,6 +33,72 @@
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
 @end
+
+static int isProcessTranslated()
+{
+    int ret = 0;
+    size_t size = sizeof(ret);
+
+    // Call the sysctl and if successful return the result
+    if (sysctlbyname("sysctl.proc_translated", &ret, &size, NULL, 0) != -1)
+        return ret;
+
+    // If "sysctl.proc_translated" is not present then must be native
+    if (errno == ENOENT)
+        return 0;
+
+    return -1;
+}
+
+static std::string getExecutablePath()
+{
+    std::string exec_path("./");
+
+    task_dyld_info dyld_info;
+    task_t t;
+    pid_t pid = getpid();
+    task_for_pid(mach_task_self(), pid, &t);
+    mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+
+    if (task_info(t, TASK_DYLD_INFO, reinterpret_cast<task_info_t>(&dyld_info), &count) == KERN_SUCCESS)
+    {
+        dyld_all_image_infos *dyld_img_infos = reinterpret_cast<dyld_all_image_infos*>(dyld_info.all_image_info_addr);
+        if (isProcessTranslated() == 1)
+        {
+            for (int i = 0; i < dyld_img_infos->infoArrayCount; ++i)
+            {
+                exec_path = dyld_img_infos->infoArray[i].imageFilePath;
+                if (strcasestr(exec_path.c_str(), "rosetta") != nullptr)
+                    continue;
+
+                // In case of a translated process (Rosetta maybe ?), the executable path is not the first entry.
+                size_t pos;
+                while ((pos = exec_path.find("/./")) != std::string::npos)
+                {
+                    exec_path.replace(pos, 3, "/");
+                }
+                break;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < dyld_img_infos->infoArrayCount; ++i)
+            {
+                // For now I don't know how to be sure to get the executable path
+                // but looks like the 1st entry is the executable path
+                exec_path = dyld_img_infos->infoArray[i].imageFilePath;
+                size_t pos;
+                while ((pos = exec_path.find("/./")) != std::string::npos)
+                {
+                    exec_path.replace(pos, 3, "/");
+                }
+                break;
+            }
+        }
+    }
+
+    return exec_path;
+}
 
 //-----------------------------------------------------------------------------------
 // AppViewController
@@ -242,5 +317,8 @@
 
 int main(int argc, const char * argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     return NSApplicationMain(argc, argv);
 }

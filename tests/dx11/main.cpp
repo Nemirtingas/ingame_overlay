@@ -25,9 +25,14 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+static const char* ingame_overlay_test_library = "overlay_example.dll";
+
 // Main code
-int main(int, char**)
+int main(int argc, char* argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     // Create application window
     //ImGui_ImplWin32_EnableDpiAwareness();
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, _T("ImGui Example"), NULL };
@@ -82,7 +87,7 @@ int main(int, char**)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA("overlay_example.dll");
+    HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
 
     // Main loop
     bool done = false;

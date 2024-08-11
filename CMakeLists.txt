@@ -679,6 +679,35 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     ${IMGUI_USER_CONFIG_VALUE}
   )
 
+  add_library(test_overlay SHARED
+    tests/test_overlay/library_main.cpp
+  )
+
+  set_target_properties(test_overlay PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    POSITION_INDEPENDENT_CODE ON
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+  )
+
+  target_link_options(test_overlay
+    PRIVATE
+    $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--exclude-libs,ALL>
+    $<$<AND:$<NOT:$<BOOL:${APPLE}>>,$<BOOL:${UNIX}>>:-Wl,--no-undefined>
+  )
+
+  target_link_libraries(test_overlay
+    PRIVATE
+    Nemirtingas::InGameOverlay
+    Threads::Threads
+  )
+  
+  target_compile_definitions(test_overlay
+    PRIVATE
+    ${IMGUI_USER_CONFIG_VALUE}
+  )
+
 endif()
 
 ##################

@@ -13,6 +13,8 @@
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
 
+static const char* ingame_overlay_test_library = "overlay_example.dll";
+
    // Forward declare message handler from imgui_impl_win32.cpp
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -114,8 +116,11 @@ CreateOpenGLWindow(char* title, int x, int y, int width, int height,
     return hWnd;
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     HDC hDC;             /* device context */
     HGLRC hRC;           /* opengl context */
     HWND  hWnd;          /* window */
@@ -153,7 +158,7 @@ int main(int argc, char *argv[])
     ImGui_ImplOpenGL3_Init();
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA("overlay_example.dll");
+    HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
 
     // Our state
     bool show_demo_window = true;
