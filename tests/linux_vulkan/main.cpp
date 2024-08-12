@@ -419,7 +419,7 @@ static void FramePresent(ImGui_ImplVulkanH_Window* wd)
 }
 
 // Main code
-int main(int, char**)
+int main(int argc, char* argv[])
 {
     if (argc > 1)
         ingame_overlay_test_library = argv[1];
