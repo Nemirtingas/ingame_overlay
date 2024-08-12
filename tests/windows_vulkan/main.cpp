@@ -40,6 +40,8 @@
 #define APP_USE_VULKAN_DEBUG_REPORT
 #endif
 
+static const char* ingame_overlay_test_library = "overlay_example.dll";
+
 // Data
 static VkAllocationCallbacks* g_Allocator = nullptr;
 static VkInstance               g_Instance = VK_NULL_HANDLE;
@@ -387,8 +389,11 @@ static void FramePresent(ImGui_ImplVulkanH_Window* wd)
 }
 
 // Main code
-int main(int, char**)
+int main(int argc, char* argv[])
 {
+    if (argc > 1)
+        ingame_overlay_test_library = argv[1];
+
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
         return 1;
@@ -468,7 +473,7 @@ int main(int, char**)
     //IM_ASSERT(font != nullptr);
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA("overlay_example.dll");
+    HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
 
     // Our state
     bool show_demo_window = true;
