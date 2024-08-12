@@ -97,6 +97,7 @@ elseif(UNIX)
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
+    src/Linux/VulkanHook.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
@@ -104,6 +105,7 @@ elseif(UNIX)
     src/BaseHook.h
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
+    src/Linux/VulkanHook.h
   )
 
   set(IMGUI_SOURCES

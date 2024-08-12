@@ -53,6 +53,18 @@ struct OpenGLDriver_t
     decltype(::glXSwapBuffers)* glXSwapBuffers;
 };
 
+struct VulkanDriver_t
+{
+    std::string LibraryPath;
+
+    std::function<void* (const char*)> vkLoader;
+    decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR;
+    decltype(::vkAcquireNextImage2KHR)* vkAcquireNextImage2KHR;
+    decltype(::vkQueuePresentKHR)* vkQueuePresentKHR;
+    decltype(::vkCreateSwapchainKHR)* vkCreateSwapchainKHR;
+    decltype(::vkDestroyDevice)* vkDestroyDevice;
+};
+
 static std::string FindPreferedModulePath(std::string const& name)
 {
     return name;
@@ -71,6 +83,180 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
 
     driver.glXSwapBuffers = (decltype(::glXSwapBuffers)*)System::Library::GetSymbol(hOpenGL, "glXSwapBuffers");
     driver.LibraryPath = System::Library::GetLibraryPath(hOpenGL);
+    return driver;
+}
+
+static int32_t VulkanGetFirstGraphicsQueue(decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* _vkGetPhysicalDeviceQueueFamilyProperties, VkPhysicalDevice physicalDevice)
+{
+    uint32_t count;
+    std::vector<VkQueueFamilyProperties> queues;
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
+    queues.resize(count);
+    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            return i;
+    }
+
+    return -1;
+}
+
+static bool VulkanPhysicalDeviceHasExtension(decltype(::vkEnumerateDeviceExtensionProperties)* _vkEnumerateDeviceExtensionProperties, VkPhysicalDevice vkPhysicalDevice, const char* extensionName)
+{
+    uint32_t count;
+    std::vector<VkExtensionProperties> extensionProperties;
+
+    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, nullptr);
+    extensionProperties.resize(count);
+    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, extensionProperties.data());
+
+    for (auto& extension : extensionProperties)
+    {
+        if (strcmp(extension.extensionName, extensionName) != 0)
+            continue;
+
+        return true;
+    }
+
+    return false;
+}
+
+static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
+{
+    VulkanDriver_t driver{};
+
+    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.c_str());
+    if (hVulkan == nullptr)
+    {
+        SPDLOG_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
+        return driver;
+    }
+
+    std::function<void* (const char*)> _vkLoader = [hVulkan](const char* symbolName)
+        {
+            return System::Library::GetSymbol(hVulkan, symbolName);
+        };
+
+    auto _vkCreateInstance = (decltype(::vkCreateInstance)*)_vkLoader("vkCreateInstance");
+    auto _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_vkLoader("vkDestroyInstance");
+    auto _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_vkLoader("vkGetInstanceProcAddr");
+    auto _vkEnumeratePhysicalDevices = (decltype(::vkEnumeratePhysicalDevices)*)_vkLoader("vkEnumeratePhysicalDevices");
+    auto _vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_vkLoader("vkGetPhysicalDeviceProperties");
+    auto _vkGetPhysicalDeviceQueueFamilyProperties = (decltype(::vkGetPhysicalDeviceQueueFamilyProperties)*)_vkLoader("vkGetPhysicalDeviceQueueFamilyProperties");
+    auto _vkEnumerateDeviceExtensionProperties = (decltype(::vkEnumerateDeviceExtensionProperties)*)_vkLoader("vkEnumerateDeviceExtensionProperties");
+    auto _vkCreateDevice = (decltype(::vkCreateDevice)*)_vkLoader("vkCreateDevice");
+    auto _vkDestroyDevice = (decltype(::vkDestroyDevice)*)_vkLoader("vkDestroyDevice");
+    auto _vkGetDeviceProcAddr = (decltype(::vkGetDeviceProcAddr)*)_vkLoader("vkGetDeviceProcAddr");
+
+    VkInstance _vkInstance = nullptr;
+    VkPhysicalDevice _vkPhysicalDevice = nullptr;
+    VkDevice _vkDevice = nullptr;
+
+    if (_vkCreateInstance == nullptr ||
+        _vkDestroyInstance == nullptr ||
+        _vkGetInstanceProcAddr == nullptr ||
+        _vkEnumeratePhysicalDevices == nullptr ||
+        _vkGetPhysicalDeviceProperties == nullptr ||
+        _vkGetPhysicalDeviceQueueFamilyProperties == nullptr ||
+        _vkCreateDevice == nullptr ||
+        _vkDestroyDevice == nullptr ||
+        _vkGetDeviceProcAddr == nullptr)
+    {
+        return driver;
+    }
+
+    {
+        VkInstanceCreateInfo info = { };
+        const char* instanceExtension = VK_KHR_SURFACE_EXTENSION_NAME;
+
+        info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        info.enabledExtensionCount = 1;
+        info.ppEnabledExtensionNames = &instanceExtension;
+
+        _vkCreateInstance(&info, nullptr, &_vkInstance);
+    }
+    {
+        uint32_t physicalDeviceCount;
+        std::vector<VkPhysicalDevice> physicalDevices;
+        VkPhysicalDeviceProperties physicalDeviceProperties;
+
+        _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, NULL);
+        physicalDevices.resize(physicalDeviceCount);
+        _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, physicalDevices.data());
+
+        for (uint32_t i = 0; i < physicalDeviceCount; ++i)
+        {
+            _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
+            if (!VulkanPhysicalDeviceHasExtension(_vkEnumerateDeviceExtensionProperties, physicalDevices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+                continue;
+
+            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            {
+                _vkPhysicalDevice = physicalDevices[i];
+            }
+            else if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            {
+                _vkPhysicalDevice = physicalDevices[i];
+                break;
+            }
+        }
+    }
+    int32_t queueFamilyIndex = -1;
+    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = VulkanGetFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
+    {
+        _vkDestroyInstance(_vkInstance, nullptr);
+        return driver;
+    }
+
+    {
+        const char* deviceExtension = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        const float queuePriority = 1.0f;
+
+        VkDeviceQueueCreateInfo queueInfo = { };
+        queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfo.queueFamilyIndex = queueFamilyIndex;
+        queueInfo.queueCount = 1;
+        queueInfo.pQueuePriorities = &queuePriority;
+
+        VkDeviceCreateInfo createInfo = { };
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos = &queueInfo;
+        createInfo.enabledExtensionCount = 1;
+        createInfo.ppEnabledExtensionNames = &deviceExtension;
+
+        if (_vkCreateDevice(_vkPhysicalDevice, &createInfo, nullptr, &_vkDevice) != VkResult::VK_SUCCESS)
+        {
+            _vkDestroyInstance(_vkInstance, nullptr);
+            return driver;
+        }
+    }
+
+    auto _vkAcquireNextImageKHR = (decltype(::vkAcquireNextImageKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkAcquireNextImageKHR");
+    auto _vkAcquireNextImage2KHR = (decltype(::vkAcquireNextImage2KHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkAcquireNextImage2KHR");
+    auto _vkQueuePresentKHR = (decltype(::vkQueuePresentKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkQueuePresentKHR");
+    auto _vkCreateSwapchainKHR = (decltype(::vkCreateSwapchainKHR)*)_vkGetDeviceProcAddr(_vkDevice, "vkCreateSwapchainKHR");
+
+    _vkDestroyDevice(_vkDevice, nullptr);
+    _vkDestroyInstance(_vkInstance, nullptr);
+
+    if (_vkAcquireNextImageKHR == nullptr ||
+        _vkQueuePresentKHR == nullptr ||
+        _vkCreateSwapchainKHR == nullptr)
+    {
+        return driver;
+    }
+
+    driver.vkLoader = std::move(_vkLoader);
+
+    driver.vkAcquireNextImageKHR = _vkAcquireNextImageKHR;
+    driver.vkAcquireNextImage2KHR = _vkAcquireNextImage2KHR;
+    driver.vkQueuePresentKHR = _vkQueuePresentKHR;
+    driver.vkCreateSwapchainKHR = _vkCreateSwapchainKHR;
+    driver.vkDestroyDevice = _vkDestroyDevice;
+
+    driver.LibraryPath = System::Library::GetLibraryPath(hVulkan);
     return driver;
 }
 
@@ -114,10 +300,10 @@ private:
     decltype(::glXSwapBuffers)* _GLXSwapBuffers;
 
     bool _OpenGLXHooked;
-    //bool _VulkanHooked;
+    bool _VulkanHooked;
 
     OpenGLXHook_t* _OpenGLXHook;
-    //VulkanHook_t* _VulkanHook;
+    VulkanHook_t* _VulkanHook;
 
     RendererDetector_t() :
         _RendererHook(nullptr),
@@ -127,8 +313,8 @@ private:
         _DetectionCancelled(false),
         _GLXSwapBuffers(nullptr),
         _OpenGLXHooked(false),
-        _OpenGLXHook(nullptr)
-        //_VulkanHook(nullptr),
+        _OpenGLXHook(nullptr),
+        _VulkanHook(nullptr)
     {}
 
     static void _MyGLXSwapBuffers(Display* dpy, GLXDrawable drawable)
