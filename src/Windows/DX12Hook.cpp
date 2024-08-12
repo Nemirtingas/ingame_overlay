@@ -667,6 +667,7 @@ std::weak_ptr<uint64_t> DX12Hook_t::CreateImageResource(const void* image_data, 
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     
+    // TODO: Store thoses things instead of creating one per image.
     ID3D12Fence* fence = NULL;
     hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     IM_ASSERT(SUCCEEDED(hr));
