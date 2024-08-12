@@ -75,7 +75,7 @@ InGameOverlay::RendererHook_t* test_renderer_detector()
         rendererHook = future.get();
         if (rendererHook == nullptr)
         {
-            future = InGameOverlay::DetectRenderer(4s);
+            future = InGameOverlay::DetectRenderer(8s);
             future.wait();
             if (future.valid())
                 rendererHook = future.get();
