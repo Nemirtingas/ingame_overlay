@@ -172,24 +172,16 @@ static std::wstring CreateDummyHWND(HWND* dummyHwnd, ATOM* dummyAtom)
     WNDCLASSEXW windowClass = {};
 
     windowClass.cbSize = sizeof(WNDCLASSEX);
-    windowClass.style = CS_HREDRAW | CS_VREDRAW;
-    windowClass.lpfnWndProc = DefWindowProc;
-    windowClass.cbClsExtra = 0;
-    windowClass.cbWndExtra = 0;
+    windowClass.lpfnWndProc = DefWindowProcW;
     windowClass.hInstance = hInst;
-    windowClass.hIcon = NULL;
-    windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-    windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    windowClass.lpszMenuName = NULL;
     windowClass.lpszClassName = dummyWindowClassName.c_str();
-    windowClass.hIconSm = NULL;
 
     *dummyAtom = ::RegisterClassExW(&windowClass);
 
     if (*dummyAtom > 0)
     {
         *dummyHwnd = ::CreateWindowExW(
-            NULL,
+            0,
             dummyWindowClassName.c_str(),
             L"",
             WS_OVERLAPPEDWINDOW,
@@ -751,7 +743,6 @@ private:
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(detected_renderer);
         detected_renderer = nullptr;
         _DetectionDone = true;
-        DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
     }
 
     void _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
@@ -1302,6 +1293,7 @@ public:
             };
             std::string name;
 
+            MSG windowMessage;
             auto startTime = std::chrono::steady_clock::now();
             do
             {
@@ -1329,6 +1321,9 @@ public:
                     std::lock_guard<std::mutex> lck(_RendererMutex);
                     _DetectionStarted = true;
                 }
+
+                // Needed to process our dummy window message, because some applications send it message and they need to be answered else it hangs the sender.
+                while (PeekMessageW(&windowMessage, _DummyWindowHandle, 0, 0, PM_REMOVE) != FALSE);
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
             _DetectionStarted = false;
