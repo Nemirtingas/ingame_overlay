@@ -436,7 +436,6 @@ int main(int, char**)
         printf("GLFW: Vulkan Not Supported\n");
         return 1;
     }
-    HWND hWnd = glfwGetWin32Window(window);
 
     ImVector<const char*> extensions;
     uint32_t extensions_count = 0;
