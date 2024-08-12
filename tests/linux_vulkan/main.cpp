@@ -20,13 +20,45 @@
 #include <stdlib.h>         // abort
 #define GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_VULKAN
-#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <vulkan/vulkan.h>
 //#include <vulkan/vulkan_beta.h>
 
-#include <windows.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dlfcn.h>
+
+#include <string>
+
+static std::string expandSymlink(std::string file_path)
+{
+    struct stat file_stat;
+    std::string link_target;
+    ssize_t name_len = 128;
+    while(lstat(file_path.c_str(), &file_stat) >= 0 && S_ISLNK(file_stat.st_mode) == 1)
+    {
+        do
+        {
+            name_len *= 2;
+            link_target.resize(name_len);
+            name_len = readlink(file_path.c_str(), &link_target[0], link_target.length());
+        } while (name_len == link_target.length());
+        link_target.resize(name_len);
+        file_path = std::move(link_target);
+    }
+
+    return file_path;
+}
+
+static std::string getExecutablePath()
+{
+    return expandSymlink("/proc/self/exe");
+}
+
+static const char* ingame_overlay_test_library = "liboverlay_example.so";
 
 // [Win32] Our example includes a copy of glfw3.lib pre-compiled with VS2010 to maximize ease of testing and compatibility with old VS compilers.
 // To link with VS2010-era libraries, VS2015+ requires linking with legacy_stdio_definitions.lib, which we do using this pragma.
@@ -39,8 +71,6 @@
 #ifdef _DEBUG
 #define APP_USE_VULKAN_DEBUG_REPORT
 #endif
-
-static const char* ingame_overlay_test_library = "overlay_example.dll";
 
 // Data
 static VkAllocationCallbacks* g_Allocator = nullptr;
@@ -473,7 +503,10 @@ int main(int, char**)
     //IM_ASSERT(font != nullptr);
 
     // You might want to inject it in the target game.
-    HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
+    std::string exec_path = getExecutablePath();
+    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + ingame_overlay_test_library;
+    void* overlay_hook = dlopen(exec_path.c_str(), RTLD_NOW);
+    printf("Loading %s: %p\n", exec_path.c_str(), overlay_hook);
 
     // Our state
     bool show_demo_window = true;
