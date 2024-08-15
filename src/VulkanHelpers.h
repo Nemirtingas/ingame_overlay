@@ -23,6 +23,8 @@
 
 #include <vector>
 
+#include <string.h>
+
 constexpr int SelectDeviceTypeStart = 5; // countof(deviceTypePriorities)
 
 static bool IsVulkanExtensionAvailable(const std::vector<VkExtensionProperties>& properties, const char* extension)
