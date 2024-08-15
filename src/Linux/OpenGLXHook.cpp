@@ -64,17 +64,13 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
 void OpenGLXHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
-    {
         X11Hook_t::Inst()->HideAppInputs(hide);
-    }
 }
 
 void OpenGLXHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
-    {
         X11Hook_t::Inst()->HideOverlayInputs(hide);
-    }
 }
 
 bool OpenGLXHook_t::IsStarted()
@@ -82,21 +78,30 @@ bool OpenGLXHook_t::IsStarted()
     return _Hooked;
 }
 
-void OpenGLXHook_t::_ResetRenderState()
+void OpenGLXHook_t::_ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
+    if (_HookState == state)
+        return;
+
+    OverlayHookReady(state);
+
+    _HookState = state;
+
+    switch (state)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        case OverlayHookState::Reset:
+            break;
 
-        ImGui_ImplOpenGL3_Shutdown();
-        X11Hook_t::Inst()->ResetRenderState();
-        //ImGui::DestroyContext();
+        case OverlayHookState::Removing:
+            ImGui_ImplOpenGL3_Shutdown();
+            X11Hook_t::Inst()->ResetRenderState(state);
+            //ImGui::DestroyContext();
 
-        _ImageResources.clear();
+            _ImageResources.clear();
 
-        glXDestroyContext(_Display, _Context);
-        _Display = nullptr;
-        _Initialized = false;
+            //glXDestroyContext(_Display, _Context);
+            _Display = nullptr;
+            _Initialized = false;
     }
 }
 
@@ -107,8 +112,6 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
     {
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
-
-        ImGui_ImplOpenGL3_Init();
 
         //int attributes[] = { //can't be const b/c X11 doesn't like it.  Not sure if that's intentional or just stupid.
         //    GLX_RGBA, //apparently nothing comes after this?
@@ -131,19 +134,22 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         //if (_Context == nullptr)
         //    return;
 
+
+        if (!X11Hook_t::Inst()->SetInitialWindowSize((Window)drawable))
+            return;
+
+        ImGui_ImplOpenGL3_Init();
+
         _Display = display;
-
-        X11Hook_t::Inst()->SetInitialWindowSize(_Display, (Window)drawable);
-
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        _ResetRenderState(OverlayHookState::Ready);
     }
 
     //auto oldContext = glXGetCurrentContext();
 
     //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay(_Display, (Window)drawable))
+    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay((Window)drawable))
     {
         ImGui::NewFrame();
 
@@ -164,9 +170,11 @@ void OpenGLXHook_t::_MyGLXSwapBuffers(Display* display, GLXDrawable drawable)
 }
 
 OpenGLXHook_t::OpenGLXHook_t():
-    _Initialized(false),
     _Hooked(false),
     _X11Hooked(false),
+    _Initialized(false),
+    _HookState(OverlayHookState::Removing),
+    _Display(nullptr),
     _ImGuiFontAtlas(nullptr),
     _GLXSwapBuffers(nullptr)
 {
@@ -180,12 +188,7 @@ OpenGLXHook_t::~OpenGLXHook_t()
     if (_X11Hooked)
         delete X11Hook_t::Inst();
 
-    if (_Initialized)
-    {
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui::DestroyContext();
-        glXDestroyContext(_Display, _Context);
-    }
+    _ResetRenderState(OverlayHookState::Removing);
 
     //dlclose(_library);
 

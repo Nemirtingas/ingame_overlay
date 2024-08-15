@@ -180,15 +180,15 @@ void WindowsHook_t::HideOverlayInputs(bool hide)
 
 void WindowsHook_t::ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
-    {
-        _Initialized = false;
+    if (!_Initialized)
+        return;
 
-        HideAppInputs(false);
-        HideOverlayInputs(true);
+    _Initialized = false;
 
-        ImGui_ImplWin32_Shutdown();
-    }
+    HideAppInputs(false);
+    HideOverlayInputs(true);
+
+    ImGui_ImplWin32_Shutdown();
 }
 
 void WindowsHook_t::SetInitialWindowSize(HWND hWnd)
@@ -221,14 +221,6 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
         if (!_OverlayInputsHidden)
         {
             ImGui_ImplWin32_NewFrame();
-            // Read keyboard modifiers inputs
-            //auto& io = ImGui::GetIO();
-            //
-            //POINT pos;
-            //if (this->_GetCursorPos(&pos) && ScreenToClient(hWnd, &pos))
-            //{
-            //    io.AddMousePosEvent((float)pos.x, (float)pos.y);
-            //}
         }
 
         return true;
@@ -237,9 +229,38 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
     return false;
 }
 
+std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
+{
+    struct
+    {
+        DWORD pid;
+        std::vector<HWND> windows;
+    } windowParams{
+        processId
+    };
+
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+    {
+        if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
+            return TRUE;
+
+        DWORD processId;
+        GetWindowThreadProcessId(hwnd, &processId);
+
+        auto params = reinterpret_cast<decltype(windowParams)*>(lParam);
+
+        if (processId == params->pid)
+            params->windows.emplace_back(hwnd);
+
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&windowParams));
+
+    return windowParams.windows;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////
 // Windows window hooks
-bool IgnoreMsg(UINT uMsg)
+static bool IgnoreMsg(UINT uMsg)
 {
     switch (uMsg)
     {

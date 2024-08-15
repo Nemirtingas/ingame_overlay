@@ -23,6 +23,10 @@
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
+#include "../VulkanHelpers.h"
+
+#include <unistd.h>
+
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
@@ -31,15 +35,6 @@ namespace InGameOverlay {
 } } while(0)
 
 VulkanHook_t* VulkanHook_t::_Instance = nullptr;
-
-static bool _IsExtensionAvailable(const std::vector<VkExtensionProperties>& properties, const char* extension)
-{
-    for (const VkExtensionProperties& p : properties)
-        if (strcmp(p.extensionName, extension) == 0)
-            return true;
-
-    return false;
-}
 
 static inline VkResult _CheckVkResult(VkResult err)
 {
@@ -73,13 +68,16 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!_CreateVulkanInstance())
             return false;
 
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!X11Hook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
             return false;
 
-        _WindowsHooked = true;
+        _X11Hooked = true;
 
         BeginHook();
         TRY_HOOK_FUNCTION(VkAcquireNextImageKHR);
+        if (_VkAcquireNextImage2KHR != nullptr)
+            TRY_HOOK_FUNCTION(VkAcquireNextImage2KHR);
+
         TRY_HOOK_FUNCTION(VkQueuePresentKHR);
         TRY_HOOK_FUNCTION(VkCreateSwapchainKHR);
         TRY_HOOK_FUNCTION(VkDestroyDevice);
@@ -95,13 +93,13 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 void VulkanHook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        X11Hook_t::Inst()->HideAppInputs(hide);
 }
 
 void VulkanHook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        X11Hook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool VulkanHook_t::IsStarted()
@@ -349,7 +347,7 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
     {
         case OverlayHookState::Removing:
             ImGui_ImplVulkan_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            X11Hook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -454,6 +452,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkGetBufferMemoryRequirements);
     LOAD_VULKAN_FUNCTION(vkGetImageMemoryRequirements);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
+    LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
     LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
@@ -514,19 +513,28 @@ bool VulkanHook_t::_GetPhysicalDevice()
     _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, nullptr);
     std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
     _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, physicalDevices.data());
+    std::vector<VkExtensionProperties> extensionProperties;
 
-    VkPhysicalDeviceProperties properties;
+    int selectedDevicetype = SelectDeviceTypeStart;
+
+    VkPhysicalDeviceProperties physicalDeviceProperties;
     for (uint32_t i = 0; i < physicalDeviceCount; ++i)
     {
-        _vkGetPhysicalDeviceProperties(physicalDevices[i], &properties);
-        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+        uint32_t count;
+
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[i], nullptr, &count, nullptr);
+        extensionProperties.resize(count);
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[i], nullptr, &count, extensionProperties.data());
+
+        _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
+        if (!IsVulkanExtensionAvailable(extensionProperties, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+            continue;
+
+        if (SelectVulkanPhysicalDeviceType(physicalDeviceProperties.deviceType, selectedDevicetype))
         {
             _VulkanPhysicalDevice = physicalDevices[i];
-        }
-        else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-        {
-            _VulkanPhysicalDevice = physicalDevices[i];
-            break;
+            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                break;
         }
     }
     if (_VulkanPhysicalDevice == nullptr)
@@ -742,13 +750,17 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
-        //if (!_FindApplicationHWND())
-        //    return;
+        auto windows = X11Hook_t::Inst()->FindApplicationX11Window(getpid());
+        if (windows.empty())
+            return;
+
+        _Window = (void*)windows[0];
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
+        if (!X11Hook_t::Inst()->SetInitialWindowSize((Window)_Window))
+            return;
 
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
@@ -817,7 +829,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame() && !WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
+        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Window)_Window))
             return;
         
         ImGui::NewFrame();
@@ -947,9 +959,9 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 
 VulkanHook_t::VulkanHook_t():
     _Hooked(false),
-    _WindowsHooked(false),
+    _X11Hooked(false),
+    _Window(nullptr),
     _HookState(OverlayHookState::Removing),
-    _MainWindow(nullptr),
     _VulkanLoader(nullptr),
     _VulkanAllocationCallbacks(nullptr),
     _VulkanInstance(VK_NULL_HANDLE),
@@ -1027,7 +1039,8 @@ VulkanHook_t::VulkanHook_t():
     _vkEnumeratePhysicalDevices(nullptr),
     _vkGetPhysicalDeviceProperties(nullptr),
     _vkGetPhysicalDeviceQueueFamilyProperties(nullptr),
-    _vkGetPhysicalDeviceMemoryProperties(nullptr)
+    _vkGetPhysicalDeviceMemoryProperties(nullptr),
+    _vkEnumerateDeviceExtensionProperties(nullptr)
 {
 }
 
@@ -1035,8 +1048,8 @@ VulkanHook_t::~VulkanHook_t()
 {
     SPDLOG_INFO("VulkanHook_t Hook removed");
 
-    if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+    if (_X11Hooked)
+        delete X11Hook_t::Inst();
 
     _Instance = nullptr;
 }
@@ -1078,6 +1091,15 @@ void VulkanHook_t::LoadFunctions(
 
 std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
+    struct VulkanImage_t
+    {
+        ImTextureID ImageId = 0;
+        VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
+        VulkanDescriptorSet_t ImageDescriptorId;
+        VkImage VulkanImage = VK_NULL_HANDLE;
+        VkImageView VulkanImageView = VK_NULL_HANDLE;
+    };
+
     std::shared_ptr<uint64_t> image;
     VkResult result;
     VkImage vulkanImage = VK_NULL_HANDLE;
@@ -1086,9 +1108,11 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     VulkanDescriptorSet_t vulkanImageDescriptor;
     VkDeviceMemory uploadBufferMemory = VK_NULL_HANDLE;
     VkBuffer uploadBuffer = VK_NULL_HANDLE;
-    
+
     VkDeviceSize uploadSize = width * height * 4 * sizeof(char);
-    
+
+    VulkanImage_t* vulkanRendererImage = nullptr;
+
     // Start command buffer 
     {
         result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
@@ -1142,7 +1166,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
     }
-    
+
     // Create the Image View:
     {
         VkImageViewCreateInfo info = {};
@@ -1163,9 +1187,9 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     vulkanImageDescriptor = _GetFreeDescriptorSet();
     if (vulkanImageDescriptor.DescriptorPoolId == VulkanDescriptorSet_t::InvalidDescriptorPoolId)
         goto OnErrorCreateImage;
-    
+
     _CreateImageTexture(vulkanImageDescriptor.DescriptorSet, vulkanImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    
+
     // Create the Upload Buffer:
     {
         VkBufferCreateInfo buffer_info = {};
@@ -1180,7 +1204,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
         VkMemoryRequirements req;
         _vkGetBufferMemoryRequirements(_VulkanDevice, uploadBuffer, &req);
-        
+
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc_info.allocationSize = req.size;
@@ -1195,7 +1219,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (result != VkResult::VK_SUCCESS)
             goto OnErrorCreateImage;
     }
-    
+
     // Upload to Buffer:
     {
         char* map = nullptr;
@@ -1216,7 +1240,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
         _vkUnmapMemory(_VulkanDevice, uploadBufferMemory);
     }
-    
+
     // Copy to Image:
     {
         VkImageMemoryBarrier copyBarrier[1] = {};
@@ -1231,7 +1255,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         copyBarrier[0].subresourceRange.levelCount = 1;
         copyBarrier[0].subresourceRange.layerCount = 1;
         _vkCmdPipelineBarrier(_VulkanImageCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, copyBarrier);
-    
+
         VkBufferImageCopy region = {};
         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         region.imageSubresource.layerCount = 1;
@@ -1239,7 +1263,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         region.imageExtent.height = height;
         region.imageExtent.depth = 1;
         _vkCmdCopyBufferToImage(_VulkanImageCommandBuffer, uploadBuffer, vulkanImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    
+
         VkImageMemoryBarrier useBarrier[1] = {};
         useBarrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         useBarrier[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -1283,16 +1307,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
     }
 
-    struct VulkanImage_t
-    {
-        ImTextureID ImageId = 0;
-        VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
-        VulkanDescriptorSet_t ImageDescriptorId;
-        VkImage VulkanImage = VK_NULL_HANDLE;
-        VkImageView VulkanImageView = VK_NULL_HANDLE;
-    };
-
-    VulkanImage_t* vulkanRendererImage = new VulkanImage_t;
+    vulkanRendererImage = new VulkanImage_t;
     vulkanRendererImage->ImageId = (ImTextureID)vulkanImageDescriptor.DescriptorSet;
     vulkanRendererImage->VulkanImageMemory = vulkanImageMemory;
     vulkanRendererImage->ImageDescriptorId = vulkanImageDescriptor;
@@ -1303,7 +1318,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         if (handle != nullptr)
         {
             auto vulkanImage = reinterpret_cast<VulkanImage_t*>(handle);
-            
+
             _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, nullptr);
             _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
             _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
@@ -1319,11 +1334,11 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
 OnErrorCreateImage:
     if (vulkanImageDescriptor.DescriptorSet != VK_NULL_HANDLE) _ReleaseDescriptor(vulkanImageDescriptor);
-    if (uploadBuffer                        != VK_NULL_HANDLE) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , nullptr);
-    if (uploadBufferMemory                  != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, nullptr);
-    if (vulkanImageView                     != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , nullptr);
-    if (vulkanImageMemory                   != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, vulkanImageMemory , nullptr);
-    if (vulkanImage                         != VK_NULL_HANDLE) _vkDestroyImage    (_VulkanDevice, vulkanImage       , nullptr);
+    if (uploadBuffer != VK_NULL_HANDLE) _vkDestroyBuffer(_VulkanDevice, uploadBuffer, nullptr);
+    if (uploadBufferMemory != VK_NULL_HANDLE) _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
+    if (vulkanImageView != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView, nullptr);
+    if (vulkanImageMemory != VK_NULL_HANDLE) _vkFreeMemory(_VulkanDevice, vulkanImageMemory, nullptr);
+    if (vulkanImage != VK_NULL_HANDLE) _vkDestroyImage(_VulkanDevice, vulkanImage, nullptr);
 
     return std::shared_ptr<uint64_t>(nullptr);
 }

@@ -109,7 +109,6 @@ private:
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
     PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);
-    bool _FindApplicationHWND();
     void _FreeVulkanRessources();
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
@@ -207,6 +206,7 @@ private:
     decltype(::vkGetPhysicalDeviceProperties)            *_vkGetPhysicalDeviceProperties;
     decltype(::vkGetPhysicalDeviceQueueFamilyProperties) *_vkGetPhysicalDeviceQueueFamilyProperties;
     decltype(::vkGetPhysicalDeviceMemoryProperties)      *_vkGetPhysicalDeviceMemoryProperties;
+    decltype(::vkEnumerateDeviceExtensionProperties)     *_vkEnumerateDeviceExtensionProperties;
 
 public:
     std::string LibraryName;

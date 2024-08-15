@@ -39,6 +39,7 @@ private:
     bool _Hooked;
     bool _WindowsHooked;
     bool _Initialized;
+    OverlayHookState _HookState;
     HWND _LastWindow;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;

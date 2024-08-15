@@ -38,6 +38,7 @@ private:
     // Variables
     bool _Hooked;
     bool _Initialized;
+    Display* _Display;
     Window _GameWnd;
 
     // In (bool): Is toggle wanted
@@ -73,9 +74,10 @@ public:
 
     virtual ~X11Hook_t();
 
-    void ResetRenderState();
-    void SetInitialWindowSize(Display* display, Window wnd);
-    bool PrepareForOverlay(Display *display, Window wnd);
+    void ResetRenderState(OverlayHookState state);
+    bool SetInitialWindowSize(Window wnd);
+    bool PrepareForOverlay(Window wnd);
+    std::vector<Window> FindApplicationX11Window(int32_t processId);
 
     Window GetGameWnd() const{ return _GameWnd; }
 

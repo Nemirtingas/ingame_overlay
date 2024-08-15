@@ -20,6 +20,7 @@
 #include <cassert>
 
 #include <InGameOverlay/RendererDetector.h>
+#include "../VulkanHelpers.h"
 
 #include <System/Encoding.hpp>
 #include <System/String.hpp>
@@ -32,6 +33,7 @@
 #include <glad/gl.h>
 
 #include "OpenGLXHook.h"
+#include "VulkanHook.h"
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
     SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
@@ -46,6 +48,7 @@
 namespace InGameOverlay {
 
 static constexpr const char OPENGLX_DLL_NAME[] = "libGLX.so";
+static constexpr const char VULKAN_DLL_NAME[] = "libvulkan.so";
 
 struct OpenGLDriver_t
 {
@@ -86,42 +89,6 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
     return driver;
 }
 
-static int32_t VulkanGetFirstGraphicsQueue(decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* _vkGetPhysicalDeviceQueueFamilyProperties, VkPhysicalDevice physicalDevice)
-{
-    uint32_t count;
-    std::vector<VkQueueFamilyProperties> queues;
-    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
-    queues.resize(count);
-    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
-    for (uint32_t i = 0; i < count; i++)
-    {
-        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-            return i;
-    }
-
-    return -1;
-}
-
-static bool VulkanPhysicalDeviceHasExtension(decltype(::vkEnumerateDeviceExtensionProperties)* _vkEnumerateDeviceExtensionProperties, VkPhysicalDevice vkPhysicalDevice, const char* extensionName)
-{
-    uint32_t count;
-    std::vector<VkExtensionProperties> extensionProperties;
-
-    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, nullptr);
-    extensionProperties.resize(count);
-    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, extensionProperties.data());
-
-    for (auto& extension : extensionProperties)
-    {
-        if (strcmp(extension.extensionName, extensionName) != 0)
-            continue;
-
-        return true;
-    }
-
-    return false;
-}
-
 static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
 {
     VulkanDriver_t driver{};
@@ -134,9 +101,9 @@ static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
     }
 
     std::function<void* (const char*)> _vkLoader = [hVulkan](const char* symbolName)
-        {
-            return System::Library::GetSymbol(hVulkan, symbolName);
-        };
+    {
+        return System::Library::GetSymbol(hVulkan, symbolName);
+    };
 
     auto _vkCreateInstance = (decltype(::vkCreateInstance)*)_vkLoader("vkCreateInstance");
     auto _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_vkLoader("vkDestroyInstance");
@@ -185,25 +152,24 @@ static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
         physicalDevices.resize(physicalDeviceCount);
         _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, physicalDevices.data());
 
+        int selectedDevicetype = SelectDeviceTypeStart;
+
         for (uint32_t i = 0; i < physicalDeviceCount; ++i)
         {
             _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
             if (!VulkanPhysicalDeviceHasExtension(_vkEnumerateDeviceExtensionProperties, physicalDevices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME))
                 continue;
 
-            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            if (SelectVulkanPhysicalDeviceType(physicalDeviceProperties.deviceType, selectedDevicetype))
             {
                 _vkPhysicalDevice = physicalDevices[i];
-            }
-            else if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-            {
-                _vkPhysicalDevice = physicalDevices[i];
-                break;
+                if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                    break;
             }
         }
     }
     int32_t queueFamilyIndex = -1;
-    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = VulkanGetFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
+    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = GetVulkanPhysicalDeviceFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
     {
         _vkDestroyInstance(_vkInstance, nullptr);
         return driver;
@@ -278,7 +244,7 @@ public:
         StopDetection();
 
         delete _OpenGLXHook;
-        //delete _VulkanHook;
+        delete _VulkanHook;
 
         _Instance = nullptr;
     }
@@ -298,6 +264,7 @@ private:
     std::mutex _StopDetectionMutex;
 
     decltype(::glXSwapBuffers)* _GLXSwapBuffers;
+    decltype(::vkQueuePresentKHR)* _VkQueuePresentKHR;
 
     bool _OpenGLXHooked;
     bool _VulkanHooked;
@@ -312,26 +279,49 @@ private:
         _DetectionCount(0),
         _DetectionCancelled(false),
         _GLXSwapBuffers(nullptr),
+        _VkQueuePresentKHR(nullptr),
         _OpenGLXHooked(false),
+        _VulkanHooked(false),
         _OpenGLXHook(nullptr),
         _VulkanHook(nullptr)
     {}
+
+    template<typename T>
+    void _HookDetected(T*& detected_renderer)
+    {
+        _DetectionHooks.UnhookAll();
+        _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(detected_renderer);
+        detected_renderer = nullptr;
+        _DetectionDone = true;
+    }
 
     static void _MyGLXSwapBuffers(Display* dpy, GLXDrawable drawable)
     {
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+
+        SPDLOG_INFO("glXSwapBuffers");
         inst->_GLXSwapBuffers(dpy, drawable);
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return;
 
         if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
-        {
-            inst->_DetectionHooks.UnhookAll();
-            inst->_RendererHook = static_cast<InGameOverlay::RendererHook_t*>(Inst()->_OpenGLXHook);
-            inst->_OpenGLXHook = nullptr;
-            inst->_DetectionDone = true;
-        }
+            inst->_HookDetected(inst->_OpenGLXHook);
+    }
+
+    static VkResult VKAPI_CALL _MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+    {
+        auto inst = Inst();
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+
+        SPDLOG_INFO("vkQueuePresentKHR");
+        auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
+        if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
+            return res;
+
+        inst->_HookDetected(inst->_VulkanHook);
+
+        return res;
     }
 
     void _HookOpenGLX(std::string const& libraryPath, bool preferSystemLibraries)
@@ -361,6 +351,40 @@ private:
         }
     }
 
+    void _HookVulkan(std::string const& libraryPath, bool preferSystemLibraries)
+    {
+        if (!_VulkanHooked)
+        {
+            auto driver = GetVulkanDriver(libraryPath);
+            if (driver.vkQueuePresentKHR != nullptr)
+            {
+                SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
+                _VulkanHooked = true;
+
+                _VkQueuePresentKHR = driver.vkQueuePresentKHR;
+
+                _VulkanHook = VulkanHook_t::Inst();
+                _VulkanHook->LibraryName = driver.LibraryPath;
+                _VulkanHook->LoadFunctions(
+                    driver.vkLoader,
+                    driver.vkAcquireNextImageKHR,
+                    driver.vkAcquireNextImage2KHR,
+                    driver.vkQueuePresentKHR,
+                    driver.vkCreateSwapchainKHR,
+                    driver.vkDestroyDevice);
+                _VulkanHooked = true;
+
+                _DetectionHooks.BeginHook();
+                TRY_HOOK_FUNCTION(_VkQueuePresentKHR, &RendererDetector_t::_MyvkQueuePresentKHR);
+                _DetectionHooks.EndHook();
+            }
+            else
+            {
+                SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
+            }
+        }
+    }
+
     bool _EnterDetection()
     {
         return true;
@@ -372,10 +396,10 @@ private:
         _DetectionHooks.UnhookAll();
 
         _OpenGLXHooked = false;
-        //_VulkanHooked = false;
+        _VulkanHooked = false;
 
         delete _OpenGLXHook; _OpenGLXHook = nullptr;
-        //delete _VulkanHook; _VulkanHook = nullptr;
+        delete _VulkanHook; _VulkanHook = nullptr;
     }
 
 public:
@@ -439,6 +463,7 @@ public:
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]{
                 { OPENGLX_DLL_NAME, &RendererDetector_t::_HookOpenGLX },
+                {  VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan },
             };
             std::string name;
 

@@ -23,6 +23,8 @@
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 
+#include "../VulkanHelpers.h"
+
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
@@ -31,15 +33,6 @@ namespace InGameOverlay {
 } } while(0)
 
 VulkanHook_t* VulkanHook_t::_Instance = nullptr;
-
-static bool _IsExtensionAvailable(const std::vector<VkExtensionProperties>& properties, const char* extension)
-{
-    for (const VkExtensionProperties& p : properties)
-        if (strcmp(p.extensionName, extension) == 0)
-            return true;
-
-    return false;
-}
 
 static inline VkResult _CheckVkResult(VkResult err)
 {
@@ -80,6 +73,9 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         BeginHook();
         TRY_HOOK_FUNCTION(VkAcquireNextImageKHR);
+        if (_VkAcquireNextImage2KHR != nullptr)
+            TRY_HOOK_FUNCTION(VkAcquireNextImage2KHR);
+
         TRY_HOOK_FUNCTION(VkQueuePresentKHR);
         TRY_HOOK_FUNCTION(VkCreateSwapchainKHR);
         TRY_HOOK_FUNCTION(VkDestroyDevice);
@@ -368,39 +364,6 @@ PFN_vkVoidFunction VulkanHook_t::_LoadVulkanFunction(const char* functionName)
     return _vkGetInstanceProcAddr(_VulkanInstance, functionName);
 }
 
-bool VulkanHook_t::_FindApplicationHWND()
-{
-    struct
-    {
-        DWORD pid;
-        std::vector<HWND> windows;
-    } windowParams{
-        GetCurrentProcessId()
-    };
-
-    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
-    {
-        if (!IsWindowVisible(hwnd) && !IsIconic(hwnd))
-            return TRUE;
-
-        DWORD processId;
-        GetWindowThreadProcessId(hwnd, &processId);
-
-        auto params = reinterpret_cast<decltype(windowParams)*>(lParam);
-
-        if (processId == params->pid)
-            params->windows.emplace_back(hwnd);
-
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&windowParams));
-
-    if (windowParams.windows.empty())
-        return false;
-
-    _MainWindow = windowParams.windows[0];
-    return true;
-}
-
 void VulkanHook_t::_FreeVulkanRessources()
 {
     _DestroyRenderTargets();
@@ -487,6 +450,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkGetBufferMemoryRequirements);
     LOAD_VULKAN_FUNCTION(vkGetImageMemoryRequirements);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
+    LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
     LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
@@ -547,19 +511,28 @@ bool VulkanHook_t::_GetPhysicalDevice()
     _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, nullptr);
     std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
     _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, physicalDevices.data());
+    std::vector<VkExtensionProperties> extensionProperties;
 
-    VkPhysicalDeviceProperties properties;
+    int selectedDevicetype = 5;
+
+    VkPhysicalDeviceProperties physicalDeviceProperties;
     for (uint32_t i = 0; i < physicalDeviceCount; ++i)
     {
-        _vkGetPhysicalDeviceProperties(physicalDevices[i], &properties);
-        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+        uint32_t count;
+
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[i], nullptr, &count, nullptr);
+        extensionProperties.resize(count);
+        _vkEnumerateDeviceExtensionProperties(physicalDevices[i], nullptr, &count, extensionProperties.data());
+
+        _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
+        if (!IsVulkanExtensionAvailable(extensionProperties, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+            continue;
+
+        if (SelectVulkanPhysicalDeviceType(physicalDeviceProperties.deviceType, selectedDevicetype))
         {
             _VulkanPhysicalDevice = physicalDevices[i];
-        }
-        else if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-        {
-            _VulkanPhysicalDevice = physicalDevices[i];
-            break;
+            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                break;
         }
     }
     if (_VulkanPhysicalDevice == nullptr)
@@ -775,8 +748,11 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
-        if (!_FindApplicationHWND())
+        auto processWindows = WindowsHook_t::Inst()->FindApplicationHWND(GetCurrentProcessId());
+        if (processWindows.empty())
             return;
+
+        _MainWindow = processWindows[0];
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
@@ -1060,7 +1036,8 @@ VulkanHook_t::VulkanHook_t():
     _vkEnumeratePhysicalDevices(nullptr),
     _vkGetPhysicalDeviceProperties(nullptr),
     _vkGetPhysicalDeviceQueueFamilyProperties(nullptr),
-    _vkGetPhysicalDeviceMemoryProperties(nullptr)
+    _vkGetPhysicalDeviceMemoryProperties(nullptr),
+    _vkEnumerateDeviceExtensionProperties(nullptr)
 {
 }
 
@@ -1111,6 +1088,15 @@ void VulkanHook_t::LoadFunctions(
 
 std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
 {
+    struct VulkanImage_t
+    {
+        ImTextureID ImageId = 0;
+        VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
+        VulkanDescriptorSet_t ImageDescriptorId;
+        VkImage VulkanImage = VK_NULL_HANDLE;
+        VkImageView VulkanImageView = VK_NULL_HANDLE;
+    };
+
     std::shared_ptr<uint64_t> image;
     VkResult result;
     VkImage vulkanImage = VK_NULL_HANDLE;
@@ -1122,6 +1108,8 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     
     VkDeviceSize uploadSize = width * height * 4 * sizeof(char);
     
+    VulkanImage_t* vulkanRendererImage = nullptr;
+
     // Start command buffer 
     {
         result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
@@ -1316,16 +1304,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
     }
 
-    struct VulkanImage_t
-    {
-        ImTextureID ImageId = 0;
-        VkDeviceMemory VulkanImageMemory = VK_NULL_HANDLE;
-        VulkanDescriptorSet_t ImageDescriptorId;
-        VkImage VulkanImage = VK_NULL_HANDLE;
-        VkImageView VulkanImageView = VK_NULL_HANDLE;
-    };
-
-    VulkanImage_t* vulkanRendererImage = new VulkanImage_t;
+    vulkanRendererImage = new VulkanImage_t;
     vulkanRendererImage->ImageId = (ImTextureID)vulkanImageDescriptor.DescriptorSet;
     vulkanRendererImage->VulkanImageMemory = vulkanImageMemory;
     vulkanRendererImage->ImageDescriptorId = vulkanImageDescriptor;

@@ -31,7 +31,60 @@ static constexpr const char X11_DLL_NAME[] = "libX11.so";
 
 X11Hook_t* X11Hook_t::_inst = nullptr;
 
-uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
+static std::shared_ptr<Display> GetX11Display()
+{
+    auto displayHandle = XOpenDisplay(nullptr);
+    if (displayHandle == nullptr)
+        return std::shared_ptr<Display>(nullptr);
+
+    return std::shared_ptr<Display>(displayHandle, [](Display* handle)
+    {
+        if (handle != nullptr)
+            XCloseDisplay(handle);
+    });
+}
+
+typedef int (*EnumX11WindowsCallback_t)(Display* display, Window window, void* userParameter);
+
+static void RunEnumX11Windows(Display* display, Window rootWindow, EnumX11WindowsCallback_t callback, void* userParameter)
+{
+    Window parentWindow;
+    Window* childrenWindows;
+    Window* child;
+    unsigned int childCount;
+
+    if (XQueryTree(display, rootWindow, &rootWindow, &parentWindow, &childrenWindows, &childCount) && childCount)
+    {
+        for (unsigned int i = 0; i < childCount; ++i)
+        {
+            if (!callback(display, childrenWindows[i], userParameter))
+                return;
+
+            RunEnumX11Windows(display, childrenWindows[i], callback, userParameter);
+        }
+    }
+}
+
+static void EnumX11Windows(EnumX11WindowsCallback_t callback, void* userParameter, Display* display = nullptr)
+{
+    std::shared_ptr<Display> localDisplay;
+    if (display == nullptr)
+    {
+        localDisplay = GetX11Display();
+        display = localDisplay.get();
+    }
+
+    if (display == nullptr)
+        return;
+
+    Window rootWindow = DefaultRootWindow(display);
+    if (rootWindow == None || !callback(display, rootWindow, userParameter))
+        return;
+
+    RunEnumX11Windows(display, rootWindow, callback, userParameter);
+}
+
+static uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
         InGameOverlay::ToggleKey lib_key;
@@ -64,7 +117,7 @@ uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
     return 0;
 }
 
-bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
+static inline bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
 {
     int iKeyCodeToFind = XKeysymToKeycode(d, keySym);
 
@@ -160,43 +213,48 @@ void X11Hook_t::HideOverlayInputs(bool hide)
     _OverlayInputsHidden = hide;
 }
 
-void X11Hook_t::ResetRenderState()
+void X11Hook_t::ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
-    {
-        _GameWnd = 0;
-        _Initialized = false;
+    if (!_Initialized)
+        return;
 
-        HideAppInputs(false);
-        HideOverlayInputs(true);
+    _Display = nullptr;
+    _GameWnd = 0;
 
-        ImGui_ImplX11_Shutdown();
-    }
+    HideAppInputs(false);
+    HideOverlayInputs(true);
+
+    ImGui_ImplX11_Shutdown();
+    _Initialized = false;
 }
 
-void X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
+bool X11Hook_t::SetInitialWindowSize(Window wnd)
 {
+    if (_Display == nullptr)
+        return false;
+
     unsigned int width, height;
     Window unused_window;
     int unused_int;
     unsigned int unused_unsigned_int;
 
-    XGetGeometry(display, wnd, &unused_window, &unused_int, &unused_int, &width, &height, &unused_unsigned_int, &unused_unsigned_int);
+    XGetGeometry(_Display, wnd, &unused_window, &unused_int, &unused_int, &width, &height, &unused_unsigned_int, &unused_unsigned_int);
 
     ImGui::GetIO().DisplaySize = ImVec2((float)width, (float)height);
+    return true;
 }
 
-bool X11Hook_t::PrepareForOverlay(Display *display, Window wnd)
+bool X11Hook_t::PrepareForOverlay(Window wnd)
 {
-    if(!_Hooked)
+    if(!_Hooked || _Display == nullptr)
         return false;
 
     if (_GameWnd != wnd)
-        ResetRenderState();
+        ResetRenderState(OverlayHookState::Removing);
 
     if (!_Initialized)
     {
-        ImGui_ImplX11_Init(display, (void*)wnd, (void*)_XQueryPointer);
+        ImGui_ImplX11_Init(_Display, (void*)wnd, (void*)_XQueryPointer);
         _GameWnd = wnd;
 
         //XSelectInput(display,
@@ -215,6 +273,51 @@ bool X11Hook_t::PrepareForOverlay(Display *display, Window wnd)
     }
 
     return true;
+}
+
+std::vector<Window> X11Hook_t::FindApplicationX11Window(int32_t processId)
+{
+    struct
+    {
+        int32_t pid;
+        std::vector<Window> windows;
+        Atom pidAtom;
+    } windowParams{
+        processId,
+        {},
+        None
+    };
+
+    EnumX11Windows([](Display* display, Window window, void* userParameter) -> int
+    {
+        auto params = reinterpret_cast<decltype(windowParams)*>(userParameter);
+        if (params->pidAtom == None)
+            params->pidAtom = XInternAtom(display, "_NET_WM_PID", True);
+
+        if (params->pidAtom == None)
+            return 0;
+
+        XTextProperty data;
+        int status = XGetTextProperty(display, window, &data, params->pidAtom);
+        if (!status || data.nitems <= 0)
+            return 1;
+
+        int32_t processId = 0;
+        switch (data.format)
+        {
+            case 32: processId = *(int32_t*)data.value; break;
+            case 16: processId = *(int16_t*)data.value; break;
+            case 8 : processId = data.value[0]; break;
+            default: return 1;
+        }
+
+        if (processId == params->pid)
+            params->windows.emplace_back(window);
+
+        return 1;
+    }, &windowParams);
+
+    return windowParams.windows;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -354,6 +457,7 @@ int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 
     if( res )
     {
+        inst->_Display = display;
         res = inst->_CheckForOverlay(display, res);
     }
 
@@ -362,11 +466,14 @@ int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 
 int X11Hook_t::MyXPending(Display* display)
 {
-    int res = Inst()->_XPending(display);
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    int res = inst->_XPending(display);
 
     if( res )
     {
-        res = Inst()->_CheckForOverlay(display, res);
+        inst->_Display = display;
+        res = inst->_CheckForOverlay(display, res);
     }
 
     return res;
@@ -377,6 +484,7 @@ int X11Hook_t::MyXPending(Display* display)
 X11Hook_t::X11Hook_t() :
     _Initialized(false),
     _Hooked(false),
+    _Display(nullptr),
     _GameWnd(0),
     _KeyCombinationPushed(false),
     _ApplicationInputsHidden(false),
@@ -391,7 +499,7 @@ X11Hook_t::~X11Hook_t()
 {
     SPDLOG_INFO("X11 Hook removed");
 
-    ResetRenderState();
+    ResetRenderState(OverlayHookState::Removing);
 
     _inst = nullptr;
 }
