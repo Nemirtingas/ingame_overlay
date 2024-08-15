@@ -96,6 +96,7 @@ public:
     void ResetRenderState(OverlayHookState state);
     void SetInitialWindowSize(HWND hWnd);
     bool PrepareForOverlay(HWND hWnd);
+    std::vector<HWND> FindApplicationHWND(DWORD processId);
 
     bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
     void HideAppInputs(bool hide);

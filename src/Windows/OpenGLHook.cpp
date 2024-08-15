@@ -84,18 +84,27 @@ bool OpenGLHook_t::IsStarted()
 
 void OpenGLHook_t::_ResetRenderState(OverlayHookState state)
 {
-    if (_Initialized)
+    if (_HookState == state)
+        return;
+
+    OverlayHookReady(state);
+
+    _HookState = state;
+
+    switch (state)
     {
-        OverlayHookReady(state);
+        case OverlayHookState::Reset:
+            break;
 
-        ImGui_ImplOpenGL3_Shutdown();
-        WindowsHook_t::Inst()->ResetRenderState(state);
-        //ImGui::DestroyContext();
+        case OverlayHookState::Removing:
+            ImGui_ImplOpenGL3_Shutdown();
+            WindowsHook_t::Inst()->ResetRenderState(state);
+            //ImGui::DestroyContext();
 
-        _ImageResources.clear();
+            _ImageResources.clear();
 
-        _LastWindow = nullptr;
-        _Initialized = false;
+            _LastWindow = nullptr;
+            _Initialized = false;
     }
 }
 
@@ -119,7 +128,7 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         WindowsHook_t::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
-        OverlayHookReady(OverlayHookState::Ready);
+        _ResetRenderState(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplOpenGL3_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(hWnd))
@@ -145,6 +154,7 @@ OpenGLHook_t::OpenGLHook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _Initialized(false),
+    _HookState(OverlayHookState::Removing),
     _LastWindow(nullptr),
     _ImGuiFontAtlas(nullptr),
     _WGLSwapBuffers(nullptr)
@@ -158,11 +168,7 @@ OpenGLHook_t::~OpenGLHook_t()
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
 
-    if (_Initialized)
-    {
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui::DestroyContext();
-    }
+    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance = nullptr;
 }

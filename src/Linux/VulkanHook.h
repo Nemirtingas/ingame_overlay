@@ -65,9 +65,9 @@ private:
 
     // Variables
     bool _Hooked;
-    bool _WindowsHooked;
+    bool _X11Hooked;
+    void* _Window;
     OverlayHookState _HookState;
-    HWND _MainWindow;
 
     std::function<void* (const char*)> _VulkanLoader;
     VkAllocationCallbacks* _VulkanAllocationCallbacks;

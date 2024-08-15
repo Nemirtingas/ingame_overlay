@@ -18,6 +18,7 @@ if(WIN32) # Setup some variables for Windows build
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/InternalIncludes.h
+    src/VulkanHelpers.h
     src/BaseHook.h
     src/Windows/DirectXVTables.h
     src/Windows/DX9Hook.h
@@ -97,13 +98,16 @@ elseif(UNIX)
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
+    src/Linux/VulkanHook.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/InternalIncludes.h
+    src/VulkanHelpers.h
     src/BaseHook.h
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
+    src/Linux/VulkanHook.h
   )
 
   set(IMGUI_SOURCES

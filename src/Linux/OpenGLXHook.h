@@ -38,15 +38,16 @@ private:
     bool _Hooked;
     bool _X11Hooked;
     bool _Initialized;
+    OverlayHookState _HookState;
     Display *_Display;
-    GLXContext _Context;
+    //GLXContext _Context;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
     // Functions
     OpenGLXHook_t();
 
-    void _ResetRenderState();
+    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(Display* display, GLXDrawable drawable);
 
     // Hook to render functions

@@ -20,6 +20,7 @@
 #include <cassert>
 
 #include <InGameOverlay/RendererDetector.h>
+#include "../VulkanHelpers.h"
 
 #include <System/Encoding.hpp>
 #include <System/String.hpp>
@@ -645,42 +646,6 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
     return driver;
 }
 
-static int32_t VulkanGetFirstGraphicsQueue(decltype(::vkGetPhysicalDeviceQueueFamilyProperties)* _vkGetPhysicalDeviceQueueFamilyProperties, VkPhysicalDevice physicalDevice)
-{
-    uint32_t count;
-    std::vector<VkQueueFamilyProperties> queues;
-    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, nullptr);
-    queues.resize(count);
-    _vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, queues.data());
-    for (uint32_t i = 0; i < count; i++)
-    {
-        if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-            return i;
-    }
-
-    return -1;
-}
-
-static bool VulkanPhysicalDeviceHasExtension(decltype(::vkEnumerateDeviceExtensionProperties)* _vkEnumerateDeviceExtensionProperties, VkPhysicalDevice vkPhysicalDevice, const char* extensionName)
-{
-    uint32_t count;
-    std::vector<VkExtensionProperties> extensionProperties;
-
-    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, nullptr);
-    extensionProperties.resize(count);
-    _vkEnumerateDeviceExtensionProperties(vkPhysicalDevice, nullptr, &count, extensionProperties.data());
-
-    for (auto& extension : extensionProperties)
-    {
-        if (strcmp(extension.extensionName, extensionName) != 0)
-            continue;
-
-        return true;
-    }
-
-    return false;
-}
-
 static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
 {
     VulkanDriver_t driver{};
@@ -744,25 +709,24 @@ static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
         physicalDevices.resize(physicalDeviceCount);
         _vkEnumeratePhysicalDevices(_vkInstance, &physicalDeviceCount, physicalDevices.data());
 
+        int selectedDevicetype = SelectDeviceTypeStart;
+
         for (uint32_t i = 0; i < physicalDeviceCount; ++i)
         {
             _vkGetPhysicalDeviceProperties(physicalDevices[i], &physicalDeviceProperties);
             if (!VulkanPhysicalDeviceHasExtension(_vkEnumerateDeviceExtensionProperties, physicalDevices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME))
                 continue;
 
-            if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            if (SelectVulkanPhysicalDeviceType(physicalDeviceProperties.deviceType, selectedDevicetype))
             {
                 _vkPhysicalDevice = physicalDevices[i];
-            }
-            else if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-            {
-                _vkPhysicalDevice = physicalDevices[i];
-                break;
+                if (physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                    break;
             }
         }
     }
     int32_t queueFamilyIndex = -1;
-    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = VulkanGetFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
+    if (_vkPhysicalDevice == nullptr || (queueFamilyIndex = GetVulkanPhysicalDeviceFirstGraphicsQueue(_vkGetPhysicalDeviceQueueFamilyProperties, _vkPhysicalDevice)) == -1)
     {
         _vkDestroyInstance(_vkInstance, nullptr);
         return driver;
