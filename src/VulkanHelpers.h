@@ -21,6 +21,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <vector>
+
 constexpr int SelectDeviceTypeStart = 5; // countof(deviceTypePriorities)
 
 static bool IsVulkanExtensionAvailable(const std::vector<VkExtensionProperties>& properties, const char* extension)
