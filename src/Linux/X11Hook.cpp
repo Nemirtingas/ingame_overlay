@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -28,6 +28,8 @@ extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 namespace InGameOverlay {
 
 static constexpr const char X11_DLL_NAME[] = "libX11.so";
+static constexpr const char X11_XCB_DLL_NAME[] = "libX11-xcb.so";
+static constexpr const char XCB_DLL_NAME[] = "libxcb.so";
 
 X11Hook_t* X11Hook_t::_inst = nullptr;
 
@@ -124,59 +126,166 @@ static inline bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
+static bool XcbGetKeyState(xcb_connection_t* xcbConnection, int keySym, uint8_t szKey[32])
+{
+    xcb_key_symbols_t* keySymbols = xcb_key_symbols_alloc(xcbConnection);
+
+    xcb_keycode_t* keyCodeToFind = xcb_key_symbols_get_keycode(keySymbols, keySym);
+    int iKeyCodeToFind = keyCodeToFind == nullptr ? 0 : *keyCodeToFind;
+
+    xcb_key_symbols_free(keySymbols);
+
+    bool r = iKeyCodeToFind == 0 ? false : szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
+
+    free(keyCodeToFind);
+
+    return r;
+}
+
+bool X11Hook_t::_StartX11Hook()
+{
+    void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
+    if (hX11 == nullptr)
+    {
+        INGAMEOVERLAY_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
+        return false;
+    }
+
+    System::Library::Library libX11;
+    LibraryName = System::Library::GetLibraryPath(hX11);
+
+    if (!libX11.OpenLibrary(LibraryName, false))
+    {
+        INGAMEOVERLAY_WARN("Failed to hook X11: Cannot load {}", LibraryName);
+        return false;
+    }
+
+    struct {
+        void** func_ptr;
+        void* hook_ptr;
+        const char* func_name;
+    } hook_array[] = {
+        { (void**)&_XGetXCBConnection, nullptr                           , "XGetXCBConnection" },
+        { (void**)&_XEventsQueued    , (void*)&X11Hook_t::MyXEventsQueued, "XEventsQueued" },
+        { (void**)&_XPending         , (void*)&X11Hook_t::MyXPending     , "XPending"      },
+        { (void**)&_XQueryPointer    , (void*)&X11Hook_t::MyXQueryPointer, "XQueryPointer" },
+    };
+
+    for (auto& entry : hook_array)
+    {
+        *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
+        if (entry.func_ptr == nullptr)
+        {
+            INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
+            return false;
+        }
+    }
+
+    BeginHook();
+
+    for (auto& entry : hook_array)
+    {
+        if (entry.hook_ptr != nullptr)
+        {
+            if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+            {
+                INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+            }
+        }
+    }
+
+    EndHook();
+    
+    if (_XGetXCBConnection == nullptr)
+    {
+        void* hX11xcb = System::Library::GetLibraryHandle(X11_XCB_DLL_NAME);
+        if (hX11xcb != nullptr)
+            _XGetXCBConnection = (decltype(_XGetXCBConnection))System::Library::GetSymbol(hX11xcb, "XGetXCBConnection");
+    }
+
+    if (_XGetXCBConnection != nullptr)
+    {
+        INGAMEOVERLAY_INFO("libX11 seems to use xcb.");
+    }
+
+    return true;
+}
+
+void X11Hook_t::_StartXcbHook()
+{
+    void* hXcb = System::Library::GetLibraryHandle(XCB_DLL_NAME);
+    if (hXcb == nullptr)
+    {
+        INGAMEOVERLAY_INFO("Failed to hook xcb: Cannot find {}", XCB_DLL_NAME);
+        return;
+    }
+
+    System::Library::Library libXcb;
+    auto xcbPath = System::Library::GetLibraryPath(hXcb);
+
+    if (!libXcb.OpenLibrary(xcbPath, false))
+    {
+        INGAMEOVERLAY_INFO("Failed to hook xcb: Cannot load {}", xcbPath);
+        return;
+    }
+
+    struct {
+        void** func_ptr;
+        void* hook_ptr;
+        const char* func_name;
+    } hook_array[] = {
+        { (void**)&_XcbPollForEvent        , (void*)&X11Hook_t::MyXcbPollForEvent        , "xcb_poll_for_event"          },
+        { (void**)&_XcbSendRequestWithFds64, (void*)&X11Hook_t::MyXcbSendRequestWithFds64, "xcb_send_request_with_fds64" },
+        { (void**)&_XcbWaitForReply        , (void*)&X11Hook_t::MyXcbWaitForReply        , "xcb_wait_for_reply"          },
+        { (void**)&_XcbWaitForReply64      , (void*)&X11Hook_t::MyXcbWaitForReply64      , "xcb_wait_for_reply64"        },
+    };
+
+    for (auto& entry : hook_array)
+    {
+        *entry.func_ptr = libXcb.GetSymbol<void*>(entry.func_name);
+        if (entry.func_ptr == nullptr)
+        {
+            INGAMEOVERLAY_WARN("Failed to hook xcb: Event function {} missing.", entry.func_name);
+            return;
+        }
+    }
+
+    BeginHook();
+
+    for (auto& entry : hook_array)
+    {
+        if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+        {
+            INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        }
+    }
+
+    EndHook();
+
+    INGAMEOVERLAY_INFO("Hooked xcb");
+}
+
 bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
 {
     if (!_Hooked)
     {
         if (!_key_combination_callback)
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination callback.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination callback.");
             return false;
         }
 
         if (toggle_keys.empty())
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination.");
             return false;
         }
 
-        void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
-        if (hX11 == nullptr)
-        {
-            SPDLOG_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
+        if (!_StartX11Hook())
             return false;
-        }
+        _StartXcbHook();
 
-        System::Library::Library libX11;
-        LibraryName = System::Library::GetLibraryPath(hX11);
-
-        if (!libX11.OpenLibrary(LibraryName, false))
-        {
-            SPDLOG_WARN("Failed to hook X11: Cannot load {}", LibraryName);
-            return false;
-        }
-
-        struct {
-            void** func_ptr;
-            void* hook_ptr;
-            const char* func_name;
-        } hook_array[] = {
-            { (void**)&_XEventsQueued, (void*)&X11Hook_t::MyXEventsQueued, "XEventsQueued" },
-            { (void**)&_XPending     , (void*)&X11Hook_t::MyXPending     , "XPending"      },
-            { (void**)&_XQueryPointer, (void*)&X11Hook_t::MyXQueryPointer, "XQueryPointer" },
-        };
-
-        for (auto& entry : hook_array)
-        {
-            *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
-            if (entry.func_ptr == nullptr)
-            {
-                SPDLOG_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
-                return false;
-            }
-        }
-
-        SPDLOG_INFO("Hooked X11");
+        INGAMEOVERLAY_INFO("Hooked X11");
 
         _KeyCombinationCallback = std::move(_key_combination_callback);
         
@@ -190,15 +299,6 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
         }
 
         _Hooked = true;
-
-        BeginHook();
-        
-        for (auto& entry : hook_array)
-        {
-            HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr));
-        }
-
-        EndHook();
     }
     return true;
 }
@@ -322,13 +422,13 @@ std::vector<Window> X11Hook_t::FindApplicationX11Window(int32_t processId)
 
 /////////////////////////////////////////////////////////////////////////////////////
 // X11 window hooks
-bool IgnoreEvent(XEvent &event)
+static bool IgnoreXEvent(XEvent &event)
 {
     switch(event.type)
     {
         // Keyboard
         case KeyPress: case KeyRelease:
-        // MouseButton
+        // Mouse button
         case ButtonPress: case ButtonRelease:
         // Mouse move
         case MotionNotify:
@@ -339,95 +439,190 @@ bool IgnoreEvent(XEvent &event)
     return false;
 }
 
+static bool IgnoreXcbEvent(xcb_generic_event_t* event)
+{
+    switch (event->response_type)
+    {
+        // Keyboard
+        case XCB_KEY_PRESS: case XCB_KEY_RELEASE:
+        // Mouse button
+        case XCB_BUTTON_PRESS: case XCB_BUTTON_RELEASE:
+        // Mouse move
+        case XCB_MOTION_NOTIFY:
+        // Copy to clipboard request
+        case XCB_SELECTION_REQUEST:
+            return true;
+    }
+
+    return false;
+}
+
 int X11Hook_t::_CheckForOverlay(Display *d, int num_events)
 {
     char szKey[32];
 
-    if( _Initialized )
+    if (!_Initialized)
+        return num_events;
+
+    XEvent event, nextEvent;
+    XEvent* pNextEvent;
+    while(num_events)
     {
-        XEvent event, nextEvent;
-        XEvent* pNextEvent;
-        while(num_events)
+        bool hide_app_inputs = _ApplicationInputsHidden;
+        bool hide_overlay_inputs = _OverlayInputsHidden;
+
+        XPeekEvent(d, &event);
+
+        if (event.type == KeyRelease && num_events > 1)
         {
-            bool hide_app_inputs = _ApplicationInputsHidden;
-            bool hide_overlay_inputs = _OverlayInputsHidden;
+            XNextEvent(d, &event);
+            XPeekEvent(d, &nextEvent);
+            XPutBackEvent(d, &event);
+            pNextEvent = &nextEvent;
+            // Consume only 1 event because we don't want to send the KeyRelease event
+            // but we still want to send the KeyPress event.
+        }
+        else
+        {
+            pNextEvent = nullptr;
+        }
 
-            XPeekEvent(d, &event);
-
-            if (event.type == KeyRelease && num_events > 1)
+        // Is the event is a key press
+        if (event.type == KeyPress || event.type == KeyRelease)
+        {
+            XQueryKeymap(d, szKey);
+            int key_count = 0;
+            for (auto const& key : _NativeKeyCombination)
             {
-                XNextEvent(d, &event);
-                XPeekEvent(d, &nextEvent);
-                XPutBackEvent(d, &event);
-                pNextEvent = &nextEvent;
-                // Consume only 1 event because we don't want to send the KeyRelease event
-                // but we still want to send the KeyPress event.
+                if (GetKeyState(d, key, szKey))
+                    ++key_count;
+            }
+
+            if (key_count == _NativeKeyCombination.size())
+            {// All shortcut keys are pressed
+                if (!_KeyCombinationPushed)
+                {
+                    _KeyCombinationCallback();
+
+                    if (_OverlayInputsHidden)
+                        hide_overlay_inputs = true;
+
+                    if (_ApplicationInputsHidden)
+                    {
+                        hide_app_inputs = true;
+
+                        // Save the last known cursor pos when opening the overlay
+                        // so we can spoof the XQueryPointer return value.
+                        _XQueryPointer(d, _GameWnd, &_SavedRoot, &_SavedChild, &_SavedCursorRX, &_SavedCursorRY, &_SavedCursorX, &_SavedCursorY, &_SavedMask);
+                    }
+
+                    _KeyCombinationPushed = true;
+                }
             }
             else
             {
-                pNextEvent = nullptr;
+                _KeyCombinationPushed = false;
             }
-
-            // Is the event is a key press
-            if (event.type == KeyPress || event.type == KeyRelease)
-            {
-                XQueryKeymap(d, szKey);
-                int key_count = 0;
-                for (auto const& key : _NativeKeyCombination)
-                {
-                    if (GetKeyState(d, key, szKey))
-                        ++key_count;
-                }
-
-                if (key_count == _NativeKeyCombination.size())
-                {// All shortcut keys are pressed
-                    if (!_KeyCombinationPushed)
-                    {
-                        _KeyCombinationCallback();
-
-                        if (_OverlayInputsHidden)
-                            hide_overlay_inputs = true;
-
-                        if (_ApplicationInputsHidden)
-                        {
-                            hide_app_inputs = true;
-
-                            // Save the last known cursor pos when opening the overlay
-                            // so we can spoof the XQueryPointer return value.
-                            _XQueryPointer(d, _GameWnd, &_SavedRoot, &_SavedChild, &_SavedCursorRX, &_SavedCursorRY, &_SavedCursorX, &_SavedCursorY, &_SavedMask);
-                        }
-
-                        _KeyCombinationPushed = true;
-                    }
-                }
-                else
-                {
-                    _KeyCombinationPushed = false;
-                }
-            }
-
-            if (event.type == FocusIn || event.type == FocusOut)
-            {
-                ImGui::GetIO().SetAppAcceptingEvents(event.type == FocusIn);
-            }
-
-            if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
-            {
-                ImGui_ImplX11_EventHandler(event, pNextEvent);
-            }
-
-            if (!hide_app_inputs || !IgnoreEvent(event))
-            {
-                if(num_events)
-                    num_events = 1;
-                break;
-            }
-
-            XNextEvent(d, &event);
-            --num_events;
         }
+
+        if (!hide_overlay_inputs || event.type == FocusIn || event.type == FocusOut)
+        {
+            ImGui_ImplX11_EventHandler(event, pNextEvent);
+        }
+
+        if (!hide_app_inputs || !IgnoreXEvent(event))
+        {
+            if(num_events)
+                num_events = 1;
+            break;
+        }
+
+        XNextEvent(d, &event);
+        --num_events;
     }
     return num_events;
+}
+
+xcb_generic_event_t* X11Hook_t::_XcbCheckForOverlay(xcb_connection_t* xcbConnection, xcb_generic_event_t* xcbEvent)
+{
+    INGAMEOVERLAY_INFO("");
+    if (!_Initialized)
+        return xcbEvent;
+
+    INGAMEOVERLAY_INFO("");
+    bool hide_app_inputs = _ApplicationInputsHidden;
+    bool hide_overlay_inputs = _OverlayInputsHidden;
+    xcb_generic_event_t* nextEvent = nullptr;
+
+    if (xcbEvent->response_type == XCB_KEY_RELEASE)
+    {
+        nextEvent = _XcbPollForEvent(xcbConnection);
+        if (nextEvent != nullptr)
+            _NextConnectionEvent[xcbConnection] = nextEvent;
+    }
+
+    // Is the event is a key press
+    if (xcbEvent->response_type == XCB_KEY_PRESS || xcbEvent->response_type == XCB_KEY_RELEASE)
+    {
+        // XCB keyEvent->detail == Xlib event.xkey.keycode
+        // XCB keyEvent->state  == Xlib event.xkey.state
+
+        xcb_query_keymap_reply_t* keymap = xcb_query_keymap_reply(xcbConnection, xcb_query_keymap(xcbConnection), NULL);
+        if (keymap != nullptr)
+        {
+            int key_count = 0;
+            for (auto const& key : _NativeKeyCombination)
+            {
+                if (XcbGetKeyState(xcbConnection, key, keymap->keys))
+                    ++key_count;
+            }
+
+            free(keymap);
+
+            if (key_count == _NativeKeyCombination.size())
+            {// All shortcut keys are pressed
+                if (!_KeyCombinationPushed)
+                {
+                    _KeyCombinationCallback();
+
+                    if (_OverlayInputsHidden)
+                        hide_overlay_inputs = true;
+
+                    if (_ApplicationInputsHidden)
+                    {
+                        hide_app_inputs = true;
+
+                        // Save the last known cursor pos when opening the overlay
+                        // so we can spoof the xcb_query_pointer return value.
+                        //if (_XcbSavedPointerReply != nullptr)
+                        //    free(_XcbSavedPointerReply);
+
+                        //xcb_query_pointer_cookie_t pointerCookie = xcb_query_pointer(xcbConnection, xcb_setup_roots_iterator(xcb_get_setup(xcbConnection)).data->root);
+                        //_XcbSavedPointerReply = _XcbQueryPointerReply(xcbConnection, pointerCookie, nullptr);
+                    }
+
+                    _KeyCombinationPushed = true;
+                }
+            }
+            else
+            {
+                _KeyCombinationPushed = false;
+            }
+        }
+
+
+        if (!hide_overlay_inputs || xcbEvent->response_type == XCB_FOCUS_IN || xcbEvent->response_type == XCB_FOCUS_OUT)
+        {
+            //ImGui_ImplX11_EventHandler(xcbEvent, pNextEvent);
+        }
+
+        if (!hide_app_inputs || !IgnoreXcbEvent(xcbEvent))
+            return xcbEvent;
+
+        return nullptr;
+    }
+
+    return xcbEvent;
 }
 
 Bool X11Hook_t::MyXQueryPointer(Display* display, Window w, Window* root_return, Window* child_return, int* root_x_return, int* root_y_return, int* win_x_return, int* win_y_return, unsigned int* mask_return)
@@ -453,9 +648,9 @@ int X11Hook_t::MyXEventsQueued(Display *display, int mode)
 {
     X11Hook_t* inst = X11Hook_t::Inst();
 
-    int res = inst->_XEventsQueued(display, mode);
+    auto res = inst->_XEventsQueued(display, mode);
 
-    if( res )
+    if (!inst->_UsesXcb && res)
     {
         inst->_Display = display;
         res = inst->_CheckForOverlay(display, res);
@@ -468,15 +663,216 @@ int X11Hook_t::MyXPending(Display* display)
 {
     X11Hook_t* inst = X11Hook_t::Inst();
 
-    int res = inst->_XPending(display);
+    auto res = inst->_XPending(display);
 
-    if( res )
+    if (!inst->_UsesXcb && res)
     {
         inst->_Display = display;
         res = inst->_CheckForOverlay(display, res);
     }
 
+    if (res)
+        res = inst->_CheckForOverlay(display, res);
+
     return res;
+}
+
+xcb_generic_event_t* X11Hook_t::MyXcbPollForEvent(xcb_connection_t* c)
+{
+    INGAMEOVERLAY_INFO("xcb_poll_for_event ENTER");
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    inst->_UsesXcb = true;
+
+    if (inst->_NextConnectionEvent[c] != nullptr)
+    {
+        auto* xcbEvent = inst->_NextConnectionEvent[c];
+        inst->_NextConnectionEvent[c] = nullptr;
+        return xcbEvent;
+    }
+
+    auto* xcbEvent = inst->_XcbPollForEvent(c);
+
+    if (xcbEvent != nullptr)
+    {
+        INGAMEOVERLAY_INFO("");
+        if (inst->_XcbCheckForOverlay(c, xcbEvent) == nullptr && !inst->_IsWaitingReply)
+        {
+            free(xcbEvent);
+            xcbEvent = nullptr;
+        }
+    }
+
+    INGAMEOVERLAY_INFO("xcb_poll_for_event EXIT");
+    return xcbEvent;
+}
+
+static std::string request_to_string(uint8_t opcode)
+{
+#define OPCODE_TO_STRING(VALUE) case VALUE: return #VALUE
+    switch (opcode)
+    {
+        OPCODE_TO_STRING(XCB_CREATE_WINDOW);
+        OPCODE_TO_STRING(XCB_CHANGE_WINDOW_ATTRIBUTES);
+        OPCODE_TO_STRING(XCB_GET_WINDOW_ATTRIBUTES);
+        OPCODE_TO_STRING(XCB_DESTROY_WINDOW);
+        OPCODE_TO_STRING(XCB_DESTROY_SUBWINDOWS);
+        OPCODE_TO_STRING(XCB_CHANGE_SAVE_SET);
+        OPCODE_TO_STRING(XCB_REPARENT_WINDOW);
+        OPCODE_TO_STRING(XCB_MAP_WINDOW);
+        OPCODE_TO_STRING(XCB_MAP_SUBWINDOWS);
+        OPCODE_TO_STRING(XCB_UNMAP_WINDOW);
+        OPCODE_TO_STRING(XCB_UNMAP_SUBWINDOWS);
+        OPCODE_TO_STRING(XCB_CONFIGURE_WINDOW);
+        OPCODE_TO_STRING(XCB_CIRCULATE_WINDOW);
+        OPCODE_TO_STRING(XCB_GET_GEOMETRY);
+        OPCODE_TO_STRING(XCB_QUERY_TREE);
+        OPCODE_TO_STRING(XCB_INTERN_ATOM);
+        OPCODE_TO_STRING(XCB_GET_ATOM_NAME);
+        OPCODE_TO_STRING(XCB_CHANGE_PROPERTY);
+        OPCODE_TO_STRING(XCB_DELETE_PROPERTY);
+        OPCODE_TO_STRING(XCB_GET_PROPERTY);
+        OPCODE_TO_STRING(XCB_LIST_PROPERTIES);
+        OPCODE_TO_STRING(XCB_SET_SELECTION_OWNER);
+        OPCODE_TO_STRING(XCB_GET_SELECTION_OWNER);
+        OPCODE_TO_STRING(XCB_CONVERT_SELECTION);
+        OPCODE_TO_STRING(XCB_SEND_EVENT);
+        OPCODE_TO_STRING(XCB_GRAB_POINTER);
+        OPCODE_TO_STRING(XCB_UNGRAB_POINTER);
+        OPCODE_TO_STRING(XCB_GRAB_BUTTON);
+        OPCODE_TO_STRING(XCB_UNGRAB_BUTTON);
+        OPCODE_TO_STRING(XCB_CHANGE_ACTIVE_POINTER_GRAB);
+        OPCODE_TO_STRING(XCB_GRAB_KEYBOARD);
+        OPCODE_TO_STRING(XCB_UNGRAB_KEYBOARD);
+        OPCODE_TO_STRING(XCB_GRAB_KEY);
+        OPCODE_TO_STRING(XCB_UNGRAB_KEY);
+        OPCODE_TO_STRING(XCB_ALLOW_EVENTS);
+        OPCODE_TO_STRING(XCB_GRAB_SERVER);
+        OPCODE_TO_STRING(XCB_UNGRAB_SERVER);
+        OPCODE_TO_STRING(XCB_QUERY_POINTER);
+        OPCODE_TO_STRING(XCB_GET_MOTION_EVENTS);
+        OPCODE_TO_STRING(XCB_TRANSLATE_COORDINATES);
+        OPCODE_TO_STRING(XCB_WARP_POINTER);
+        OPCODE_TO_STRING(XCB_SET_INPUT_FOCUS);
+        OPCODE_TO_STRING(XCB_GET_INPUT_FOCUS);
+        OPCODE_TO_STRING(XCB_QUERY_KEYMAP);
+        OPCODE_TO_STRING(XCB_OPEN_FONT);
+        OPCODE_TO_STRING(XCB_CLOSE_FONT);
+        OPCODE_TO_STRING(XCB_QUERY_FONT);
+        OPCODE_TO_STRING(XCB_QUERY_TEXT_EXTENTS);
+        OPCODE_TO_STRING(XCB_LIST_FONTS);
+        OPCODE_TO_STRING(XCB_LIST_FONTS_WITH_INFO);
+        OPCODE_TO_STRING(XCB_SET_FONT_PATH);
+        OPCODE_TO_STRING(XCB_GET_FONT_PATH);
+        OPCODE_TO_STRING(XCB_CREATE_PIXMAP);
+        OPCODE_TO_STRING(XCB_FREE_PIXMAP);
+        OPCODE_TO_STRING(XCB_CREATE_GC);
+        OPCODE_TO_STRING(XCB_CHANGE_GC);
+        OPCODE_TO_STRING(XCB_COPY_GC);
+        OPCODE_TO_STRING(XCB_SET_DASHES);
+        OPCODE_TO_STRING(XCB_SET_CLIP_RECTANGLES);
+        OPCODE_TO_STRING(XCB_FREE_GC);
+        OPCODE_TO_STRING(XCB_CLEAR_AREA);
+        OPCODE_TO_STRING(XCB_COPY_AREA);
+        OPCODE_TO_STRING(XCB_COPY_PLANE);
+        OPCODE_TO_STRING(XCB_POLY_POINT);
+        OPCODE_TO_STRING(XCB_POLY_LINE);
+        OPCODE_TO_STRING(XCB_POLY_SEGMENT);
+        OPCODE_TO_STRING(XCB_POLY_RECTANGLE);
+        OPCODE_TO_STRING(XCB_POLY_ARC);
+        OPCODE_TO_STRING(XCB_FILL_POLY);
+        OPCODE_TO_STRING(XCB_POLY_FILL_RECTANGLE);
+        OPCODE_TO_STRING(XCB_POLY_FILL_ARC);
+        OPCODE_TO_STRING(XCB_PUT_IMAGE);
+        OPCODE_TO_STRING(XCB_GET_IMAGE);
+        OPCODE_TO_STRING(XCB_POLY_TEXT_8);
+        OPCODE_TO_STRING(XCB_POLY_TEXT_16);
+        OPCODE_TO_STRING(XCB_IMAGE_TEXT_8);
+        OPCODE_TO_STRING(XCB_IMAGE_TEXT_16);
+        OPCODE_TO_STRING(XCB_CREATE_COLORMAP);
+        OPCODE_TO_STRING(XCB_FREE_COLORMAP);
+        OPCODE_TO_STRING(XCB_COPY_COLORMAP_AND_FREE);
+        OPCODE_TO_STRING(XCB_INSTALL_COLORMAP);
+        OPCODE_TO_STRING(XCB_UNINSTALL_COLORMAP);
+        OPCODE_TO_STRING(XCB_LIST_INSTALLED_COLORMAPS);
+        OPCODE_TO_STRING(XCB_ALLOC_COLOR);
+        OPCODE_TO_STRING(XCB_ALLOC_NAMED_COLOR);
+        OPCODE_TO_STRING(XCB_ALLOC_COLOR_CELLS);
+        OPCODE_TO_STRING(XCB_ALLOC_COLOR_PLANES);
+        OPCODE_TO_STRING(XCB_FREE_COLORS);
+        OPCODE_TO_STRING(XCB_STORE_COLORS);
+        OPCODE_TO_STRING(XCB_STORE_NAMED_COLOR);
+        OPCODE_TO_STRING(XCB_QUERY_COLORS);
+        OPCODE_TO_STRING(XCB_LOOKUP_COLOR);
+        OPCODE_TO_STRING(XCB_CREATE_CURSOR);
+        OPCODE_TO_STRING(XCB_CREATE_GLYPH_CURSOR);
+        OPCODE_TO_STRING(XCB_FREE_CURSOR);
+        OPCODE_TO_STRING(XCB_RECOLOR_CURSOR);
+        OPCODE_TO_STRING(XCB_QUERY_BEST_SIZE);
+        OPCODE_TO_STRING(XCB_QUERY_EXTENSION);
+        OPCODE_TO_STRING(XCB_LIST_EXTENSIONS);
+        OPCODE_TO_STRING(XCB_CHANGE_KEYBOARD_MAPPING);
+        OPCODE_TO_STRING(XCB_GET_KEYBOARD_MAPPING);
+        OPCODE_TO_STRING(XCB_CHANGE_KEYBOARD_CONTROL);
+        OPCODE_TO_STRING(XCB_GET_KEYBOARD_CONTROL);
+        OPCODE_TO_STRING(XCB_BELL);
+        OPCODE_TO_STRING(XCB_CHANGE_POINTER_CONTROL);
+        OPCODE_TO_STRING(XCB_GET_POINTER_CONTROL);
+        OPCODE_TO_STRING(XCB_SET_SCREEN_SAVER);
+        OPCODE_TO_STRING(XCB_GET_SCREEN_SAVER);
+        OPCODE_TO_STRING(XCB_CHANGE_HOSTS);
+        OPCODE_TO_STRING(XCB_LIST_HOSTS);
+        OPCODE_TO_STRING(XCB_SET_ACCESS_CONTROL);
+        OPCODE_TO_STRING(XCB_SET_CLOSE_DOWN_MODE);
+        OPCODE_TO_STRING(XCB_KILL_CLIENT);
+        OPCODE_TO_STRING(XCB_ROTATE_PROPERTIES);
+        OPCODE_TO_STRING(XCB_FORCE_SCREEN_SAVER);
+        OPCODE_TO_STRING(XCB_SET_POINTER_MAPPING);
+        OPCODE_TO_STRING(XCB_GET_POINTER_MAPPING);
+        OPCODE_TO_STRING(XCB_SET_MODIFIER_MAPPING);
+        OPCODE_TO_STRING(XCB_GET_MODIFIER_MAPPING);
+        OPCODE_TO_STRING(XCB_NO_OPERATION);
+    }
+#undef OPCODE_TO_STRING
+    return std::to_string(opcode);
+}
+
+uint64_t X11Hook_t::MyXcbSendRequestWithFds64(xcb_connection_t* c, int flags, struct iovec* vector,
+    const xcb_protocol_request_t* req, unsigned int num_fds, int* fds)
+{
+    INGAMEOVERLAY_INFO("xcb_send_request_with_fds64 ENTER: {}", request_to_string(req->opcode));
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    auto result = inst->_XcbSendRequestWithFds64(c, flags, vector, req, num_fds, fds);
+
+    INGAMEOVERLAY_INFO("xcb_send_request_with_fds64 EXIT");
+    return result;
+}
+
+void* X11Hook_t::MyXcbWaitForReply(xcb_connection_t* c, unsigned int request, xcb_generic_error_t** e)
+{
+    INGAMEOVERLAY_INFO("xcb_wait_for_reply ENTER");
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    inst->_IsWaitingReply = true;
+    auto* result = inst->_XcbWaitForReply(c, request, e);
+    inst->_IsWaitingReply = false;
+
+    INGAMEOVERLAY_INFO("xcb_wait_for_reply EXIT");
+    return result;
+}
+
+void* X11Hook_t::MyXcbWaitForReply64(xcb_connection_t* c, uint64_t request, xcb_generic_error_t** e)
+{
+    INGAMEOVERLAY_INFO("xcb_wait_for_reply64 ENTER");
+    X11Hook_t* inst = X11Hook_t::Inst();
+
+    inst->_IsWaitingReply = true;
+    auto* result = inst->_XcbWaitForReply64(c, request, e);
+    inst->_IsWaitingReply = false;
+
+    INGAMEOVERLAY_INFO("xcb_wait_for_reply64 EXIT");
+    return result;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -489,15 +885,22 @@ X11Hook_t::X11Hook_t() :
     _KeyCombinationPushed(false),
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
+    _UsesXcb(false),
+    _IsWaitingReply(false),
+    _XGetXCBConnection(nullptr),
     _XQueryPointer(nullptr),
     _XEventsQueued(nullptr),
-    _XPending(nullptr)
+    _XPending(nullptr),
+    _XcbPollForEvent(nullptr),
+    _XcbSendRequestWithFds64(nullptr),
+    _XcbWaitForReply(nullptr),
+    _XcbWaitForReply64(nullptr)
 {
 }
 
 X11Hook_t::~X11Hook_t()
 {
-    SPDLOG_INFO("X11 Hook removed");
+    INGAMEOVERLAY_INFO("X11 Hook removed");
 
     ResetRenderState(OverlayHookState::Removing);
 

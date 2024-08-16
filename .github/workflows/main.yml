@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install libgl1-mesa-dev libx11-xcb-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxcb1-dev libxcb-xkb-dev libxcb-keysyms1-dev
           cmake ${{ github.workspace }}/CMakeLists.txt -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{github.workspace}}/tests/common/ingameoverlay_imconfig.h -S . -B build
           cmake --build build -v
           #find build

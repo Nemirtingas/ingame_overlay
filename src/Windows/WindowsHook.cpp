@@ -70,20 +70,20 @@ bool WindowsHook_t::StartHook(std::function<void()>& _key_combination_callback, 
     {
         if (!_key_combination_callback)
         {
-            SPDLOG_ERROR("Failed to hook Windows: No key combination callback.");
+            INGAMEOVERLAY_ERROR("Failed to hook Windows: No key combination callback.");
             return false;
         }
 
         if (toggle_keys.empty())
         {
-            SPDLOG_ERROR("Failed to hook Windows: No key combination.");
+            INGAMEOVERLAY_ERROR("Failed to hook Windows: No key combination.");
             return false;
         }
 
         void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
         {
-            SPDLOG_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
+            INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
             return false;
         }
 
@@ -91,7 +91,7 @@ bool WindowsHook_t::StartHook(std::function<void()>& _key_combination_callback, 
         LibraryName = System::Library::GetLibraryPath(hUser32);
         if (!libUser32.OpenLibrary(LibraryName, false))
         {
-            SPDLOG_WARN("Failed to hook Windows: Cannot load {}", LibraryName);
+            INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot load {}", LibraryName);
             return false;
         }
 
@@ -123,12 +123,12 @@ bool WindowsHook_t::StartHook(std::function<void()>& _key_combination_callback, 
             *entry.func_ptr = libUser32.GetSymbol<void*>(entry.func_name);
             if (entry.func_ptr == nullptr)
             {
-                SPDLOG_ERROR("Failed to hook Windows: failed to load function {}.", entry.func_name);
+                INGAMEOVERLAY_ERROR("Failed to hook Windows: failed to load function {}.", entry.func_name);
                 return false;
             }
         }
 
-        SPDLOG_INFO("Hooked Windows");
+        INGAMEOVERLAY_INFO("Hooked Windows");
         _KeyCombinationCallback = std::move(_key_combination_callback);
 
         for (auto& key : toggle_keys)
@@ -148,7 +148,7 @@ bool WindowsHook_t::StartHook(std::function<void()>& _key_combination_callback, 
             {
                 if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
                 {
-                    SPDLOG_ERROR("Failed to hook {}", entry.func_name);
+                    INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
                 }
             }
         }
@@ -627,7 +627,7 @@ WindowsHook_t::WindowsHook_t() :
 
 WindowsHook_t::~WindowsHook_t()
 {
-    SPDLOG_INFO("Windows Hook removed");
+    INGAMEOVERLAY_INFO("Windows Hook removed");
 
     ResetRenderState(OverlayHookState::Removing);
 

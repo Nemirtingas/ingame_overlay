@@ -33,20 +33,25 @@
 #ifdef INGAMEOVERLAY_USE_SPDLOG
 #define SPDLOG_ACTIVE_LEVEL 0
 #include <spdlog/spdlog.h>
-#endif
 
-#ifndef SPDLOG_TRACE
-#define SPDLOG_TRACE(...)
-#endif
-#ifndef SPDLOG_DEBUG
-#define SPDLOG_DEBUG(...)
-#endif
-#ifndef SPDLOG_INFO
-#define SPDLOG_INFO(...)
-#endif
-#ifndef SPDLOG_WARN
-#define SPDLOG_WARN(...)
-#endif
-#ifndef SPDLOG_ERROR
-#define SPDLOG_ERROR(...)
+std::shared_ptr<spdlog::logger> GetLogger();
+void SetLogger(std::shared_ptr<spdlog::logger> logger);
+
+#define INGAMEOVERLAY_SPDLOG_LOGGER_NAME "RendererDetectorDebugLogger"
+#define INGAMEOVERLAY_SPDLOG_LOG_FORMAT "[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v"
+
+#define INGAMEOVERLAY_TRACE(...) SPDLOG_LOGGER_TRACE(GetLogger(), __VA_ARGS__)
+#define INGAMEOVERLAY_DEBUG(...) SPDLOG_LOGGER_DEBUG(GetLogger(), __VA_ARGS__)
+#define INGAMEOVERLAY_INFO(...)  SPDLOG_LOGGER_INFO(GetLogger(), __VA_ARGS__)
+#define INGAMEOVERLAY_WARN(...)  SPDLOG_LOGGER_WARN(GetLogger(), __VA_ARGS__)
+#define INGAMEOVERLAY_ERROR(...) SPDLOG_LOGGER_ERROR(GetLogger(), __VA_ARGS__)
+
+#else
+
+#define INGAMEOVERLAY_TRACE(...)
+#define INGAMEOVERLAY_DEBUG(...)
+#define INGAMEOVERLAY_INFO(...)
+#define INGAMEOVERLAY_WARN(...)
+#define INGAMEOVERLAY_ERROR(...)
+
 #endif

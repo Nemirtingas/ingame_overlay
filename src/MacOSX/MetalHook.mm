@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -33,7 +33,7 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
     {
         if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod == nil || _MTLRenderCommandEncoderEndEncodingMethod == nil)
         {
-            SPDLOG_WARN("Failed to hook Metal: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook Metal: Rendering functions missing.");
             return false;
         }
 
@@ -45,7 +45,7 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
         _MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(_MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
         _MTLRenderCommandEncoderEndEncoding = (decltype(_MTLRenderCommandEncoderEndEncoding))method_setImplementation(_MTLRenderCommandEncoderEndEncodingMethod, (IMP)&MyMTLCommandEncoderEndEncoding);
 
-        SPDLOG_INFO("Hooked Metal");
+        INGAMEOVERLAY_INFO("Hooked Metal");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -165,7 +165,7 @@ MetalHook_t::MetalHook_t():
 
 MetalHook_t::~MetalHook_t()
 {
-    SPDLOG_INFO("Metal Hook removed");
+    INGAMEOVERLAY_INFO("Metal Hook removed");
 
     if (_NSViewHooked)
         delete NSViewHook_t::Inst();
