@@ -782,7 +782,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         init_info.Device = _VulkanDevice;
         init_info.QueueFamily = _VulkanQueueFamily;
         init_info.Queue = _VulkanQueue;
-        init_info.PipelineCache = nullptr;
+        init_info.PipelineCache = VK_NULL_HANDLE;
         init_info.FontDescriptorSet = _ImGuiFontDescriptor.DescriptorSet;
         init_info.Subpass = 0;
         init_info.MinImageCount = _Frames.size();
