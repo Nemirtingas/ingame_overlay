@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     # on any push
+  pull_request:
+    # on pull request
   workflow_dispatch:
     # allows manual trigger
 
@@ -41,20 +43,21 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.platform == 'x32' }}
         shell: bash
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
-          
           sudo apt install -y gcc-multilib # needed for 32-bit builds
           sudo apt install -y g++-multilib
 
-          sudo apt-get install libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev:i386 libxrandr-dev:i386 libxinerama-dev:i386 libxcursor-dev:i386 libxi-dev:i386
           
           # write a cmake toolchain file to force 32-bit compilation
           cat >cmake_32_build.toolchain <<EOL
           set( CMAKE_C_FLAGS_INIT "-m32" )
           set( CMAKE_CXX_FLAGS_INIT "-m32" )
+          set( CMAKE_SIZEOF_VOID_P 4 )
           EOL
 
-          cmake ${{ github.workspace }}/CMakeLists.txt -DCMAKE_TOOLCHAIN_FILE="cmake_32_build.toolchain" -DINGAMEOVERLAY_BUILD_TESTS=OFF -DIMGUI_USER_CONFIG=${{github.workspace}}/tests/common/ingameoverlay_imconfig.h -S . -B build
+          cmake ${{ github.workspace }}/CMakeLists.txt -DCMAKE_TOOLCHAIN_FILE="cmake_32_build.toolchain" -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{github.workspace}}/tests/common/ingameoverlay_imconfig.h -S . -B build
           cmake --build build -v
           #find build
           
@@ -78,7 +81,7 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' && matrix.platform == 'x32' }}
         shell: powershell
         run: |
-          cmake ${{ github.workspace }}\CMakeLists.txt -DINGAMEOVERLAY_BUILD_TESTS=OFF -DIMGUI_USER_CONFIG=${{github.workspace}}\tests\common\ingameoverlay_imconfig.h -S . -B build -A Win32
+          cmake ${{ github.workspace }}\CMakeLists.txt -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{github.workspace}}\tests\common\ingameoverlay_imconfig.h -S . -B build -A Win32
           cmake --build build -v
           #Get-ChildItem -Recurse build
           
