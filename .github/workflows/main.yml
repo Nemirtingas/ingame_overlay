@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     # on any push
+  pull_request:
+    # on pull request
   workflow_dispatch:
     # allows manual trigger
 
