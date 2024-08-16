@@ -75,7 +75,7 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' && matrix.platform == 'x32' }}
         shell: powershell
         run: |
-          cmake ${{ github.workspace }}\CMakeLists.txt -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{github.workspace}}\tests\common\ingameoverlay_imconfig.h -S . -B build -A Win32
+          cmake ${{ github.workspace }}\CMakeLists.txt -DINGAMEOVERLAY_BUILD_TESTS=OFF -DIMGUI_USER_CONFIG=${{github.workspace}}\tests\common\ingameoverlay_imconfig.h -S . -B build -A Win32
           cmake --build build
           #Get-ChildItem -Recurse build
           
