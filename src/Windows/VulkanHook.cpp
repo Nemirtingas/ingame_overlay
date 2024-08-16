@@ -120,7 +120,7 @@ bool VulkanHook_t::_AllocDescriptorPool()
     descriptorPoolCreateInfo.maxSets = MaxDescriptorCountPerPool;
     descriptorPoolCreateInfo.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(poolSizes[0]));
     descriptorPoolCreateInfo.pPoolSizes = poolSizes;
-    if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, nullptr, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == VK_NULL_HANDLE)
+    if (_vkCreateDescriptorPool(_VulkanDevice, &descriptorPoolCreateInfo, _VulkanAllocationCallbacks, &vulkanDescriptorPool) != VkResult::VK_SUCCESS || vulkanDescriptorPool == VK_NULL_HANDLE)
         return false;
     
     _DescriptorsPools.emplace_back(VulkanDescriptorPool_t
@@ -606,7 +606,7 @@ bool VulkanHook_t::_CreateImageCommandPool()
     info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     info.flags = 0;
     info.queueFamilyIndex = _VulkanQueueFamily;
-    return _vkCreateCommandPool(_VulkanDevice, &info, nullptr, &_VulkanImageCommandPool) == VkResult::VK_SUCCESS;
+    return _vkCreateCommandPool(_VulkanDevice, &info, _VulkanAllocationCallbacks, &_VulkanImageCommandPool) == VkResult::VK_SUCCESS;
 }
 
 void VulkanHook_t::_DestroyImageCommandPool()
@@ -702,7 +702,7 @@ void VulkanHook_t::_DestroyRenderPass()
 {
     if (_VulkanRenderPass != VK_NULL_HANDLE)
     {
-        _vkDestroyRenderPass(_VulkanDevice, _VulkanRenderPass, nullptr);
+        _vkDestroyRenderPass(_VulkanDevice, _VulkanRenderPass, _VulkanAllocationCallbacks);
         _VulkanRenderPass = VK_NULL_HANDLE;
     }
 }
@@ -1300,8 +1300,8 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
 
         // TODO: Reuse buffer instead of create one per image
-        _vkDestroyBuffer(_VulkanDevice, uploadBuffer, nullptr);
-        _vkFreeMemory(_VulkanDevice, uploadBufferMemory, nullptr);
+        _vkDestroyBuffer(_VulkanDevice, uploadBuffer, _VulkanAllocationCallbacks);
+        _vkFreeMemory(_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
     }
 
     vulkanRendererImage = new VulkanImage_t;
@@ -1316,7 +1316,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         {
             auto vulkanImage = reinterpret_cast<VulkanImage_t*>(handle);
             
-            _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, nullptr);
+            _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, _VulkanAllocationCallbacks);
             _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
             _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
             _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
@@ -1331,11 +1331,11 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
 OnErrorCreateImage:
     if (vulkanImageDescriptor.DescriptorSet != VK_NULL_HANDLE) _ReleaseDescriptor(vulkanImageDescriptor);
-    if (uploadBuffer                        != VK_NULL_HANDLE) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , nullptr);
-    if (uploadBufferMemory                  != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, nullptr);
-    if (vulkanImageView                     != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , nullptr);
-    if (vulkanImageMemory                   != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, vulkanImageMemory , nullptr);
-    if (vulkanImage                         != VK_NULL_HANDLE) _vkDestroyImage    (_VulkanDevice, vulkanImage       , nullptr);
+    if (uploadBuffer                        != VK_NULL_HANDLE) _vkDestroyBuffer   (_VulkanDevice, uploadBuffer      , _VulkanAllocationCallbacks);
+    if (uploadBufferMemory                  != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
+    if (vulkanImageView                     != VK_NULL_HANDLE) _vkDestroyImageView(_VulkanDevice, vulkanImageView   , _VulkanAllocationCallbacks);
+    if (vulkanImageMemory                   != VK_NULL_HANDLE) _vkFreeMemory      (_VulkanDevice, vulkanImageMemory , _VulkanAllocationCallbacks);
+    if (vulkanImage                         != VK_NULL_HANDLE) _vkDestroyImage    (_VulkanDevice, vulkanImage       , _VulkanAllocationCallbacks);
 
     return std::shared_ptr<uint64_t>(nullptr);
 }
