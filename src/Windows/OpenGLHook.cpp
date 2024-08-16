@@ -28,7 +28,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLHook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -41,7 +41,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
     {
         if (_WGLSwapBuffers == nullptr)
         {
-            SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;
         }
 
@@ -54,7 +54,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
         TRY_HOOK_FUNCTION(WGLSwapBuffers);
         EndHook();
 
-        SPDLOG_INFO("Hooked OpenGL");
+        INGAMEOVERLAY_INFO("Hooked OpenGL");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -163,7 +163,7 @@ OpenGLHook_t::OpenGLHook_t():
 
 OpenGLHook_t::~OpenGLHook_t()
 {
-    SPDLOG_INFO("OpenGL Hook removed");
+    INGAMEOVERLAY_INFO("OpenGL Hook removed");
 
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();

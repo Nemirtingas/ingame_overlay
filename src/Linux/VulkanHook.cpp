@@ -30,7 +30,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     return false;\
 } } while(0)
 
@@ -41,7 +41,7 @@ static inline VkResult _CheckVkResult(VkResult err)
     if (err == VkResult::VK_SUCCESS)
         return err;
 
-    SPDLOG_ERROR("[vulkan] Error: VkResult = {}", (int)err);
+    INGAMEOVERLAY_ERROR("[vulkan] Error: VkResult = {}", (int)err);
     return err;
 }
 
@@ -61,7 +61,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
     {
         if (_VkAcquireNextImageKHR == nullptr || _VkQueuePresentKHR == nullptr || _VkCreateSwapchainKHR == nullptr || _VkDestroyDevice  == nullptr)
         {
-            SPDLOG_WARN("Failed to hook Vulkan: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook Vulkan: Rendering functions missing.");
             return false;
         }
 
@@ -83,7 +83,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
         TRY_HOOK_FUNCTION(VkDestroyDevice);
         EndHook();
 
-        SPDLOG_INFO("Hooked Vulkan");
+        INGAMEOVERLAY_INFO("Hooked Vulkan");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -902,7 +902,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
 {
-    SPDLOG_INFO("vkAcquireNextImageKHR");
+    INGAMEOVERLAY_INFO("vkAcquireNextImageKHR");
     auto inst = VulkanHook_t::Inst();
 
     inst->_VulkanDevice = device;
@@ -911,7 +911,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice d
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
 {
-    SPDLOG_INFO("vkAcquireNextImage2KHR");
+    INGAMEOVERLAY_INFO("vkAcquireNextImage2KHR");
     auto inst = VulkanHook_t::Inst();
 
     inst->_VulkanDevice = device;
@@ -920,7 +920,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImage2KHR(VkDevice 
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
-    SPDLOG_INFO("vkQueuePresentKHR");
+    INGAMEOVERLAY_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
 
     inst->_PrepareForOverlay(queue, pPresentInfo);
@@ -929,7 +929,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain)
 {
-    SPDLOG_INFO("vkCreateSwapchainKHR");
+    INGAMEOVERLAY_INFO("vkCreateSwapchainKHR");
     auto inst = VulkanHook_t::Inst();
 
     if (inst->_VulkanDevice == device)
@@ -948,7 +948,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
 
 VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, const VkAllocationCallbacks* pAllocator)
 {
-    SPDLOG_INFO("vkDestroyDevice");
+    INGAMEOVERLAY_INFO("vkDestroyDevice");
     auto inst = VulkanHook_t::Inst();
 
     if (inst->_VulkanDevice == device)
@@ -1046,7 +1046,7 @@ VulkanHook_t::VulkanHook_t():
 
 VulkanHook_t::~VulkanHook_t()
 {
-    SPDLOG_INFO("VulkanHook_t Hook removed");
+    INGAMEOVERLAY_INFO("VulkanHook_t Hook removed");
 
     if (_X11Hooked)
         delete X11Hook_t::Inst();

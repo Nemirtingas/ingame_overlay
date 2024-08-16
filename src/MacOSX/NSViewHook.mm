@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -109,20 +109,20 @@ bool NSViewHook_t::StartHook(std::function<void()>& _key_combination_callback, s
     {
         if(!_key_combination_callback)
         {
-            SPDLOG_ERROR("Failed to hook NSView: No key combination callback.");
+            INGAMEOVERLAY_ERROR("Failed to hook NSView: No key combination callback.");
             return false;
         }
 
         if (toggle_keys.empty())
         {
-            SPDLOG_ERROR("Failed to hook NSView: No key combination.");
+            INGAMEOVERLAY_ERROR("Failed to hook NSView: No key combination.");
             return false;
         }
 
         void* hAppKit = System::Library::GetLibraryHandle(DLL_NAME);
         if (hAppKit == nullptr)
         {
-            SPDLOG_WARN("Failed to hook NSView: Cannot find {}", DLL_NAME);
+            INGAMEOVERLAY_WARN("Failed to hook NSView: Cannot find {}", DLL_NAME);
             return false;
         }
 
@@ -130,11 +130,11 @@ bool NSViewHook_t::StartHook(std::function<void()>& _key_combination_callback, s
         LibraryName = System::Library::GetLibraryPath(hAppKit);
         if (!libAppKit.OpenLibrary(LibraryName, false))
         {
-            SPDLOG_WARN("Failed to hook NSView: Cannot load {}", LibraryName);
+            INGAMEOVERLAY_WARN("Failed to hook NSView: Cannot load {}", LibraryName);
             return false;
         }
 
-        SPDLOG_INFO("Hooked NSView");
+        INGAMEOVERLAY_INFO("Hooked NSView");
         KeyCombinationCallback = std::move(_key_combination_callback);
 
         for (auto& key : toggle_keys)
@@ -315,7 +315,7 @@ NSViewHook_t::NSViewHook_t() :
 
 NSViewHook_t::~NSViewHook_t()
 {
-    SPDLOG_INFO("NSView Hook removed");
+    INGAMEOVERLAY_INFO("NSView Hook removed");
 
     ResetRenderState();
 

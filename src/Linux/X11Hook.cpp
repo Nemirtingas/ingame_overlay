@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -130,20 +130,20 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
     {
         if (!_key_combination_callback)
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination callback.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination callback.");
             return false;
         }
 
         if (toggle_keys.empty())
         {
-            SPDLOG_ERROR("Failed to hook X11: No key combination.");
+            INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination.");
             return false;
         }
 
         void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
         if (hX11 == nullptr)
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
+            INGAMEOVERLAY_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
             return false;
         }
 
@@ -152,7 +152,7 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
 
         if (!libX11.OpenLibrary(LibraryName, false))
         {
-            SPDLOG_WARN("Failed to hook X11: Cannot load {}", LibraryName);
+            INGAMEOVERLAY_WARN("Failed to hook X11: Cannot load {}", LibraryName);
             return false;
         }
 
@@ -171,12 +171,12 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
             *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
             if (entry.func_ptr == nullptr)
             {
-                SPDLOG_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
+                INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
                 return false;
             }
         }
 
-        SPDLOG_INFO("Hooked X11");
+        INGAMEOVERLAY_INFO("Hooked X11");
 
         _KeyCombinationCallback = std::move(_key_combination_callback);
         
@@ -497,7 +497,7 @@ X11Hook_t::X11Hook_t() :
 
 X11Hook_t::~X11Hook_t()
 {
-    SPDLOG_INFO("X11 Hook removed");
+    INGAMEOVERLAY_INFO("X11 Hook removed");
 
     ResetRenderState(OverlayHookState::Removing);
 

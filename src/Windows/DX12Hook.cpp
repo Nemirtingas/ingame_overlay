@@ -26,7 +26,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -64,7 +64,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
     {
         if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
         {
-            SPDLOG_WARN("Failed to hook DirectX 12: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook DirectX 12: Rendering functions missing.");
             return false;
         }
 
@@ -88,7 +88,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         EndHook();
 
-        SPDLOG_INFO("Hooked DirectX 12");
+        INGAMEOVERLAY_INFO("Hooked DirectX 12");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -179,7 +179,7 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
         {
             if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == _CommandQueue)
             {
-                SPDLOG_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
+                INGAMEOVERLAY_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
                 _CommandQueueOffset = i;
                 break;
             }
@@ -427,7 +427,7 @@ ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
     auto inst = DX12Hook_t::Inst();
     auto result = (_this->*inst->_ID3D12DeviceRelease)();
 
-    SPDLOG_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    INGAMEOVERLAY_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
     if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
@@ -437,7 +437,7 @@ ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
 {
-    SPDLOG_INFO("IDXGISwapChain::Present");
+    INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
     auto inst = DX12Hook_t::Inst();
 
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
@@ -449,7 +449,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
-    SPDLOG_INFO("IDXGISwapChain::ResizeBuffers");
+    INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX12Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
@@ -462,7 +462,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
 {
-    SPDLOG_INFO("IDXGISwapChain::ResizeTarget");
+    INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX12Hook_t::Inst();
     
     inst->OverlayHookReady(OverlayHookState::Reset);
@@ -475,7 +475,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1* _this, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
-    SPDLOG_INFO("IDXGISwapChain1::Present1");
+    INGAMEOVERLAY_INFO("IDXGISwapChain1::Present1");
     auto inst = DX12Hook_t::Inst();
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
@@ -487,7 +487,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
 {
-    SPDLOG_INFO("IDXGISwapChain3::ResizeBuffers1");
+    INGAMEOVERLAY_INFO("IDXGISwapChain3::ResizeBuffers1");
     auto inst = DX12Hook_t::Inst();
 
     inst->OverlayHookReady(OverlayHookState::Reset);
@@ -500,7 +500,7 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwap
 
 void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
 {
-    SPDLOG_INFO("ID3D12CommandQueue::ExecuteCommandLists");
+    INGAMEOVERLAY_INFO("ID3D12CommandQueue::ExecuteCommandLists");
     auto inst = DX12Hook_t::Inst();
     if (_this->GetDesc().Type == D3D12_COMMAND_LIST_TYPE_DIRECT)
         inst->_CommandQueue = _this;
@@ -531,7 +531,7 @@ DX12Hook_t::DX12Hook_t():
 
 DX12Hook_t::~DX12Hook_t()
 {
-    SPDLOG_INFO("DX12 Hook removed");
+    INGAMEOVERLAY_INFO("DX12 Hook removed");
 
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();

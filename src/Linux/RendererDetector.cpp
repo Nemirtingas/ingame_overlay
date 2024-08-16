@@ -36,7 +36,7 @@
 #include "VulkanHook.h"
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME); } } while(0)
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME); } } while(0)
 
 #ifdef INGAMEOVERLAY_USE_SPDLOG
 
@@ -80,7 +80,7 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
     void* hOpenGL = System::Library::GetLibraryHandle(openGLLibraryPath.c_str());
     if (hOpenGL == nullptr)
     {
-        SPDLOG_WARN("Failed to load {} to detect OpenGLX", openGLLibraryPath);
+        INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGLX", openGLLibraryPath);
         return driver;
     }
 
@@ -96,7 +96,7 @@ static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
     void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.c_str());
     if (hVulkan == nullptr)
     {
-        SPDLOG_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
+        INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
         return driver;
     }
 
@@ -300,7 +300,7 @@ private:
         auto inst = Inst();
         std::lock_guard<std::mutex> lk(inst->_RendererMutex);
 
-        SPDLOG_INFO("glXSwapBuffers");
+        INGAMEOVERLAY_INFO("glXSwapBuffers");
         inst->_GLXSwapBuffers(dpy, drawable);
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return;
@@ -314,7 +314,7 @@ private:
         auto inst = Inst();
         std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
-        SPDLOG_INFO("vkQueuePresentKHR");
+        INGAMEOVERLAY_INFO("vkQueuePresentKHR");
         auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
         if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
@@ -331,7 +331,7 @@ private:
             auto driver = GetOpenGLDriver(libraryPath);
             if (driver.glXSwapBuffers != nullptr)
             {
-                SPDLOG_INFO("Hooked glXSwapBuffers to detect OpenGLX");
+                INGAMEOVERLAY_INFO("Hooked glXSwapBuffers to detect OpenGLX");
                 _OpenGLXHooked = true;
 
                 _GLXSwapBuffers = driver.glXSwapBuffers;
@@ -346,7 +346,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
+                INGAMEOVERLAY_WARN("Failed to Hook glXSwapBuffers to detect OpenGLX");
             }
         }
     }
@@ -358,7 +358,7 @@ private:
             auto driver = GetVulkanDriver(libraryPath);
             if (driver.vkQueuePresentKHR != nullptr)
             {
-                SPDLOG_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
+                INGAMEOVERLAY_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
                 _VulkanHooked = true;
 
                 _VkQueuePresentKHR = driver.vkQueuePresentKHR;
@@ -380,7 +380,7 @@ private:
             }
             else
             {
-                SPDLOG_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
+                INGAMEOVERLAY_WARN("Failed to Hook vkQueuePresentKHR to detect Vulkan");
             }
         }
     }
@@ -459,7 +459,7 @@ public:
                 return _RendererHook;
             }
 
-            SPDLOG_TRACE("Started renderer detection.");
+            INGAMEOVERLAY_TRACE("Started renderer detection.");
 
             std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]{
                 { OPENGLX_DLL_NAME, &RendererDetector_t::_HookOpenGLX },
@@ -506,7 +506,7 @@ public:
             }
             _StopDetectionConditionVariable.notify_all();
 
-            SPDLOG_TRACE("Renderer detection done {}.", (void*)_RendererHook);
+            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
 
             return _RendererHook;
         });
@@ -544,14 +544,13 @@ static inline void SetupSpdLog()
 
         sinks->add_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 
-        auto logger = std::make_shared<spdlog::logger>("RendererDetectorDebugLogger", sinks);
+        auto logger = std::make_shared<spdlog::logger>(INGAMEOVERLAY_SPDLOG_LOGGER_NAME, sinks);
 
-        spdlog::register_logger(logger);
-
-        logger->set_pattern("[%H:%M:%S.%e](%t)[%l] - %!{%#} - %v");
-        spdlog::set_level(spdlog::level::trace);
+        logger->set_pattern(INGAMEOVERLAY_SPDLOG_LOG_FORMAT);
+        logger->set_level(spdlog::level::trace);
         logger->flush_on(spdlog::level::trace);
-        spdlog::set_default_logger(logger);
+
+        SetLogger(logger);
     });
 }
 
