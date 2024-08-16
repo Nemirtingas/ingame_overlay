@@ -54,6 +54,7 @@ jobs:
           cat >cmake_32_build.toolchain <<EOL
           set( CMAKE_C_FLAGS_INIT "-m32" )
           set( CMAKE_CXX_FLAGS_INIT "-m32" )
+          set( CMAKE_SIZEOF_VOID_P 4 )
           EOL
 
           cmake ${{ github.workspace }}/CMakeLists.txt -DCMAKE_TOOLCHAIN_FILE="cmake_32_build.toolchain" -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{github.workspace}}/tests/common/ingameoverlay_imconfig.h -S . -B build

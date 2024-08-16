@@ -456,51 +456,54 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     set_property(TARGET windows_opengl3_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-    set(GLFW_BUILD_DOCS OFF)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw)
+    # Vulkan officially supports only 64 bits apps.
+    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set(GLFW_BUILD_DOCS OFF)
+      add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw)
 
-    add_executable(windows_vulkan_app
-      tests/windows_vulkan/main.cpp
-      tests/common/imgui_impl_vulkan.h
-      tests/common/imgui_impl_vulkan.cpp
-      deps/ImGui/imgui.cpp
-      deps/ImGui/imgui_demo.cpp
-      deps/ImGui/imgui_draw.cpp
-      deps/ImGui/imgui_tables.cpp
-      deps/ImGui/imgui_widgets.cpp
-      deps/ImGui/backends/imgui_impl_glfw.h
-      deps/ImGui/backends/imgui_impl_glfw.cpp
-      deps/ImGui/backends/imgui_impl_win32.h
-      deps/ImGui/backends/imgui_impl_win32.cpp
-    )
+      add_executable(windows_vulkan_app
+        tests/windows_vulkan/main.cpp
+        tests/common/imgui_impl_vulkan.h
+        tests/common/imgui_impl_vulkan.cpp
+        deps/ImGui/imgui.cpp
+        deps/ImGui/imgui_demo.cpp
+        deps/ImGui/imgui_draw.cpp
+        deps/ImGui/imgui_tables.cpp
+        deps/ImGui/imgui_widgets.cpp
+        deps/ImGui/backends/imgui_impl_glfw.h
+        deps/ImGui/backends/imgui_impl_glfw.cpp
+        deps/ImGui/backends/imgui_impl_win32.h
+        deps/ImGui/backends/imgui_impl_win32.cpp
+      )
 
-    target_include_directories(windows_vulkan_app
-      PRIVATE
-      deps/ImGui
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
-    )
+      target_include_directories(windows_vulkan_app
+        PRIVATE
+        deps/ImGui
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
+      )
 
-    target_link_libraries(windows_vulkan_app
-      PRIVATE
-      user32
-      shell32.lib
-      glfw
-      ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/lib/vulkan-1.lib
-    )
+      target_link_libraries(windows_vulkan_app
+        PRIVATE
+        user32
+        shell32.lib
+        glfw
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/lib/vulkan-1.lib
+      )
 
-    target_compile_definitions(windows_vulkan_app
-      PRIVATE
-      ${IMGUI_USER_CONFIG_VALUE}
-      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
-      IMGUI_IMPL_OPENGL_LOADER_GLAD2
-      IMGUI_DISABLE_OBSOLETE_KEYIO
-      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-      IMGUI_DISABLE_APPLE_GAMEPAD
-    )
+      target_compile_definitions(windows_vulkan_app
+        PRIVATE
+        ${IMGUI_USER_CONFIG_VALUE}
+        IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+        IMGUI_IMPL_OPENGL_LOADER_GLAD2
+        IMGUI_DISABLE_OBSOLETE_KEYIO
+        IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+        IMGUI_DISABLE_APPLE_GAMEPAD
+      )
 
-    set_property(TARGET windows_vulkan_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+      set_property(TARGET windows_vulkan_app PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
 
   elseif(APPLE)
 
@@ -655,50 +658,53 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       IMGUI_DISABLE_APPLE_GAMEPAD
     )
 	
-    set(GLFW_BUILD_DOCS OFF)
-    set(GLFW_BUILD_WAYLAND OFF)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw)
+    # Vulkan officially supports only 64 bits apps.
+    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set(GLFW_BUILD_DOCS OFF)
+      set(GLFW_BUILD_WAYLAND OFF)
+      add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw)
 
-    add_executable(linux_vulkan_app
-      tests/linux_vulkan/main.cpp
-      tests/common/imgui_impl_vulkan.h
-      tests/common/imgui_impl_vulkan.cpp
-      deps/ImGui/imgui.cpp
-      deps/ImGui/imgui_demo.cpp
-      deps/ImGui/imgui_draw.cpp
-      deps/ImGui/imgui_tables.cpp
-      deps/ImGui/imgui_widgets.cpp
-      deps/ImGui/backends/imgui_impl_glfw.h
-      deps/ImGui/backends/imgui_impl_glfw.cpp
-      deps/ImGui/backends/imgui_impl_x11.h
-      deps/ImGui/backends/imgui_impl_x11.cpp
-    )
+      add_executable(linux_vulkan_app
+        tests/linux_vulkan/main.cpp
+        tests/common/imgui_impl_vulkan.h
+        tests/common/imgui_impl_vulkan.cpp
+        deps/ImGui/imgui.cpp
+        deps/ImGui/imgui_demo.cpp
+        deps/ImGui/imgui_draw.cpp
+        deps/ImGui/imgui_tables.cpp
+        deps/ImGui/imgui_widgets.cpp
+        deps/ImGui/backends/imgui_impl_glfw.h
+        deps/ImGui/backends/imgui_impl_glfw.cpp
+        deps/ImGui/backends/imgui_impl_x11.h
+        deps/ImGui/backends/imgui_impl_x11.cpp
+      )
 
-    target_include_directories(linux_vulkan_app
-      PRIVATE
-      deps/ImGui
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
-    )
+      target_include_directories(linux_vulkan_app
+        PRIVATE
+        deps/ImGui
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/glfw/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/include>
+      )
 
-    target_link_libraries(linux_vulkan_app
-      PRIVATE
-      dl
-      GL
-      X11
-      glfw
-      ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/lib/libvulkan.so.1.3.290
-    )
+      target_link_libraries(linux_vulkan_app
+        PRIVATE
+        dl
+        GL
+        X11
+        glfw
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/common/vulkansdk/lib/libvulkan.so.1.3.290
+      )
 
-    target_compile_definitions(linux_vulkan_app
-      PRIVATE
-      ${IMGUI_USER_CONFIG_VALUE}
-      IMGUI_IMPL_OPENGL_LOADER_CUSTOM
-      IMGUI_IMPL_OPENGL_LOADER_GLAD2
-      IMGUI_DISABLE_OBSOLETE_KEYIO
-      IMGUI_DISABLE_OBSOLETE_FUNCTIONS
-      IMGUI_DISABLE_APPLE_GAMEPAD
-    )
+      target_compile_definitions(linux_vulkan_app
+        PRIVATE
+        ${IMGUI_USER_CONFIG_VALUE}
+        IMGUI_IMPL_OPENGL_LOADER_CUSTOM
+        IMGUI_IMPL_OPENGL_LOADER_GLAD2
+        IMGUI_DISABLE_OBSOLETE_KEYIO
+        IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+        IMGUI_DISABLE_APPLE_GAMEPAD
+      )
+    endif()
 
   endif()
 
