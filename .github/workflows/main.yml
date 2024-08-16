@@ -8,7 +8,7 @@ on:
 
 jobs:
   job:
-    name: ${{ matrix.os }}-cmake-build
+    name: ${{ matrix.os }}-${{ matrix.platform }}-cmake-build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
