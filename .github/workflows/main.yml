@@ -1,6 +1,11 @@
 name: CI
 
-on: [push]
+on:
+  push:
+    # on any push
+  workflow_dispatch:
+    # allows manual trigger
+
 jobs:
   job:
     name: ${{ matrix.os }}-cmake-build
