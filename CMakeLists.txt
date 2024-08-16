@@ -1,7 +1,7 @@
+cmake_minimum_required(VERSION 3.15)
 cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0091 NEW)
 project(ingame_overlay)
-cmake_minimum_required(VERSION 3.15)
 
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
