@@ -43,8 +43,8 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.platform == 'x32' }}
         shell: bash
         run: |
-          sudo apt-get update
           sudo dpkg --add-architecture i386
+          sudo apt-get update
           sudo apt install -y gcc-multilib # needed for 32-bit builds
           sudo apt install -y g++-multilib
 
