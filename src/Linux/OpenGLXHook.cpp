@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -28,7 +28,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLXHook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -41,7 +41,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
     {
         if (_GLXSwapBuffers == nullptr)
         {
-            SPDLOG_WARN("Failed to hook OpenGLX: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook OpenGLX: Rendering functions missing.");
             return false;
         }
 
@@ -54,7 +54,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
         TRY_HOOK_FUNCTION(GLXSwapBuffers);
         EndHook();
 
-        SPDLOG_INFO("Hooked OpenGLX");
+        INGAMEOVERLAY_INFO("Hooked OpenGLX");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -183,7 +183,7 @@ OpenGLXHook_t::OpenGLXHook_t():
 
 OpenGLXHook_t::~OpenGLXHook_t()
 {
-    SPDLOG_INFO("OpenGLX Hook removed");
+    INGAMEOVERLAY_INFO("OpenGLX Hook removed");
 
     if (_X11Hooked)
         delete X11Hook_t::Inst();

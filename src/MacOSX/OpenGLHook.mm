@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Nemirtingas
+ * Copyright (C) Nemirtingas
  * This file is part of the ingame overlay project
  *
  * The ingame overlay project is free software; you can redistribute it
@@ -29,7 +29,7 @@
 namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&OpenGLHook_t::_My##NAME))) { \
-    SPDLOG_ERROR("Failed to hook {}", #NAME);\
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -47,7 +47,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
     {
         if (_NSOpenGLContextFlushBufferMethod == nullptr && _CGLFlushDrawable == nullptr)
         {
-            SPDLOG_WARN("Failed to hook OpenGL: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook OpenGL: Rendering functions missing.");
             return false;
         }
 
@@ -67,7 +67,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
             EndHook();
         }
 
-        SPDLOG_INFO("Hooked OpenGL");
+        INGAMEOVERLAY_INFO("Hooked OpenGL");
         _Hooked = true;
         _ImGuiFontAtlas = imgui_font_atlas;
     }
@@ -119,7 +119,7 @@ void OpenGLHook_t::_PrepareForOverlay()
         auto openGLVersion = gladLoaderLoadGL();
         if (openGLVersion < GLAD_MAKE_VERSION(2, 0))
         {
-            SPDLOG_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
+            INGAMEOVERLAY_WARN("Failed to hook OpenGL: Version is too low: {}.{}", GLAD_VERSION_MAJOR(openGLVersion), GLAD_VERSION_MINOR(openGLVersion));
             return;
         }
 
@@ -184,7 +184,7 @@ OpenGLHook_t::OpenGLHook_t():
 
 OpenGLHook_t::~OpenGLHook_t()
 {
-    SPDLOG_INFO("OpenGL Hook removed");
+    INGAMEOVERLAY_INFO("OpenGL Hook removed");
 
     if (_NSViewHooked)
         delete NSViewHook_t::Inst();
