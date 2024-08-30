@@ -45,8 +45,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt install -y gcc-multilib # needed for 32-bit builds
-          sudo apt install -y g++-multilib
+          sudo apt install -y gcc-multilib g++-multilib # needed for 32-bit builds
 
           sudo apt-get install libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev:i386 libxrandr-dev:i386 libxinerama-dev:i386 libxcursor-dev:i386 libxi-dev:i386
           
