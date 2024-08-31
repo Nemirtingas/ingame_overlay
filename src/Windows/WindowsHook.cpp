@@ -281,39 +281,44 @@ static bool IgnoreMsg(UINT uMsg)
     return false;
 }
 
+void WindowsHook_t::_AppendEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    _WindowEvents.enqueue(WindowsHookEvent_t(hWnd, uMsg, wParam, lParam));
+}
+
 void WindowsHook_t::_RawEvent(RAWINPUT& raw)
 {
     switch (raw.header.dwType)
     {
     case RIM_TYPEMOUSE:
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_LBUTTONDOWN, 0, 0);
+            _AppendEvent(_GameHwnd, WM_LBUTTONDOWN, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_LEFT_BUTTON_UP)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_LBUTTONUP, 0, 0);
+            _AppendEvent(_GameHwnd, WM_LBUTTONUP, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_RBUTTONDOWN, 0, 0);
+            _AppendEvent(_GameHwnd, WM_RBUTTONDOWN, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_UP)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_RBUTTONUP, 0, 0);
+            _AppendEvent(_GameHwnd, WM_RBUTTONUP, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MBUTTONDOWN, 0, 0);
+            _AppendEvent(_GameHwnd, WM_MBUTTONDOWN, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MBUTTONUP, 0, 0);
+            _AppendEvent(_GameHwnd, WM_MBUTTONUP, 0, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
+            _AppendEvent(_GameHwnd, WM_MOUSEWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
         if (raw.data.mouse.usButtonFlags & RI_MOUSE_HWHEEL)
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEHWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
+            _AppendEvent(_GameHwnd, WM_MOUSEHWHEEL, ((WPARAM)raw.data.mouse.usButtonData) << 16, 0);
 
         if (raw.data.mouse.lLastX != 0 || raw.data.mouse.lLastY != 0)
         {
             POINT p;
             _GetCursorPos(&p);
             ::ScreenToClient(_GameHwnd, &p);
-            ImGui_ImplWin32_WndProcHandler(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+            _AppendEvent(_GameHwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
         }
         break;
 
         //case RIM_TYPEKEYBOARD:
-            //ImGui_ImplWin32_WndProcHandler(_GameHwnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
+            //_AppendEvent(_GameHwnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
             //break;
     }
 }
@@ -367,10 +372,13 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         }
     
         if (uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
-        {
             ImGui::GetIO().SetAppAcceptingEvents(uMsg == WM_SETFOCUS);
-        }
     
+        WindowsHookEvent_t rawEvent;
+        size_t eventCount = _WindowEvents.queue_size();
+        while (eventCount-- && _WindowEvents.dequeue(rawEvent))
+            ImGui_ImplWin32_WndProcHandler(rawEvent.hWnd, rawEvent.msg, rawEvent.wParam, rawEvent.lParam);
+
         if (!hide_overlay_inputs || uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
         {
             ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
@@ -604,6 +612,7 @@ WindowsHook_t::WindowsHook_t() :
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
     _KeyCombinationPushed(false),
+    _WindowEvents(512),
     _TranslateMessage(nullptr),
     _DefWindowProcA(nullptr),
     _DefWindowProcW(nullptr),
