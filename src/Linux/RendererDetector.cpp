@@ -461,6 +461,12 @@ public:
 
             INGAMEOVERLAY_TRACE("Started renderer detection.");
 
+            struct DetectionDetails_t
+            {
+                std::string DllName;
+                void (RendererDetector_t::* DetectionProcedure)(std::string const&, bool);
+            };
+
             std::vector<DetectionDetails_t> libraries;
             if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
                 libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGLX });
