@@ -41,15 +41,20 @@ enum class OverlayHookState : uint8_t
     Removing,
 };
 
-enum class RendererHookType_t
+/// <summary>
+/// Only one RendererHookType_t will always be returned by RendererHook_t::GetRendererHookType
+/// but you can use them as flags to limit the detection in InGameOverlay::DetectRenderer.
+/// </summary>
+enum class RendererHookType_t : uint8_t
 {
-    DirectX9,
-    DirectX10,
-    DirectX11,
-    DirectX12,
-    OpenGL,
-    Vulkan,
-    Metal
+    DirectX9  = 1 << 0,
+    DirectX10 = 1 << 1,
+    DirectX11 = 1 << 2,
+    DirectX12 = 1 << 3,
+    OpenGL    = 1 << 4,
+    Vulkan    = 1 << 5,
+    Metal     = 1 << 6,
+    Any       = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan | Metal,
 };
 
 class RendererHook_t
@@ -133,4 +138,14 @@ public:
     virtual RendererHookType_t GetRendererHookType() const = 0;
 };
 
+}
+
+inline InGameOverlay::RendererHookType_t operator&(InGameOverlay::RendererHookType_t l, InGameOverlay::RendererHookType_t r)
+{
+    return static_cast<InGameOverlay::RendererHookType_t>(static_cast<uint8_t>(l) & static_cast<uint8_t>(r));
+}
+
+inline InGameOverlay::RendererHookType_t operator|(InGameOverlay::RendererHookType_t l, InGameOverlay::RendererHookType_t r)
+{
+    return static_cast<InGameOverlay::RendererHookType_t>(static_cast<uint8_t>(l) | static_cast<uint8_t>(r));
 }

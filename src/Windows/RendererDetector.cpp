@@ -1296,7 +1296,7 @@ private:
     }
 
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
+    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
     {
         std::lock_guard<std::mutex> lk(_StopDetectionMutex);
 
@@ -1307,7 +1307,7 @@ public:
 
         ++_DetectionCount;
 
-        return std::async(std::launch::async, [this, timeout, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
+        return std::async(std::launch::async, [this, timeout, rendererToDetect, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
             constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
@@ -1354,15 +1354,31 @@ public:
 
             INGAMEOVERLAY_TRACE("Started renderer detection.");
 
-            std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]
+            struct DetectionDetails_t
             {
-                { OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
-                { VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan },
-                {   DX12_DLL_NAME, &RendererDetector_t::_HookDX12   },
-                {   DX11_DLL_NAME, &RendererDetector_t::_HookDX11   },
-                {   DX10_DLL_NAME, &RendererDetector_t::_HookDX10   },
-                {    DX9_DLL_NAME, &RendererDetector_t::_HookDX9    },
+                std::string DllName;
+                void (RendererDetector_t::*DetectionProcedure)(std::string const&, bool);
             };
+
+            std::vector<DetectionDetails_t> libraries;
+            if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
+                libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL });
+
+            if ((rendererToDetect & RendererHookType_t::Vulkan) == RendererHookType_t::Vulkan)
+                libraries.emplace_back(DetectionDetails_t{ VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan });
+
+            if ((rendererToDetect & RendererHookType_t::DirectX12) == RendererHookType_t::DirectX12)
+                libraries.emplace_back(DetectionDetails_t{ DX12_DLL_NAME, &RendererDetector_t::_HookDX12 });
+
+            if ((rendererToDetect & RendererHookType_t::DirectX11) == RendererHookType_t::DirectX11)
+                libraries.emplace_back(DetectionDetails_t{ DX11_DLL_NAME, &RendererDetector_t::_HookDX11 });
+
+            if ((rendererToDetect & RendererHookType_t::DirectX10) == RendererHookType_t::DirectX10)
+                libraries.emplace_back(DetectionDetails_t{ DX10_DLL_NAME, &RendererDetector_t::_HookDX10 });
+
+            if ((rendererToDetect & RendererHookType_t::DirectX9) == RendererHookType_t::DirectX9)
+                libraries.emplace_back(DetectionDetails_t{ DX9_DLL_NAME, &RendererDetector_t::_HookDX9 });
+
             std::string name;
 
             MSG windowMessage;
@@ -1375,14 +1391,14 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.first) : library.first;
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
                     if (!libraryPath.empty())
                     {
                         void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
                         if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
+                            (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
                     }
                 }
@@ -1462,12 +1478,12 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
+std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout, preferSystemLibraries);
+    return RendererDetector_t::Inst()->DetectRenderer(timeout, rendererToDetect, preferSystemLibraries);
 }
 
 void StopRendererDetection()
