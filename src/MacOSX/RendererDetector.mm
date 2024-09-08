@@ -567,33 +567,4 @@ void FreeDetector()
     delete RendererDetector_t::Inst();
 }
 
-RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries)
-{
-    RendererHook_t* rendererHook = nullptr;
-
-#ifdef INGAMEOVERLAY_USE_SPDLOG
-    SetupSpdLog();
-#endif
-
-    switch (hookType)
-    {
-        case RendererHookType_t::OpenGL:
-        {
-        }
-        break;
-
-        case RendererHookType_t::Vulkan:
-        {
-        }
-        break;
-
-        case RendererHookType_t::Metal:
-        {
-        }
-        break;
-    }
-
-    return rendererHook;
-}
-
 }// namespace InGameOverlay

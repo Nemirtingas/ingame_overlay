@@ -87,11 +87,11 @@ InGameOverlay::RendererHook_t* test_renderer_detector()
     return rendererHook;
 }
 
-InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::RendererHookType_t hookType)
+InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::RendererHookType_t hookType, bool preferSystemLibraries)
 {
     InGameOverlay::RendererHook_t* rendererHook = nullptr;
 
-    auto future = InGameOverlay::DetectRenderer(8s, hookType);
+    auto future = InGameOverlay::DetectRenderer(8s, hookType, preferSystemLibraries);
     future.wait();
     if (future.valid())
         rendererHook = future.get();
@@ -99,11 +99,6 @@ InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::Re
     InGameOverlay::FreeDetector();
 
     return rendererHook;
-}
-
-InGameOverlay::RendererHook_t* test_fixed_renderer(InGameOverlay::RendererHookType_t hookType)
-{
-    return InGameOverlay::CreateRendererHook(hookType, true);
 }
 
 void shared_library_load(void* hmodule)
@@ -118,9 +113,9 @@ void shared_library_load(void* hmodule)
 
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
-        OverlayData->Renderer = test_renderer_detector();
+        //OverlayData->Renderer = test_renderer_detector();
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
         //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12);
-        //OverlayData->Renderer = test_fixed_renderer(InGameOverlay::RendererHookType_t::DirectX9);
         if (OverlayData->Renderer == nullptr)
             return;
 

@@ -47,14 +47,18 @@ enum class OverlayHookState : uint8_t
 /// </summary>
 enum class RendererHookType_t : uint8_t
 {
-    DirectX9  = 1 << 0,
-    DirectX10 = 1 << 1,
-    DirectX11 = 1 << 2,
-    DirectX12 = 1 << 3,
-    OpenGL    = 1 << 4,
-    Vulkan    = 1 << 5,
-    Metal     = 1 << 6,
-    Any       = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan | Metal,
+    DirectX9   = 1 << 0,
+    DirectX10  = 1 << 1,
+    DirectX11  = 1 << 2,
+    DirectX12  = 1 << 3,
+    OpenGL     = 1 << 4,
+    Vulkan     = 1 << 5,
+    Metal      = 1 << 6,
+    AnyDirectX = DirectX9 | DirectX10 | DirectX11 | DirectX12,
+    AnyWindows = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan,
+    AnyLinux   = OpenGL | Vulkan,
+    AnyMacOS   = OpenGL | Metal,
+    Any        = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan | Metal,
 };
 
 class RendererHook_t

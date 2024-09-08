@@ -45,12 +45,4 @@ void StopRendererDetection();
 /// </summary>
 void FreeDetector();
 
-/// <summary>
-/// Tries to find the renderer type, returns null if the renderer type is not hookable. Having a non-zero result doesn't mean the application uses this type of renderer.
-/// </summary>
-/// <param name="hookType">The renderer type to create the hook for.</param>
-/// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
-/// <returns>nullptr or the renderer.</returns>
-RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries);
-
 }

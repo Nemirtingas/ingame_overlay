@@ -583,35 +583,4 @@ void FreeDetector()
     delete RendererDetector_t::Inst();
 }
 
-RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries)
-{
-    RendererHook_t* rendererHook = nullptr;
-#ifdef INGAMEOVERLAY_USE_SPDLOG
-    SetupSpdLog();
-#endif
-
-    switch (hookType)
-    {
-        case RendererHookType_t::OpenGL:
-        {
-            auto driver = GetOpenGLDriver(OPENGLX_DLL_NAME);
-            if (driver.glXSwapBuffers != nullptr)
-            {
-                auto hook = OpenGLXHook_t::Inst();
-                hook->LibraryName = driver.LibraryPath;
-                hook->LoadFunctions(driver.glXSwapBuffers);
-                rendererHook = hook;
-            }
-        }
-        break;
-
-        case RendererHookType_t::Vulkan:
-        {
-        }
-        break;
-    }
-
-    return rendererHook;
-}
-
 }// namespace InGameOverlay
