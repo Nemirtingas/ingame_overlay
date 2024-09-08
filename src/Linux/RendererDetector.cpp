@@ -469,7 +469,7 @@ public:
 
             std::vector<DetectionDetails_t> libraries;
             if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
-                libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGLX });
+                libraries.emplace_back(DetectionDetails_t{ OPENGLX_DLL_NAME, &RendererDetector_t::_HookOpenGLX });
 
             if ((rendererToDetect & RendererHookType_t::Vulkan) == RendererHookType_t::Vulkan)
                 libraries.emplace_back(DetectionDetails_t{ VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan });
