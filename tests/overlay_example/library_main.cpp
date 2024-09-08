@@ -134,10 +134,17 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         //OverlayData->Renderer = test_renderer_detector();
-        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Any, false);
         //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12);
         if (OverlayData->Renderer == nullptr)
             return;
+
+        // FIXME: Cannot hook DXVK's DirectX11 device's ID3D11DeviceRelease
+        if (OverlayData->Renderer->GetRendererHookType() == InGameOverlay::RendererHookType_t::DirectX11 && OverlayData->Renderer->GetLibraryName().find("(DXVK)") != std::string::npos)
+        {
+            delete OverlayData->Renderer;
+            OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
+        }
 
         // overlay_proc is called  when the process wants to swap buffers.
         OverlayData->Renderer->OverlayProc = []()

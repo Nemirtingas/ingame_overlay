@@ -517,6 +517,7 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _UsesDXVK(false),
     _DeviceReleasing(0),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
@@ -564,6 +565,15 @@ const char* DX12Hook_t::GetLibraryName() const
 RendererHookType_t DX12Hook_t::GetRendererHookType() const
 {
     return RendererHookType_t::DirectX12;
+}
+
+void DX12Hook_t::SetDXVK()
+{
+    if (!_UsesDXVK)
+    {
+        _UsesDXVK = true;
+        LibraryName += " (DXVK)";
+    }
 }
 
 void DX12Hook_t::LoadFunctions(

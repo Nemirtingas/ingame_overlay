@@ -38,6 +38,7 @@
 #include "DX9Hook.h"
 #include "OpenGLHook.h"
 #include "VulkanHook.h"
+#include "DXVKDetector.h"
   
 #include "DirectXVTables.h"
   
@@ -246,6 +247,53 @@ static void GetDXGIFunctions(IDXGISwapChain* pSwapChain, IDXGISwapChain1* pSwapC
         vTable = *reinterpret_cast<void***>(pSwapChain3);
         *(void**)pfnResizeBuffers1 = vTable[(int)IDXGISwapChainVTable::ResizeBuffers1];
     }
+}
+
+static bool DX9DeviceIsDXVK(IUnknown* pDevice)
+{
+    ID3D9VkInteropDevice* dxvkDevice9 = nullptr;
+    pDevice->QueryInterface(ID3D9VkInteropDeviceGUID, (void**)&dxvkDevice9);
+    // Will only work on newer DXVK
+    if (dxvkDevice9 == nullptr)
+        return false;
+    
+    dxvkDevice9->Release();
+    return true;
+}
+
+static bool DXGIDeviceIsDXVK(IUnknown* pDevice)
+{
+    IDXGIVkInteropDevice* pDxvkInterface = nullptr;
+    pDevice->QueryInterface(IDXGIVkInteropDeviceGUID, (void**)&pDxvkInterface);
+    if (pDxvkInterface == nullptr)
+        return false;
+
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    VkInstance vkInstance;
+    VkPhysicalDevice vkPhysicalDevice;
+    VkDevice vkDevice;
+
+    pDxvkInterface->GetVulkanHandles(&vkInstance, &vkPhysicalDevice, &vkDevice);
+
+    void* hVulkan = System::Library::GetLibraryHandle(VULKAN_DLL_NAME);
+    if (hVulkan != nullptr)
+    {
+        auto _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)System::Library::GetSymbol(hVulkan, "vkGetInstanceProcAddr");
+        if (_vkGetInstanceProcAddr != nullptr)
+        {
+            auto _vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_vkGetInstanceProcAddr(vkInstance, "vkGetPhysicalDeviceProperties");
+            if (_vkGetPhysicalDeviceProperties != nullptr)
+            {
+                VkPhysicalDeviceProperties vkPhysicalDeviceProperties;
+                _vkGetPhysicalDeviceProperties(vkPhysicalDevice, &vkPhysicalDeviceProperties);
+                INGAMEOVERLAY_INFO("DXVK Device: {}", vkPhysicalDeviceProperties.deviceName);
+            }
+        }
+    }
+#endif
+
+    pDxvkInterface->Release();
+    return true;
 }
 
 static DirectX9Driver_t GetDX9Driver(std::string const& directX9LibraryPath, HWND windowHandle)
@@ -899,12 +947,15 @@ private:
     void _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
     {
         IUnknown* pDevice = nullptr;
-        if (Inst()->_DX12Hooked)
+
+        if (_DX12Hooked)
         {
             pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D12Device**>(&pDevice)));
         }
         if (pDevice != nullptr)
         {
+            if (DXGIDeviceIsDXVK(pDevice))
+                _DX12Hook->SetDXVK();
             _HookDetected(_DX12Hook);
         }
         else
@@ -912,7 +963,7 @@ private:
             if (_DX11Hooked)
             {
                 pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&pDevice)));
-                if (pDevice != nullptr)
+                if (pDevice != nullptr && _DX10Hooked)
                 {
                     // It seems that when you are using a DX10 device, sometimes, the swapchain has a DX11 device.
                     ID3D10Device* pD10Device = nullptr;
@@ -927,6 +978,8 @@ private:
             }
             if (pDevice != nullptr)
             {
+                if (DXGIDeviceIsDXVK(pDevice))
+                    _DX11Hook->SetDXVK();
                 _HookDetected(_DX11Hook);
             }
             else
@@ -937,6 +990,8 @@ private:
                 }
                 if (pDevice != nullptr)
                 {
+                    if (DXGIDeviceIsDXVK(pDevice))
+                        _DX10Hook->SetDXVK();
                     _HookDetected(_DX10Hook);
                 }
             }
@@ -993,6 +1048,9 @@ private:
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
+        if (DX9DeviceIsDXVK(_this))
+            inst->_DX9Hook->SetDXVK();
+
         inst->_HookDetected(inst->_DX9Hook);
 
         return res;
@@ -1008,6 +1066,9 @@ private:
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
+        if (DX9DeviceIsDXVK(_this))
+            inst->_DX9Hook->SetDXVK();
+
         inst->_HookDetected(inst->_DX9Hook);
 
         return res;
@@ -1016,12 +1077,22 @@ private:
     static HRESULT STDMETHODCALLTYPE _MyDX9SwapChainPresent(IDirect3DSwapChain9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        // Some implementations redirect to DX9 swapchain.
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
 
         INGAMEOVERLAY_INFO("IDirect3DSwapChain9::Present");
         auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
+
+        IDirect3DDevice9 *pDevice;
+        if (SUCCEEDED(_this->GetDevice(&pDevice)))
+        {
+            if (DX9DeviceIsDXVK(pDevice))
+                inst->_DX9Hook->SetDXVK();
+
+            pDevice->Release();
+        }
 
         inst->_HookDetected(inst->_DX9Hook);
 

@@ -275,6 +275,7 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 DX10Hook_t::DX10Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _UsesDXVK(false),
     _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
@@ -318,6 +319,15 @@ const char* DX10Hook_t::GetLibraryName() const
 RendererHookType_t DX10Hook_t::GetRendererHookType() const
 {
     return RendererHookType_t::DirectX10;
+}
+
+void DX10Hook_t::SetDXVK()
+{
+    if (!_UsesDXVK)
+    {
+        _UsesDXVK = true;
+        LibraryName += " (DXVK)";
+    }
 }
 
 void DX10Hook_t::LoadFunctions(

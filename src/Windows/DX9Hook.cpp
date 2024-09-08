@@ -288,6 +288,7 @@ HRESULT STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DSwapChain9SwapChainPresent(IDir
 DX9Hook_t::DX9Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _UsesDXVK(false),
     _LastWindow(nullptr),
     _DeviceReleasing(0),
     _Device(nullptr),
@@ -332,6 +333,15 @@ const char* DX9Hook_t::GetLibraryName() const
 RendererHookType_t DX9Hook_t::GetRendererHookType() const
 {
     return RendererHookType_t::DirectX9;
+}
+
+void DX9Hook_t::SetDXVK()
+{
+    if (!_UsesDXVK)
+    {
+        _UsesDXVK = true;
+        LibraryName += " (DXVK)";
+    }
 }
 
 void DX9Hook_t::LoadFunctions(

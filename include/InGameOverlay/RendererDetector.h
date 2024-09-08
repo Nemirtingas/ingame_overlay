@@ -31,6 +31,7 @@ namespace InGameOverlay {
 /// Starts a detector to automatically find the renderer used by the application.
 /// </summary>
 /// <param name="timeout">The time before the future will timeout if no renderer has been found.</param>
+/// <param name="rendererToDetect">Set this to any combined RendererHookType_t value to filter the renderers you want to detect.</param>
 /// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
 /// <returns>A future nullptr or the renderer.</returns>
 std::future<RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 }, RendererHookType_t rendererToDetect = RendererHookType_t::Any, bool preferSystemLibraries = true);

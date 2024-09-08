@@ -125,6 +125,7 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
+    bool _UsesDXVK;
     uint32_t _DeviceReleasing;
 
     size_t _CommandQueueOffset;
@@ -186,6 +187,7 @@ public:
     virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
 
+    void SetDXVK();
     void LoadFunctions(
         decltype(_ID3D12DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
