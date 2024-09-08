@@ -51,11 +51,6 @@ InGameOverlay::RendererHook_t* test_renderer_detector()
     return rendererHook;
 }
 
-InGameOverlay::RendererHook_t* test_fixed_renderer(InGameOverlay::RendererHookType_t hookType)
-{
-    return InGameOverlay::CreateRendererHook(hookType, true);
-}
-
 void shared_library_load(void* hmodule)
 {
     OverlayData = new OverlayData_t();

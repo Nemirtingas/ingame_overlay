@@ -387,7 +387,7 @@ private:
     }
     
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
+    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
     {
         std::lock_guard<std::mutex> lk(_StopDetectionMutex);
 
@@ -398,7 +398,7 @@ public:
 
         ++_DetectionCount;
 
-        return std::async(std::launch::async, [this, timeout, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
+        return std::async(std::launch::async, [this, timeout, rendererToDetect, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
         {
             std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
             constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
@@ -445,10 +445,19 @@ public:
 
             INGAMEOVERLAY_TRACE("Started renderer detection.");
 
-            std::pair<std::string, void(RendererDetector_t::*)(std::string const&, bool)> libraries[]{
-                { OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
-                {  METAL_DLL_NAME, &RendererDetector_t::_HookMetal  },
+            struct DetectionDetails_t
+            {
+                std::string DllName;
+                void (RendererDetector_t::*DetectionProcedure)(std::string const&, bool);
             };
+
+            std::vector<DetectionDetails_t> libraries;
+            if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
+                libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL });
+
+            if ((rendererToDetect & RendererHookType_t::Metal) == RendererHookType_t::Metal)
+                libraries.emplace_back(DetectionDetails_t{ METAL_DLL_NAME, &RendererDetector_t::_HookMetal });
+
             std::string name;
 
             auto startTime = std::chrono::steady_clock::now();
@@ -460,14 +469,14 @@ public:
 
                 for (auto const& library : libraries)
                 {
-                    std::string libraryPath = FindPreferedModulePath(library.first);
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : library.DllName;
                     if (!libraryPath.empty())
                     {
                         void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
                         if (libraryHandle != nullptr)
                         {
                             std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.second)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
+                            (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
                     }
                 }
@@ -540,12 +549,12 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, bool preferSystemLibraries)
+std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout, preferSystemLibraries);
+    return RendererDetector_t::Inst()->DetectRenderer(timeout, rendererToDetect, preferSystemLibraries);
 }
     
 void StopRendererDetection()
@@ -556,35 +565,6 @@ void StopRendererDetection()
 void FreeDetector()
 {
     delete RendererDetector_t::Inst();
-}
-
-RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries)
-{
-    RendererHook_t* rendererHook = nullptr;
-
-#ifdef INGAMEOVERLAY_USE_SPDLOG
-    SetupSpdLog();
-#endif
-
-    switch (hookType)
-    {
-        case RendererHookType_t::OpenGL:
-        {
-        }
-        break;
-
-        case RendererHookType_t::Vulkan:
-        {
-        }
-        break;
-
-        case RendererHookType_t::Metal:
-        {
-        }
-        break;
-    }
-
-    return rendererHook;
 }
 
 }// namespace InGameOverlay

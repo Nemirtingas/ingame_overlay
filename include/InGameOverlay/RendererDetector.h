@@ -33,7 +33,7 @@ namespace InGameOverlay {
 /// <param name="timeout">The time before the future will timeout if no renderer has been found.</param>
 /// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
 /// <returns>A future nullptr or the renderer.</returns>
-std::future<RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 }, bool preferSystemLibraries = true);
+std::future<RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 }, RendererHookType_t rendererToDetect = RendererHookType_t::Any, bool preferSystemLibraries = true);
 
 /// <summary>
 /// Stops the detector, the future will return as soon as possible.
@@ -44,13 +44,5 @@ void StopRendererDetection();
 /// Free the detector allocated by DetectRenderer to you to restart detection, else, the same result will always return.
 /// </summary>
 void FreeDetector();
-
-/// <summary>
-/// Tries to find the renderer type, returns null if the renderer type is not hookable. Having a non-zero result doesn't mean the application uses this type of renderer.
-/// </summary>
-/// <param name="hookType">The renderer type to create the hook for.</param>
-/// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
-/// <returns>nullptr or the renderer.</returns>
-RendererHook_t* CreateRendererHook(RendererHookType_t hookType, bool preferSystemLibraries);
 
 }
