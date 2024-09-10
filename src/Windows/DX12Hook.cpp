@@ -27,6 +27,10 @@ namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+} } while(0)
+
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -75,16 +79,16 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         BeginHook();
         TRY_HOOK_FUNCTION(ID3D12DeviceRelease);
-        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
-        TRY_HOOK_FUNCTION(ID3D12CommandQueueExecuteCommandLists);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeBuffers);
+        TRY_HOOK_FUNCTION_OR_FAIL(ID3D12CommandQueueExecuteCommandLists);
 
         if (_IDXGISwapChain1Present1 != nullptr)
-            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChain1Present1);
 
         if (_IDXGISwapChain3ResizeBuffers1 != nullptr)
-            TRY_HOOK_FUNCTION(IDXGISwapChain3ResizeBuffers1);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChain3ResizeBuffers1);
 
         EndHook();
 
@@ -194,11 +198,13 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
 
 void DX12Hook_t::_UpdateHookDeviceRefCount()
 {
+    constexpr int BaseRefCount = 2;
+
     switch (_HookState)
     {
         // 2 Base reference count value
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 3; break;
+        case OverlayHookState::Removing: _HookDeviceRefCount = BaseRefCount + 1; break;
         // 0 ref from ImGui
         //case OverlayHookState::Reset: _HookDeviceRefCount = 15 + _ImageResources.size(); break;
         // Us: 2 + FrameCount * 5 + ImagesResourcesCount
@@ -211,7 +217,7 @@ void DX12Hook_t::_UpdateHookDeviceRefCount()
         // PipelineState
         // FontTexture
         // (VertexBuffer + IndexBuffer) * FrameCount
-        case OverlayHookState::Ready: _HookDeviceRefCount = 2 + (_OverlayFrames.size() * 9) + _ShaderResourceViewHeapDescriptors.size() + _ImageResources.size();
+        case OverlayHookState::Ready: _HookDeviceRefCount = BaseRefCount + (_OverlayFrames.size() * 9) + _ShaderResourceViewHeapDescriptors.size() + _ImageResources.size();
     }
 }
 

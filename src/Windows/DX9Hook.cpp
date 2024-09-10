@@ -27,6 +27,10 @@ namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+} } while(0)
+
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX9Hook_t::_My##NAME))) { \
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -60,13 +64,13 @@ bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKe
 
         BeginHook();
         TRY_HOOK_FUNCTION(IDirect3DDevice9Release);
-        TRY_HOOK_FUNCTION(IDirect3DDevice9Reset);
-        TRY_HOOK_FUNCTION(IDirect3DDevice9Present);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Reset);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9Present);
         if (_IDirect3DDevice9ExPresentEx != nullptr)
-            TRY_HOOK_FUNCTION(IDirect3DDevice9ExPresentEx);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DDevice9ExPresentEx);
 
         if (_IDirect3DSwapChain9SwapChainPresent != nullptr)
-            TRY_HOOK_FUNCTION(IDirect3DSwapChain9SwapChainPresent);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDirect3DSwapChain9SwapChainPresent);
 
         EndHook();
 
@@ -96,14 +100,16 @@ bool DX9Hook_t::IsStarted()
 
 void DX9Hook_t::_UpdateHookDeviceRefCount()
 {
+    constexpr int BaseRefCount = 3;
+
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 3; break; 
+        case OverlayHookState::Removing: _HookDeviceRefCount = BaseRefCount; break;
         // 1 ref from us, 1 ref from ImGui (device)
-        case OverlayHookState::Reset: _HookDeviceRefCount = 4; break;
+        case OverlayHookState::Reset: _HookDeviceRefCount = BaseRefCount + 1; break;
         // 1 ref from us, 4 refs from ImGui (device, vertex buffer, index buffer, font texture)
-        case OverlayHookState::Ready: _HookDeviceRefCount = 7 + _ImageResources.size();
+        case OverlayHookState::Ready: _HookDeviceRefCount = BaseRefCount + 4 + _ImageResources.size();
     }
 }
 

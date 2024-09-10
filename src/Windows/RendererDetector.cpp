@@ -955,7 +955,14 @@ private:
         if (pDevice != nullptr)
         {
             if (DXGIDeviceIsDXVK(pDevice))
+            {
                 _DX12Hook->SetDXVK();
+                INGAMEOVERLAY_DEBUG("Detected DX12 (DXVK)");
+            }
+            else
+            {
+                INGAMEOVERLAY_DEBUG("Detected DX12");
+            }
             _HookDetected(_DX12Hook);
         }
         else
@@ -979,7 +986,14 @@ private:
             if (pDevice != nullptr)
             {
                 if (DXGIDeviceIsDXVK(pDevice))
+                {
                     _DX11Hook->SetDXVK();
+                    INGAMEOVERLAY_DEBUG("Detected DX11 (DXVK)");
+                }
+                else
+                {
+                    INGAMEOVERLAY_DEBUG("Detected DX11");
+                }
                 _HookDetected(_DX11Hook);
             }
             else
@@ -991,7 +1005,14 @@ private:
                 if (pDevice != nullptr)
                 {
                     if (DXGIDeviceIsDXVK(pDevice))
+                    {
                         _DX10Hook->SetDXVK();
+                        INGAMEOVERLAY_DEBUG("Detected DX10 (DXVK)");
+                    }
+                    else
+                    {
+                        INGAMEOVERLAY_DEBUG("Detected DX10");
+                    }
                     _HookDetected(_DX10Hook);
                 }
             }
@@ -1049,7 +1070,14 @@ private:
             return res;
 
         if (DX9DeviceIsDXVK(_this))
+        {
             inst->_DX9Hook->SetDXVK();
+            INGAMEOVERLAY_DEBUG("Detected DX9 (DXVK)");
+        }
+        else
+        {
+            INGAMEOVERLAY_DEBUG("Detected DX9");
+        }
 
         inst->_HookDetected(inst->_DX9Hook);
 
@@ -1067,8 +1095,14 @@ private:
             return res;
 
         if (DX9DeviceIsDXVK(_this))
+        {
             inst->_DX9Hook->SetDXVK();
-
+            INGAMEOVERLAY_DEBUG("Detected DX9 (DXVK)");
+        }
+        else
+        {
+            INGAMEOVERLAY_DEBUG("Detected DX9");
+        }
         inst->_HookDetected(inst->_DX9Hook);
 
         return res;
@@ -1089,11 +1123,22 @@ private:
         if (SUCCEEDED(_this->GetDevice(&pDevice)))
         {
             if (DX9DeviceIsDXVK(pDevice))
+            {
                 inst->_DX9Hook->SetDXVK();
+                INGAMEOVERLAY_DEBUG("Detected DX9 (DXVK)");
+            }
+            else
+            {
+                INGAMEOVERLAY_DEBUG("Detected DX9");
+            }
 
             pDevice->Release();
         }
-
+        else
+        {
+            INGAMEOVERLAY_DEBUG("Detected DX9");
+        }
+        
         inst->_HookDetected(inst->_DX9Hook);
 
         return res;
@@ -1127,6 +1172,7 @@ private:
         if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
             return res;
 
+        INGAMEOVERLAY_DEBUG("Detected Vulkan");
         inst->_HookDetected(inst->_VulkanHook);
 
         return res;
@@ -1468,16 +1514,21 @@ public:
                         void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
                         if (libraryHandle != nullptr)
                         {
+                            INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
                             std::lock_guard<std::mutex> lk(_RendererMutex);
+                            INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
                             (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
                     }
                 }
 
+                INGAMEOVERLAY_DEBUG("Detection started");
                 _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
                 if (!_DetectionStarted)
                 {
+                    INGAMEOVERLAY_DEBUG("Detection started 1");
                     std::lock_guard<std::mutex> lck(_RendererMutex);
+                    INGAMEOVERLAY_DEBUG("Detection started 2");
                     _DetectionStarted = true;
                 }
 

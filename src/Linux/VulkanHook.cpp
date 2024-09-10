@@ -29,7 +29,7 @@
 
 namespace InGameOverlay {
 
-#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     return false;\
 } } while(0)
@@ -74,13 +74,13 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         _X11Hooked = true;
 
         BeginHook();
-        TRY_HOOK_FUNCTION(VkAcquireNextImageKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImageKHR);
         if (_VkAcquireNextImage2KHR != nullptr)
-            TRY_HOOK_FUNCTION(VkAcquireNextImage2KHR);
+            TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImage2KHR);
 
-        TRY_HOOK_FUNCTION(VkQueuePresentKHR);
-        TRY_HOOK_FUNCTION(VkCreateSwapchainKHR);
-        TRY_HOOK_FUNCTION(VkDestroyDevice);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkQueuePresentKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkCreateSwapchainKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkDestroyDevice);
         EndHook();
 
         INGAMEOVERLAY_INFO("Hooked Vulkan");

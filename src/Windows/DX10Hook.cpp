@@ -27,6 +27,10 @@ namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX10Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+} } while(0)
+
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX10Hook_t::_My##NAME))) { \
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -60,12 +64,12 @@ bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         BeginHook();
         TRY_HOOK_FUNCTION(ID3D10DeviceRelease);
-        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeBuffers);
 
         if (_IDXGISwapChain1Present1 != nullptr)
-            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChain1Present1);
 
         EndHook();
 
