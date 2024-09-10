@@ -44,7 +44,7 @@ enum class OverlayHookState : uint8_t
 /// Only one RendererHookType_t will always be returned by RendererHook_t::GetRendererHookType
 /// but you can use them as flags to limit the detection in InGameOverlay::DetectRenderer.
 /// NOTE: Even if a DirectX hook has been found and DXVK is used, the renderer hook will only report the DirectX hook type.
-/// There is no combination like : DirectX11 | Vulkan return by RendererHook_t::GetRendererHookType.
+/// There is no combination like : DirectX11 | Vulkan returned by RendererHook_t::GetRendererHookType.
 /// </summary>
 enum class RendererHookType_t : uint8_t
 {
