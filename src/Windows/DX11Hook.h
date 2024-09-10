@@ -38,6 +38,7 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
+    bool _UsesDXVK;
     bool _DeviceReleasing;
     ID3D11Device* _Device;
     ULONG _HookDeviceRefCount;
@@ -82,6 +83,7 @@ public:
     virtual const std::string& GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
 
+    void SetDXVK();
     void LoadFunctions(
         decltype(_ID3D11DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,

@@ -22,6 +22,7 @@ if(WIN32) # Setup some variables for Windows build
     src/VulkanHelpers.h
     src/BaseHook.h
     src/Windows/DirectXVTables.h
+    src/Windows/DXVKDetector.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
     src/Windows/DX11Hook.h

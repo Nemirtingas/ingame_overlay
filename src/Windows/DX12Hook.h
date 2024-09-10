@@ -129,6 +129,7 @@ private:
     bool _WindowsHooked;
     bool _DeviceReleasing;
 
+    int _CommandQueueOffsetRetries;
     size_t _CommandQueueOffset;
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
