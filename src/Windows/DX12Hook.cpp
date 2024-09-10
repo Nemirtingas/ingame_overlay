@@ -175,13 +175,18 @@ void DX12Hook_t::_ReleaseShaderRessourceView(uint32_t id)
 
 ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
 {
+    constexpr int MaxRetries = 10;
     ID3D12CommandQueue* pCommandQueue = nullptr;
+    ID3D12CommandQueue* pHookedCommandQueue = _CommandQueue;
 
-    if (_CommandQueueOffset == 0 && _CommandQueue != nullptr)
+    if (pHookedCommandQueue == nullptr)
+        return nullptr;
+
+    if (_CommandQueueOffset == 0)
     {
         for (size_t i = 0; i < 1024; ++i)
         {
-            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == _CommandQueue)
+            if (*reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + i) == pHookedCommandQueue)
             {
                 INGAMEOVERLAY_INFO("Found IDXGISwapChain::ppCommandQueue at offset {}.", i);
                 _CommandQueueOffset = i;
@@ -191,7 +196,20 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
     }
 
     if (_CommandQueueOffset != 0)
+    {
         pCommandQueue = *reinterpret_cast<ID3D12CommandQueue**>(reinterpret_cast<uintptr_t>(pSwapChain) + _CommandQueueOffset);
+    }
+    else if (_CommandQueueOffsetRetries <= MaxRetries)
+    {
+        if (++_CommandQueueOffsetRetries >= MaxRetries)
+        {
+            INGAMEOVERLAY_INFO("Failed to find IDXGISwapChain::ppCommandQueue, fallback to ID3D12CommandQueue::ExecuteCommandLists");
+        }
+    }
+    else
+    {
+        pCommandQueue = pHookedCommandQueue;
+    }
 
     return pCommandQueue;
 }
@@ -322,6 +340,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             _ShaderResourceViewHeapDescriptors.clear();
             SafeRelease(_Device);
             _CommandQueueOffset = 0;
+            _CommandQueueOffsetRetries = 0;
             _CommandQueue = nullptr;
 
     }
@@ -523,8 +542,8 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _UsesDXVK(false),
     _DeviceReleasing(0),
+    _CommandQueueOffsetRetries(0),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
@@ -571,15 +590,6 @@ const char* DX12Hook_t::GetLibraryName() const
 RendererHookType_t DX12Hook_t::GetRendererHookType() const
 {
     return RendererHookType_t::DirectX12;
-}
-
-void DX12Hook_t::SetDXVK()
-{
-    if (!_UsesDXVK)
-    {
-        _UsesDXVK = true;
-        LibraryName += " (DXVK)";
-    }
 }
 
 void DX12Hook_t::LoadFunctions(

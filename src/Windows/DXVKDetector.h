@@ -264,6 +264,21 @@ constexpr static GUID IDXGIVkSwapChain2GUID      { 0xaed91093, 0xe02e, 0x458c, {
 constexpr static GUID IDXGIVkSwapChainFactoryGUID{ 0xe7d6c3ca, 0x23a0, 0x4e08, { 0x9f, 0x2f, 0xea, 0x52, 0x31, 0xdf, 0x66, 0x33 } };
 
 /**
+ * \brief DXGI factory interface for Vulkan interop
+ */
+struct IDXGIVkInteropFactory : public IUnknown{
+    /**
+     * \brief Queries Vulkan instance used by DXVK
+     *
+     * \param [out] pInstance The Vulkan instance
+     * \param [out] ppfnVkGetInstanceProcAddr Vulkan entry point
+     */
+    virtual void STDMETHODCALLTYPE GetVulkanInstance(
+            VkInstance * pInstance,
+            PFN_vkGetInstanceProcAddr * ppfnVkGetInstanceProcAddr) = 0;
+};
+
+/**
  * \brief Private DXGI device interface
  */
 struct IDXGIDXVKDevice : public IUnknown{

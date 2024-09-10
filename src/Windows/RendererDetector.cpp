@@ -607,10 +607,14 @@ static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, 
     auto D3D12CreateDevice = (decltype(::D3D12CreateDevice)*)System::Library::GetSymbol(hD3D12, "D3D12CreateDevice");
     if (D3D12CreateDevice != nullptr)
     {
+        INGAMEOVERLAY_DEBUG("Creating D3D12 device...");
         D3D12CreateDevice(NULL, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&pDevice));
 
         if (pDevice != nullptr)
         {
+            INGAMEOVERLAY_DEBUG("Created D3D12 device!");
+            INGAMEOVERLAY_DEBUG("Creating CommandQueue...");
+
             D3D12_COMMAND_QUEUE_DESC queueDesc = {};
             queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
@@ -618,9 +622,11 @@ static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, 
 
             if (pCommandQueue != nullptr)
             {
+                INGAMEOVERLAY_DEBUG("Created CommandQueue!");
                 decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
                 if (CreateDXGIFactory1 != nullptr)
                 {
+                    INGAMEOVERLAY_DEBUG("Creating DXGI Factory...");                    
                     CreateDXGIFactory1(IID_PPV_ARGS(&pDXGIFactory));
                     if (pDXGIFactory != nullptr)
                     {
@@ -636,6 +642,8 @@ static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, 
                         SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
                         SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 
+                        INGAMEOVERLAY_DEBUG("Created DXGI Factory!");
+                        INGAMEOVERLAY_DEBUG("Creating SwapChain...");
                         pDXGIFactory->CreateSwapChainForHwnd(pCommandQueue, windowHandle, &SwapChainDesc, NULL, NULL, &pSwapChain);
                     }
                 }
@@ -645,6 +653,7 @@ static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, 
 
     if (pCommandQueue != nullptr && pSwapChain != nullptr)
     {
+        INGAMEOVERLAY_DEBUG("Created SwapChain!");
         IDXGISwapChain3* pSwapChain3;
 
         pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
@@ -954,15 +963,8 @@ private:
         }
         if (pDevice != nullptr)
         {
-            if (DXGIDeviceIsDXVK(pDevice))
-            {
-                _DX12Hook->SetDXVK();
-                INGAMEOVERLAY_DEBUG("Detected DX12 (DXVK)");
-            }
-            else
-            {
-                INGAMEOVERLAY_DEBUG("Detected DX12");
-            }
+            // DXVK doesn't support (yet) DX12, vkd3d is used instead.
+            INGAMEOVERLAY_DEBUG("Detected DX12");
             _HookDetected(_DX12Hook);
         }
         else
