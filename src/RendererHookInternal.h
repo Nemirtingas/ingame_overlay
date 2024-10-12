@@ -22,6 +22,9 @@
 #include <InGameOverlay/RendererHook.h>
 #include "InternalIncludes.h"
 
+#include <set>
+#include <memory>
+
 namespace InGameOverlay {
 
 class RendererResourceInternal_t;
