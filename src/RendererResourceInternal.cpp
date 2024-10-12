@@ -54,11 +54,8 @@ bool RendererResourceInternal_t::_DoAutoLoad()
 	return !_RendererResource.expired();
 }
 
-void RendererResourceInternal_t::Delete(bool unload)
+void RendererResourceInternal_t::Delete()
 {
-	if (!unload)
-		_RendererResource.reset();
-
 	delete this;
 }
 
@@ -105,6 +102,10 @@ bool RendererResourceInternal_t::Load(const void* data, uint32_t width, uint32_t
 	if (IsLoaded())
 		Unload(true);
 
+	_Data = nullptr;
+	_Width = width;
+	_Height = height;
+	_AttachementChanged = false;
 	_RendererResource = _RendererHook->CreateImageResource(data, width, height);
 	return !_RendererResource.expired();
 }
@@ -121,6 +122,16 @@ uint64_t RendererResourceInternal_t::GetResourceId()
 	return r != nullptr ? *r : 0;
 }
 
+uint32_t RendererResourceInternal_t::Width() const
+{
+	return _Width;
+}
+
+uint32_t RendererResourceInternal_t::Height() const
+{
+	return _Height;
+}
+
 void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width, uint32_t height)
 {
 	_AttachementChanged = true;
@@ -133,8 +144,12 @@ void RendererResourceInternal_t::ClearAttachedResource()
 {
 	_AttachementChanged = true;
 	_Data = nullptr;
-	_Width = 0;
-	_Height = 0;
+
+	if (_RendererResource.expired())
+	{
+		_Width = 0;
+		_Height = 0;
+	}
 }
 
 void RendererResourceInternal_t::Unload(bool clearAttachedResource)

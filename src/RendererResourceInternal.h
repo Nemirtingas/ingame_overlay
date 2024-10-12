@@ -52,7 +52,7 @@ public:
 
     virtual ~RendererResourceInternal_t();
 
-    virtual void Delete(bool unload = true);
+    virtual void Delete();
 
     virtual bool IsLoaded() const;
 
@@ -67,6 +67,10 @@ public:
     virtual bool Load(const void* data, uint32_t width, uint32_t height);
 
     virtual uint64_t GetResourceId();
+
+    virtual uint32_t Width() const;
+
+    virtual uint32_t Height() const;
 
     virtual void AttachResource(const void* data, uint32_t width, uint32_t height);
 

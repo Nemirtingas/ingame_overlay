@@ -40,9 +40,7 @@ public:
     /// <summary>
     /// Deletes the resource.
     /// </summary>
-    /// <param name="unload">If for some reason this resource is still alive and you have deleted the renderer hook, set unload to false so you don't use the deleted renderer hook.</param>
-    virtual void Delete(bool unload = true) = 0;
-
+    virtual void Delete() = 0;
     /// <summary>
     /// Checks if the resource is loaded.
     /// </summary>
@@ -80,6 +78,16 @@ public:
     /// </summary>
     /// <returns>The ImGui's image handle</returns>
     virtual uint64_t GetResourceId() = 0;
+    /// <summary>
+    ///   Return the loaded or attached resource width.
+    /// </summary>
+    /// <returns></returns>
+    virtual uint32_t Width() const = 0;
+    /// <summary>
+    ///   Return the loaded or attached resource height.
+    /// </summary>
+    /// <returns></returns>
+    virtual uint32_t Height() const = 0;
     /// <summary>
     /// Attach a resource to this RendererResource, it will NOT OWN the data.
     /// You are responsible to not outlive this object usage to the resource buffer.
