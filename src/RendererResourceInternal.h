@@ -20,6 +20,8 @@
 #pragma once
 
 #include <memory>
+#include <set>
+#include <algorithm>
 
 #include "InternalIncludes.h"
 
