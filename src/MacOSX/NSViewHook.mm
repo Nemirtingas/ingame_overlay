@@ -140,8 +140,8 @@ bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, Togg
         for (int i = 0; i < toggleKeysCount; ++i)
         {
             uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
-            if (k != 0 && std::find(_NativeKeyCombination.begin(), _NativeKeyCombination.end(), k) == _NativeKeyCombination.end())
-                _NativeKeyCombination.emplace_back(k);
+            if (k != 0 && std::find(NativeKeyCombination.begin(), NativeKeyCombination.end(), k) == NativeKeyCombination.end())
+                NativeKeyCombination.emplace_back(k);
         }
     
         Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
