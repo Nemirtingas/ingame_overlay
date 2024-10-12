@@ -27,7 +27,7 @@ namespace InGameOverlay {
 
 MetalHook_t* MetalHook_t::_Instance = nullptr;
 
-bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool MetalHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -37,7 +37,7 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
             return false;
         }
 
-        if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!NSViewHook_t::Inst()->StartHook(keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount))
             return false;
         
         _NSViewHooked = true;
@@ -47,7 +47,7 @@ bool MetalHook_t::StartHook(std::function<void()> key_combination_callback, std:
 
         INGAMEOVERLAY_INFO("Hooked Metal");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

@@ -35,7 +35,7 @@ namespace InGameOverlay {
 
 OpenGLXHook_t* OpenGLXHook_t::_Instance = nullptr;
 
-bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -45,7 +45,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
             return false;
         }
 
-        if (!X11Hook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!X11Hook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _X11Hooked = true;
@@ -56,7 +56,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> key_combination_callback, st
 
         INGAMEOVERLAY_INFO("Hooked OpenGLX");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

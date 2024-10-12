@@ -21,8 +21,6 @@
 
 #include "../RendererHookInternal.h"
 
-#include "../InternalIncludes.h"
-
 #include <d3d10.h>
 #include <dxgi1_2.h>
 
@@ -73,7 +71,7 @@ public:
 
     virtual ~DX10Hook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();

@@ -21,6 +21,7 @@
 
 #include <vector>
 #include <array>
+#include <set>
 #include <utility>
 #include <mini_detour/mini_detour.h>
 

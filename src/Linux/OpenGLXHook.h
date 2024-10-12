@@ -21,8 +21,6 @@
 
 #include "../RendererHookInternal.h"
 
-#include "../InternalIncludes.h"
-
 #include <GL/glx.h>
 
 namespace InGameOverlay {
@@ -60,7 +58,7 @@ public:
 
     virtual ~OpenGLXHook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> key_combination_callback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();

@@ -17,10 +17,17 @@
 
 using namespace std::chrono_literals;
 
+template<typename T, size_t N>
+constexpr size_t CountOf(T(&)[N])
+{
+    return N;
+}
+
 struct OverlayData_t
 {
     std::thread Worker;
 
+    InGameOverlay::ToggleKey ToggleKeys[2] = { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 };
     ImFontAtlas* FontAtlas = nullptr;
     InGameOverlay::RendererHook_t* Renderer = nullptr;
     InGameOverlay::RendererResource_t* ThumbsUpImage = nullptr;
@@ -228,7 +235,7 @@ void shared_library_load(void* hmodule)
                 io.MouseDrawCursor = true;
                 OverlayData->Show = true;
             }
-        }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
+        }, OverlayData->ToggleKeys, CountOf(OverlayData->ToggleKeys), OverlayData->FontAtlas);
     });
 }
 

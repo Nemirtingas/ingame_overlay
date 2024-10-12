@@ -43,7 +43,7 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -52,8 +52,8 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
             INGAMEOVERLAY_WARN("Failed to hook DirectX 9: Rendering functions missing.");
             return false;
         }
-
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        
+        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -72,7 +72,7 @@ bool DX9Hook_t::StartHook(std::function<void()> key_combination_callback, std::s
 
         INGAMEOVERLAY_INFO("Hooked DirectX 9");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

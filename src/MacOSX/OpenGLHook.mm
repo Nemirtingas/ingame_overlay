@@ -41,7 +41,7 @@ static bool ImGuiOpenGL3Init()
     return ImGui_ImplOpenGL3_Init(nullptr);
 }
 
-bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -51,7 +51,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
             return false;
         }
 
-        if (!NSViewHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!NSViewHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _NSViewHooked = true;
@@ -69,7 +69,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         INGAMEOVERLAY_INFO("Hooked OpenGL");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

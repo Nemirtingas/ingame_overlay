@@ -53,7 +53,7 @@ static inline uint32_t GetImageDescriptorPool(uint32_t descriptorId)
     return descriptorId / VulkanHook_t::MaxDescriptorCountPerPool;
 }
 
-bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -66,7 +66,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!_CreateVulkanInstance())
             return false;
 
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -83,7 +83,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         INGAMEOVERLAY_INFO("Hooked Vulkan");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

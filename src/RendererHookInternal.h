@@ -20,7 +20,7 @@
 #pragma once
 
 #include <InGameOverlay/RendererHook.h>
-#include <vector>
+#include "InternalIncludes.h"
 
 namespace InGameOverlay {
 

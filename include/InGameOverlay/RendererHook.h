@@ -20,10 +20,7 @@
 #pragma once
 
 #include <functional>
-#include <string>
-#include <memory>
 #include <cstdint>
-#include <set>
 
 #include "RendererResource.h"
 
@@ -90,7 +87,7 @@ public:
     ///   *Can be nullptr*. Fill this parameter with your own ImGuiAtlas pointer if you don't want ImGui to generate one for you.
     /// </param>
     /// <returns></returns>
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) = 0;
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr) = 0;
 
     /// <summary>
     ///   Change the hooked application input policy.

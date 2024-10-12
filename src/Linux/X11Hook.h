@@ -19,9 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
-
-#include "../InternalIncludes.h"
+#include "../RendererHookInternal.h"
 
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
@@ -44,7 +42,7 @@ private:
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
     std::function<void()> _KeyCombinationCallback;
-    std::set<uint32_t> _NativeKeyCombination;
+    std::vector<uint32_t> _NativeKeyCombination;
     Window _SavedRoot;
     Window _SavedChild;
     int _SavedCursorRX;
@@ -81,7 +79,7 @@ public:
 
     Window GetGameWnd() const{ return _GameWnd; }
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static X11Hook_t* Inst();

@@ -53,7 +53,7 @@ static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, I
     return ret;
 }
 
-bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -63,7 +63,7 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -81,7 +81,7 @@ bool DX11Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         INGAMEOVERLAY_INFO("Hooked DirectX 11");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

@@ -58,7 +58,7 @@ static inline uint32_t GetHeapUsedIndex(uint32_t heapId)
     return heapId & 0xffff;
 }
 
-bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -68,7 +68,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -90,7 +90,7 @@ bool DX12Hook_t::StartHook(std::function<void()> key_combination_callback, std::
 
         INGAMEOVERLAY_INFO("Hooked DirectX 12");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }

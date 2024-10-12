@@ -124,17 +124,17 @@ static inline bool GetKeyState(Display* d, KeySym keySym, char szKey[32])
     return szKey[iKeyCodeToFind / 8] & (1 << (iKeyCodeToFind % 8));
 }
 
-bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
+bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount)
 {
     if (!_Hooked)
     {
-        if (!_key_combination_callback)
+        if (!keyCombinationCallback)
         {
             INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination callback.");
             return false;
         }
 
-        if (toggle_keys.empty())
+        if (toggleKeys == nullptr || toggleKeysCount <= 0)
         {
             INGAMEOVERLAY_ERROR("Failed to hook X11: No key combination.");
             return false;
@@ -178,15 +178,13 @@ bool X11Hook_t::StartHook(std::function<void()>& _key_combination_callback, std:
 
         INGAMEOVERLAY_INFO("Hooked X11");
 
-        _KeyCombinationCallback = std::move(_key_combination_callback);
+        _KeyCombinationCallback = std::move(keyCombinationCallback);
         
-        for (auto& key : toggle_keys)
+        for (int i = 0; i < toggleKeysCount; ++i)
         {
-            uint32_t k = ToggleKeyToNativeKey(key);
-            if (k != 0)
-            {
-                _NativeKeyCombination.insert(k);
-            }
+            uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
+            if (k != 0 && std::find(_NativeKeyCombination.begin(), _NativeKeyCombination.end(), k) == _NativeKeyCombination.end())
+                _NativeKeyCombination.emplace_back(k);
         }
 
         _Hooked = true;

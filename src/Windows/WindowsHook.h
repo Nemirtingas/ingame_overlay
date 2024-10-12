@@ -19,9 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
-
-#include "../InternalIncludes.h"
+#include "../RendererHookInternal.h"
 
 namespace InGameOverlay {
 
@@ -47,7 +45,7 @@ private:
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
     std::function<void()> _KeyCombinationCallback;
-    std::set<int> _NativeKeyCombination;
+    std::vector<int> _NativeKeyCombination;
     bool _KeyCombinationPushed;
 
     // Functions
@@ -98,7 +96,7 @@ public:
     bool PrepareForOverlay(HWND hWnd);
     std::vector<HWND> FindApplicationHWND(DWORD processId);
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static WindowsHook_t* Inst();
