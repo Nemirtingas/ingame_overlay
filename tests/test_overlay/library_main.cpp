@@ -16,6 +16,8 @@ struct OverlayData_t
     std::recursive_mutex OverlayMutex;
 };
 
+static InGameOverlay::ToggleKey OverlayToggleKeys[] = { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 };
+
 static OverlayData_t* OverlayData;
 
 InGameOverlay::RendererHook_t* test_renderer_detector()
@@ -93,7 +95,7 @@ void shared_library_load(void* hmodule)
 
         OverlayData->FontAtlas->Build();
 
-        OverlayData->Renderer->StartHook([](){}, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
+        OverlayData->Renderer->StartHook([](){}, OverlayToggleKeys, 2, OverlayData->FontAtlas);
     });
 }
 
