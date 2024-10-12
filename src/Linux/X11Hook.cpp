@@ -512,9 +512,9 @@ X11Hook_t* X11Hook_t::Inst()
     return _inst;
 }
 
-const std::string& X11Hook_t::GetLibraryName() const
+const char* X11Hook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 }// namespace InGameOverlay

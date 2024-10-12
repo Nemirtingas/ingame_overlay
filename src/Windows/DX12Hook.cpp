@@ -295,6 +295,9 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
     
+    if (state == OverlayHookState::Removing)
+        ++_DeviceReleasing;
+
     OverlayHookReady(state);
     
     _HookState = state;
@@ -302,7 +305,6 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     switch (state)
     {
         case OverlayHookState::Removing:
-            _DeviceReleasing = true;
             ImGui_ImplDX12_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
@@ -316,8 +318,10 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             _CommandQueueOffset = 0;
             _CommandQueue = nullptr;
 
-            _DeviceReleasing = false;
     }
+    
+    if (state == OverlayHookState::Removing)
+        --_DeviceReleasing;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -395,6 +399,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
 
         OverlayProc();
 
+        _LoadResources();
+
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -429,7 +435,7 @@ ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
 
     INGAMEOVERLAY_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
 
     return result;
@@ -511,7 +517,7 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _DeviceReleasing(false),
+    _DeviceReleasing(0),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
@@ -549,9 +555,9 @@ DX12Hook_t* DX12Hook_t::Inst()
     return _Instance;
 }
 
-const std::string& DX12Hook_t::GetLibraryName() const
+const char* DX12Hook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t DX12Hook_t::GetRendererHookType() const

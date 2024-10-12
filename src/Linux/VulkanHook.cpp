@@ -836,6 +836,8 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
         OverlayProc();
 
+        _LoadResources();
+
         ImGui::Render();
 
         // Record dear imgui primitives into command buffer
@@ -1062,9 +1064,9 @@ VulkanHook_t* VulkanHook_t::Inst()
     return _Instance;
 }
 
-const std::string& VulkanHook_t::GetLibraryName() const
+const char* VulkanHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t VulkanHook_t::GetRendererHookType() const

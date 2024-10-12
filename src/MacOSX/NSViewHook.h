@@ -74,7 +74,7 @@ public:
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static NSViewHook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
 
 };
 

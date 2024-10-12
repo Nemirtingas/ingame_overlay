@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
+#include "../RendererHookInternal.h"
 
 #include "../InternalIncludes.h"
 
@@ -31,7 +31,7 @@
 namespace InGameOverlay {
 
 class MetalHook_t :
-    public RendererHook_t,
+    public InGameOverlay::RendererHookInternal_t,
     public BaseHook_t
 {
 private:
@@ -80,7 +80,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static MetalHook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
 

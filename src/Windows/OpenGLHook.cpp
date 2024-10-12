@@ -137,6 +137,8 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
         OverlayProc();
 
+        _LoadResources();
+
         ImGui::Render();
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -181,9 +183,9 @@ OpenGLHook_t* OpenGLHook_t::Inst()
     return _Instance;
 }
 
-const std::string& OpenGLHook_t::GetLibraryName() const
+const char* OpenGLHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t OpenGLHook_t::GetRendererHookType() const

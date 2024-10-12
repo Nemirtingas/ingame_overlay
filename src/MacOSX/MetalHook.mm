@@ -113,6 +113,8 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
         
         OverlayProc();
         
+        _LoadResources();
+
         ImGui::Render();
 
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), renderPass.CommandBuffer, renderPass.Encoder);
@@ -199,9 +201,9 @@ MetalHook_t* MetalHook_t::Inst()
     return _Instance;
 }
 
-const std::string& MetalHook_t::GetLibraryName() const
+const char* MetalHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t MetalHook_t::GetRendererHookType() const

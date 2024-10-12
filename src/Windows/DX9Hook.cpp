@@ -112,6 +112,9 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
 
+    if (state == OverlayHookState::Removing)
+        ++_DeviceReleasing;
+
     OverlayHookReady(state);
 
     _HookState = state;
@@ -125,7 +128,6 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             break;
 
         case OverlayHookState::Removing:
-            _DeviceReleasing = true;
             ImGui_ImplDX9_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
@@ -134,8 +136,10 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             SafeRelease(_Device);
 
             _LastWindow = nullptr;
-            _DeviceReleasing = false;
     }
+
+    if (state == OverlayHookState::Removing)
+        --_DeviceReleasing;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -206,6 +210,8 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
         OverlayProc();
 
+        _LoadResources();
+
         ImGui::Render();
 
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
@@ -219,7 +225,7 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
 
     INGAMEOVERLAY_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
 
     return result;
@@ -283,7 +289,7 @@ DX9Hook_t::DX9Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
     _LastWindow(nullptr),
-    _DeviceReleasing(false),
+    _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
@@ -317,9 +323,9 @@ DX9Hook_t* DX9Hook_t::Inst()
     return _Instance;
 }
 
-const std::string& DX9Hook_t::GetLibraryName() const
+const char* DX9Hook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t DX9Hook_t::GetRendererHookType() const

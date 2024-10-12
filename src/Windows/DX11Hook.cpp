@@ -171,6 +171,9 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
 
+    if (state == OverlayHookState::Removing)
+        ++_DeviceReleasing;
+
     OverlayHookReady(state);
 
     _HookState = state;
@@ -178,7 +181,6 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
     switch (state)
     {
         case OverlayHookState::Removing:
-            _DeviceReleasing = true;
             ImGui_ImplDX11_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
@@ -187,9 +189,10 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
             _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
-
-            _DeviceReleasing = false;
     }
+
+    if (state == OverlayHookState::Removing)
+        --_DeviceReleasing;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -240,6 +243,8 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         ImGui::NewFrame();
     
         OverlayProc();
+
+        _LoadResources();
     
         ImGui::Render();
 
@@ -255,7 +260,7 @@ ULONG STDMETHODCALLTYPE DX11Hook_t::_MyID3D11DeviceRelease(ID3D11Device* _this)
 
     INGAMEOVERLAY_INFO("ID3D11Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (!inst->_DeviceReleasing && _this == inst->_Device && result < inst->_HookDeviceRefCount)
+    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
         inst->_ResetRenderState(OverlayHookState::Removing);
 
     return result;
@@ -306,7 +311,7 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 DX11Hook_t::DX11Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _DeviceReleasing(false),
+    _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
@@ -341,9 +346,9 @@ DX11Hook_t* DX11Hook_t::Inst()
     return _Instance;
 }
 
-const std::string& DX11Hook_t::GetLibraryName() const
+const char* DX11Hook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t DX11Hook_t::GetRendererHookType() const

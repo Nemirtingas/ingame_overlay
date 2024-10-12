@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
+#include "../RendererHookInternal.h"
 
 #include "../InternalIncludes.h"
 
@@ -28,7 +28,7 @@
 namespace InGameOverlay {
 
 class DX9Hook_t :
-    public RendererHook_t,
+    public InGameOverlay::RendererHookInternal_t,
     public BaseHook_t
 {
 private:
@@ -38,7 +38,7 @@ private:
     bool _Hooked;
     bool _WindowsHooked;
     HWND _LastWindow;
-    bool _DeviceReleasing;
+    uint32_t _DeviceReleasing;
     IDirect3DDevice9* _Device;
     ULONG _HookDeviceRefCount;
     OverlayHookState _HookState;
@@ -77,7 +77,7 @@ public:
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static DX9Hook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
 
     void LoadFunctions(

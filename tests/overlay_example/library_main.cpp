@@ -12,14 +12,18 @@
 #include "../common/stb_image.h"
 #include "../common/thumbs_up.h"
 
+#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 0
+#define INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD 0
+
 using namespace std::chrono_literals;
 
 struct OverlayData_t
 {
     std::thread Worker;
 
-    ImFontAtlas* FontAtlas;
-    InGameOverlay::RendererHook_t* Renderer;
+    ImFontAtlas* FontAtlas = nullptr;
+    InGameOverlay::RendererHook_t* Renderer = nullptr;
+    InGameOverlay::RendererResource_t* ThumbsUpImage = nullptr;
     std::recursive_mutex OverlayMutex;
     char OverlayInputTextBuffer[256]{};
     bool Show;
@@ -127,15 +131,28 @@ void shared_library_load(void* hmodule)
             if (!OverlayData->Show)
                 return;
 
-            static std::weak_ptr<uint64_t> image;
-            auto sharedImage = image.lock();
-            if (sharedImage == nullptr)
+            if (OverlayData->ThumbsUpImage == nullptr)
             {
+#if INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD
+                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
+                static auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+
+                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
+                OverlayData->ThumbsUpImage->AttachResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+#elif INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD
+                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
+                static auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+
+                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
+                // Set here the AutoLoad because by default, the RendererHook uses Batch auto load. Could also use RendererHook_t::SetResourceAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse)
+                OverlayData->ThumbsUpImage->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
+                OverlayData->ThumbsUpImage->AttachResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+#else
                 auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
 
-                image = OverlayData->Renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
-
-                sharedImage = image.lock();
+                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
+                OverlayData->ThumbsUpImage->Load(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+#endif
             }
 
             auto& io = ImGui::GetIO();
@@ -157,11 +174,11 @@ void shared_library_load(void* hmodule)
 
                 ImGui::TextUnformatted("Hello from overlay !");
                 ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
-                ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName().c_str());
+                ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
-                if (sharedImage != nullptr)
-                    ImGui::Image(*sharedImage, { 64, 64 });
+                if (OverlayData->ThumbsUpImage->GetResourceId() != 0)
+                    ImGui::Image(OverlayData->ThumbsUpImage->GetResourceId(), {64, 64});
             }
             ImGui::End();
         };
@@ -172,7 +189,10 @@ void shared_library_load(void* hmodule)
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
             if (hookState == InGameOverlay::OverlayHookState::Removing)
+            {
+                OverlayData->ThumbsUpImage->Delete();
                 OverlayData->Show = false;
+            }
         };
 
         OverlayData->FontAtlas = new ImFontAtlas();

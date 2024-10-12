@@ -102,7 +102,7 @@ public:
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static WindowsHook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
 };
 
 }//namespace InGameOverlay

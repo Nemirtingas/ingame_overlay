@@ -339,9 +339,9 @@ NSViewHook_t* NSViewHook_t::Inst()
     return _Instance;
 }
 
-const std::string& NSViewHook_t::GetLibraryName() const
+const char* NSViewHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 }// namespace InGameOverlay

@@ -642,9 +642,9 @@ WindowsHook_t* WindowsHook_t::Inst()
     return _inst;
 }
 
-const std::string& WindowsHook_t::GetLibraryName() const
+const char* WindowsHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 }//namespace InGameOverlay
