@@ -24,6 +24,7 @@
 
 #include <set>
 #include <memory>
+#include <algorithm>
 
 namespace InGameOverlay {
 

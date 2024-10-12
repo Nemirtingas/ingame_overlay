@@ -37,7 +37,7 @@ bool MetalHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggle
             return false;
         }
 
-        if (!NSViewHook_t::Inst()->StartHook(keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount))
+        if (!NSViewHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
         
         _NSViewHooked = true;
