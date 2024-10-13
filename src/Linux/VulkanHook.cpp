@@ -55,7 +55,7 @@ static inline uint32_t GetImageDescriptorPool(uint32_t descriptorId)
     return descriptorId / VulkanHook_t::MaxDescriptorCountPerPool;
 }
 
-bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -68,7 +68,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
         if (!_CreateVulkanInstance())
             return false;
 
-        if (!X11Hook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!X11Hook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _X11Hooked = true;
@@ -85,7 +85,7 @@ bool VulkanHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         INGAMEOVERLAY_INFO("Hooked Vulkan");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }
@@ -836,6 +836,8 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
         OverlayProc();
 
+        _LoadResources();
+
         ImGui::Render();
 
         // Record dear imgui primitives into command buffer
@@ -1062,9 +1064,9 @@ VulkanHook_t* VulkanHook_t::Inst()
     return _Instance;
 }
 
-const std::string& VulkanHook_t::GetLibraryName() const
+const char* VulkanHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t VulkanHook_t::GetRendererHookType() const
@@ -1319,10 +1321,16 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         {
             auto vulkanImage = reinterpret_cast<VulkanImage_t*>(handle);
 
+            // TODO: Might need to wait on the last command buffer?
+            // Message: Validation Error: [ VUID-vkFreeDescriptorSets-pDescriptorSets-00309 ] Object 0: handle = 0x45d6d1000000004c, type = VK_OBJECT_TYPE_DESCRIPTOR_SET;
+            // MessageID = 0xbfce1114
+            // vkFreeDescriptorSets(): pDescriptorSets[0] VkDescriptorSet 0x45d6d1000000004c[] is in use by VkCommandBuffer 0x1b0f501bff0[].
+            // The Vulkan spec states: All submitted commands that refer to any element of pDescriptorSets must have completed execution (https://vulkan.lunarg.com/doc/view/1.3.275.0/windows/1.3-extensions/vkspec.html#VUID-vkFreeDescriptorSets-pDescriptorSets-00309)
+
+            _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
+            _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
             _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, _VulkanAllocationCallbacks);
             _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
-            _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
-            _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
 
             delete vulkanImage;
         }

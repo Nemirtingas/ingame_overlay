@@ -11,22 +11,20 @@
 #define STBI_NO_STDIO
 #include "../common/stb_image.h"
 #include "../common/thumbs_up.h"
+#include "../common/thumbs_down.h"
+#include "../common/thumbs_down_small.h"
+#include "../common/right_facing_fist.h"
+
+#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 1
+#define INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD 0
 
 using namespace std::chrono_literals;
 
-struct OverlayData_t
+template<typename T, size_t N>
+constexpr size_t CountOf(T(&)[N])
 {
-    std::thread Worker;
-
-    ImFontAtlas* FontAtlas;
-    InGameOverlay::RendererHook_t* Renderer;
-    std::recursive_mutex OverlayMutex;
-    char OverlayInputTextBuffer[256]{};
-    bool Show;
-    bool Stop;
-};
-
-static OverlayData_t* OverlayData;
+    return N;
+}
 
 struct Image
 {
@@ -34,6 +32,28 @@ struct Image
     int32_t Height;
     std::vector<uint32_t> Image;
 };
+
+struct OverlayData_t
+{
+    std::thread Worker;
+
+    InGameOverlay::ToggleKey ToggleKeys[2] = { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 };
+    ImFontAtlas* FontAtlas = nullptr;
+    InGameOverlay::RendererHook_t* Renderer = nullptr;
+    InGameOverlay::RendererResource_t* OverlayImage1 = nullptr;
+    InGameOverlay::RendererResource_t* OverlayImage2 = nullptr;
+    std::chrono::system_clock::time_point ImageTimer;
+    bool ThumbUpSelected;
+    Image ThumbsUp;
+    Image ThumbsDown;
+    Image RightFacingFist;
+    std::recursive_mutex OverlayMutex;
+    char OverlayInputTextBuffer[256]{};
+    bool Show;
+    bool Stop;
+};
+
+static OverlayData_t* OverlayData;
 
 Image CreateImageFromData(void const* data, size_t data_len)
 {
@@ -127,15 +147,57 @@ void shared_library_load(void* hmodule)
             if (!OverlayData->Show)
                 return;
 
-            static std::weak_ptr<uint64_t> image;
-            auto sharedImage = image.lock();
-            if (sharedImage == nullptr)
+            if (OverlayData->OverlayImage1 == nullptr)
             {
-                auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
+                OverlayData->ThumbsUp = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+                OverlayData->ThumbsDown = CreateImageFromData(thumbs_down_small_png, thumbs_down_small_png_len);
+                OverlayData->RightFacingFist = CreateImageFromData(right_facing_fist_png, right_facing_fist_png_len);
 
-                image = OverlayData->Renderer->CreateImageResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+                OverlayData->OverlayImage1 = OverlayData->Renderer->CreateResource();
+                OverlayData->OverlayImage2 = OverlayData->Renderer->CreateResource();
 
-                sharedImage = image.lock();
+                OverlayData->ImageTimer = std::chrono::system_clock::now();
+                OverlayData->ThumbUpSelected = true;
+
+#if INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD
+                OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+#elif INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD
+                // Set here the AutoLoad because by default, the RendererHook uses Batch auto load. Could also use RendererHook_t::SetResourceAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse)
+                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
+                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
+
+                OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+#else
+                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::None);
+                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::None);
+
+                OverlayData->OverlayImage1->Load(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->Load(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+#endif
+            }
+            
+            if ((std::chrono::system_clock::now() - OverlayData->ImageTimer) > 1s)
+            {
+                // This is NOT the way to switch images, is it GPU costly and inefficient.
+                // Doing someting like this will unload the image from the GPU, and then upload the other buffer onto the GPU.
+                // You should load often used images once in your GPU and then switch the ImGui's image id in the code instead.
+                // But for the autoload feature example's sack, we do it the wrong way.
+                if (OverlayData->ThumbUpSelected)
+                {
+                    OverlayData->OverlayImage1->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);
+                    OverlayData->OverlayImage2->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);
+                }
+                else
+                {
+                    OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                    OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+                }
+
+                OverlayData->ImageTimer = std::chrono::system_clock::now();
+                OverlayData->ThumbUpSelected = !OverlayData->ThumbUpSelected;
             }
 
             auto& io = ImGui::GetIO();
@@ -157,11 +219,22 @@ void shared_library_load(void* hmodule)
 
                 ImGui::TextUnformatted("Hello from overlay !");
                 ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
-                ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName().c_str());
+                ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
-                if (sharedImage != nullptr)
-                    ImGui::Image(*sharedImage, { 64, 64 });
+                // Good habit is to use a dummy when the image is not ready, to not screw up your layout
+                if (OverlayData->OverlayImage1->GetResourceId() != 0)
+                    ImGui::Image(OverlayData->OverlayImage1->GetResourceId(), { 64, 64 });
+                else
+                    ImGui::Dummy({ 64, 64 });
+
+                ImGui::SameLine();
+
+                // Good habit is to use a dummy when the image is not ready, to not screw up your layout
+                if (OverlayData->OverlayImage2->GetResourceId() != 0)
+                    ImGui::Image(OverlayData->OverlayImage2->GetResourceId(), ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
+                else
+                    ImGui::Dummy(ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
             }
             ImGui::End();
         };
@@ -172,7 +245,11 @@ void shared_library_load(void* hmodule)
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
             if (hookState == InGameOverlay::OverlayHookState::Removing)
+            {
+                OverlayData->OverlayImage1->Delete();
+                OverlayData->OverlayImage2->Delete();
                 OverlayData->Show = false;
+            }
         };
 
         OverlayData->FontAtlas = new ImFontAtlas();
@@ -208,7 +285,7 @@ void shared_library_load(void* hmodule)
                 io.MouseDrawCursor = true;
                 OverlayData->Show = true;
             }
-        }, { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 }, OverlayData->FontAtlas);
+        }, OverlayData->ToggleKeys, CountOf(OverlayData->ToggleKeys), OverlayData->FontAtlas);
     });
 }
 

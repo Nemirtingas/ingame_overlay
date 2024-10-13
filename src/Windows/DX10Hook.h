@@ -19,9 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
-
-#include "../InternalIncludes.h"
+#include "../RendererHookInternal.h"
 
 #include <d3d10.h>
 #include <dxgi1_2.h>
@@ -29,7 +27,7 @@
 namespace InGameOverlay {
 
 class DX10Hook_t :
-    public RendererHook_t,
+    public InGameOverlay::RendererHookInternal_t,
     public BaseHook_t
 {
 private:
@@ -38,7 +36,7 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
-    bool _DeviceReleasing;
+    uint32_t _DeviceReleasing;
     ID3D10Device* _Device;
     ULONG _HookDeviceRefCount;
     OverlayHookState _HookState;
@@ -73,12 +71,12 @@ public:
 
     virtual ~DX10Hook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<InGameOverlay::ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static DX10Hook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
 
     void LoadFunctions(

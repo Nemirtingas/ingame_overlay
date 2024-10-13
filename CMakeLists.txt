@@ -5,8 +5,6 @@ project(ingame_overlay)
 
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
-    src/BaseHook.cpp
-    src/Internal.cpp
     src/Windows/RendererDetector.cpp
     src/Windows/DX9Hook.cpp
     src/Windows/DX10Hook.cpp
@@ -18,9 +16,7 @@ if(WIN32) # Setup some variables for Windows build
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/InternalIncludes.h
     src/VulkanHelpers.h
-    src/BaseHook.h
     src/Windows/DirectXVTables.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
@@ -32,10 +28,6 @@ if(WIN32) # Setup some variables for Windows build
   )
 
   set(IMGUI_SOURCES
-    deps/ImGui/imgui.cpp
-    deps/ImGui/imgui_draw.cpp
-    deps/ImGui/imgui_tables.cpp
-    deps/ImGui/imgui_widgets.cpp
     deps/ImGui/backends/imgui_impl_dx9.h
     deps/ImGui/backends/imgui_impl_dx9.cpp
     deps/ImGui/backends/imgui_impl_dx10.h
@@ -62,8 +54,6 @@ elseif(APPLE)
   link_libraries("-framework AppKit -framework Carbon -framework Metal -framework MetalKit")
 
   set(INGAMEOVERLAY_SOURCES
-    src/BaseHook.cpp
-    src/Internal.cpp
     src/MacOSX/RendererDetector.mm
     src/MacOSX/NSViewHook.mm
     src/MacOSX/OpenGLHook.mm
@@ -71,18 +61,12 @@ elseif(APPLE)
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/InternalIncludes.h
-    src/BaseHook.h
     src/MacOSX/NSViewHook.h
     src/MacOSX/OpenGLHook.h
     src/MacOSX/MetalHook.h
   )
 
   set(IMGUI_SOURCES
-    deps/ImGui/imgui.cpp
-    deps/ImGui/imgui_draw.cpp
-    deps/ImGui/imgui_tables.cpp
-    deps/ImGui/imgui_widgets.cpp
     deps/ImGui/backends/imgui_impl_opengl2.h
     deps/ImGui/backends/imgui_impl_opengl2.cpp
     deps/ImGui/backends/imgui_impl_opengl3.h
@@ -96,8 +80,6 @@ elseif(APPLE)
 elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
-    src/BaseHook.cpp
-    src/Internal.cpp
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
@@ -105,19 +87,13 @@ elseif(UNIX)
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
-    src/InternalIncludes.h
     src/VulkanHelpers.h
-    src/BaseHook.h
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
     src/Linux/VulkanHook.h
   )
 
   set(IMGUI_SOURCES
-    deps/ImGui/imgui.cpp
-    deps/ImGui/imgui_draw.cpp
-    deps/ImGui/imgui_tables.cpp
-    deps/ImGui/imgui_widgets.cpp
     deps/ImGui/backends/imgui_impl_vulkan.h
     deps/ImGui/backends/imgui_impl_vulkan.cpp
     deps/ImGui/backends/imgui_impl_opengl3.h
@@ -158,9 +134,31 @@ else()
   set(IMGUI_USER_CONFIG "" CACHE FILEPATH "")
 endif()
 
+list(APPEND INGAMEOVERLAY_SOURCES
+  src/BaseHook.cpp
+  src/Internal.cpp
+  src/RendererHookInternal.cpp
+  src/RendererResourceInternal.cpp
+)
+
+list(APPEND PRIVATE_INGAMEOVERLAY_HEADERS
+  src/InternalIncludes.h
+  src/BaseHook.h
+  src/RendererHookInternal.h
+  src/RendererResourceInternal.h
+)
+
+list(APPEND IMGUI_SOURCES
+  deps/ImGui/imgui.cpp
+  deps/ImGui/imgui_draw.cpp
+  deps/ImGui/imgui_tables.cpp
+  deps/ImGui/imgui_widgets.cpp
+)
+
 set(INGAMEOVERLAY_HEADERS
   ${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/RendererHook.h
   ${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/RendererDetector.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/InGameOverlay/RendererResource.h
 )
 
 set(INGAMEOVERLAY_IMGUI_HEADERS

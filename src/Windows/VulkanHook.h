@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
+#include "../RendererHookInternal.h"
 
 #include "../InternalIncludes.h"
 
@@ -28,7 +28,7 @@
 namespace InGameOverlay {
 
 class VulkanHook_t :
-    public RendererHook_t,
+    public InGameOverlay::RendererHookInternal_t,
     public BaseHook_t
 {
 public:
@@ -213,12 +213,12 @@ public:
 
     virtual ~VulkanHook_t();
 
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr);
     virtual void HideAppInputs(bool hide);
     virtual void HideOverlayInputs(bool hide);
     virtual bool IsStarted();
     static VulkanHook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(
         std::function<void*(const char*)> vkLoader,

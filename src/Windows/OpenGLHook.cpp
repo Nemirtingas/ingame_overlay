@@ -35,7 +35,7 @@ namespace InGameOverlay {
 
 OpenGLHook_t* OpenGLHook_t::_Instance = nullptr;
 
-bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas)
+bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
     {
@@ -45,7 +45,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(key_combination_callback, toggle_keys))
+        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -56,7 +56,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> key_combination_callback, std
 
         INGAMEOVERLAY_INFO("Hooked OpenGL");
         _Hooked = true;
-        _ImGuiFontAtlas = imgui_font_atlas;
+        _ImGuiFontAtlas = imguiFontAtlas;
     }
     return true;
 }
@@ -137,6 +137,8 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
         OverlayProc();
 
+        _LoadResources();
+
         ImGui::Render();
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -181,9 +183,9 @@ OpenGLHook_t* OpenGLHook_t::Inst()
     return _Instance;
 }
 
-const std::string& OpenGLHook_t::GetLibraryName() const
+const char* OpenGLHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 RendererHookType_t OpenGLHook_t::GetRendererHookType() const

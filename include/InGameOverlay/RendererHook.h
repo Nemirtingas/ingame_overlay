@@ -20,10 +20,9 @@
 #pragma once
 
 #include <functional>
-#include <string>
-#include <memory>
 #include <cstdint>
-#include <set>
+
+#include "RendererResource.h"
 
 namespace InGameOverlay {
 
@@ -61,11 +60,17 @@ enum class RendererHookType_t : uint8_t
     Any        = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan | Metal,
 };
 
+/// <summary>
+///   The renderer hook.
+///     ResourceAutoLoad_t: Default value is ResourceAutoLoad_t::Batch
+///     BatchSize: Default value is 10
+/// </summary>
 class RendererHook_t
 {
 public:
     virtual ~RendererHook_t() {}
 
+    // TODO: Deprecated direct use of thoses and use either a setter or plain C function pointers with void* user parameter.
     std::function<void()> OverlayProc;
     std::function<void(OverlayHookState)> OverlayHookReady;
 
@@ -82,7 +87,7 @@ public:
     ///   *Can be nullptr*. Fill this parameter with your own ImGuiAtlas pointer if you don't want ImGui to generate one for you.
     /// </param>
     /// <returns></returns>
-    virtual bool StartHook(std::function<void()> key_combination_callback, std::set<ToggleKey> toggle_keys, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) = 0;
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr) = 0;
 
     /// <summary>
     ///   Change the hooked application input policy.
@@ -104,10 +109,56 @@ public:
     /// <returns></returns>
     virtual void HideOverlayInputs(bool hide) = 0;
 
+    /// <summary>
+    ///   Returns the hook state. If its started, then the functions are hooked (redirected to InGameOverlay) and will intercepts the application frame rendering.
+    /// </summary>
+    /// <returns></returns>
     virtual bool IsStarted() = 0;
 
     /// <summary>
-    ///   Load an RGBA ordered buffer into GPU and returns a handle to this ressource to be used by ImGui.
+    ///   Get the current renderer library name.
+    /// </summary>
+    /// <returns></returns>
+    virtual const char* GetLibraryName() const = 0;
+
+    /// <summary>
+    ///   Get the current renderer hook type.
+    /// </summary>
+    /// <returns></returns>
+    virtual RendererHookType_t GetRendererHookType() const = 0;
+
+    /// <summary>
+    ///   Gets the auto load batch size.
+    /// </summary>
+    /// <returns></returns>
+    virtual uint32_t GetAutoLoadBatchSize() = 0;
+
+    /// <summary>
+    ///   Sets how many resources the renderer hook can load before rendering the frame, to not block the rendering with a hundred of resource to load.
+    /// </summary>
+    /// <param name="batchSize"></param>
+    virtual void SetAutoLoadBatchSize(uint32_t batchSize) = 0;
+
+    /// <summary>
+    ///   Gets if the resources will be auto loaded by default. This state doesn't affect resources created before its call.
+    /// </summary>
+    /// <returns></returns>
+    virtual ResourceAutoLoad_t GetResourceAutoLoad() const = 0;
+
+    /// <summary>
+    ///   Sets if the resources will be auto loaded by default.
+    /// </summary>
+    /// <param name="autoLoad"></param>
+    virtual void SetResourceAutoLoad(ResourceAutoLoad_t autoLoad = ResourceAutoLoad_t::Batch) = 0;
+
+    /// <summary>
+    ///   Creates an image resource that can be setup and used later.
+    /// </summary>
+    /// <returns></returns>
+    virtual RendererResource_t* CreateResource() = 0;
+
+    /// <summary>
+    ///   Loads an RGBA ordered buffer into GPU and returns a resource.
     /// </summary>
     /// <param name="image_data">
     ///   The RGBA buffer.
@@ -118,28 +169,11 @@ public:
     /// <param name="height">
     ///   Your RGBA image height.
     /// </param>
-    /// <returns></returns>
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height) = 0;
-
-    /// <summary>
-    ///   Frees a previously image resource created with CreateImageResource.
-    /// </summary>
-    /// <param name="resource">
-    ///   The weak_ptr to the resource. Its safe to call with an invalid weak_ptr.
+    /// <param name="attach">
+    ///   If set, the pointer, width and height will be stored in the RendererResource_t to be reloaded later if a renderer reset occurs.
     /// </param>
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource) = 0;
-
-    /// <summary>
-    ///   Get the current renderer library name.
-    /// </summary>
     /// <returns></returns>
-    virtual const std::string& GetLibraryName() const = 0;
-
-    /// <summary>
-    ///   Get the current renderer hook type.
-    /// </summary>
-    /// <returns></returns>
-    virtual RendererHookType_t GetRendererHookType() const = 0;
+    virtual RendererResource_t* CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach) = 0;
 };
 
 }

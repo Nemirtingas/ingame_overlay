@@ -103,17 +103,17 @@ uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
     return 0;
 }
 
-bool NSViewHook_t::StartHook(std::function<void()>& _key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys)
+bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount)
 {
     if (!_Hooked)
     {
-        if(!_key_combination_callback)
+        if(!keyCombinationCallback)
         {
             INGAMEOVERLAY_ERROR("Failed to hook NSView: No key combination callback.");
             return false;
         }
 
-        if (toggle_keys.empty())
+        if (toggleKeys == nullptr || toggleKeysCount <= 0)
         {
             INGAMEOVERLAY_ERROR("Failed to hook NSView: No key combination.");
             return false;
@@ -135,15 +135,13 @@ bool NSViewHook_t::StartHook(std::function<void()>& _key_combination_callback, s
         }
 
         INGAMEOVERLAY_INFO("Hooked NSView");
-        KeyCombinationCallback = std::move(_key_combination_callback);
+        KeyCombinationCallback = std::move(keyCombinationCallback);
 
-        for (auto& key : toggle_keys)
+        for (int i = 0; i < toggleKeysCount; ++i)
         {
-            uint32_t k = ToggleKeyToNativeKey(key);
-            if (k != 0)
-            {
-                NativeKeyCombination.insert(k);
-            }
+            uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
+            if (k != 0 && std::find(NativeKeyCombination.begin(), NativeKeyCombination.end(), k) == NativeKeyCombination.end())
+                NativeKeyCombination.emplace_back(k);
         }
     
         Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
@@ -339,9 +337,9 @@ NSViewHook_t* NSViewHook_t::Inst()
     return _Instance;
 }
 
-const std::string& NSViewHook_t::GetLibraryName() const
+const char* NSViewHook_t::GetLibraryName() const
 {
-    return LibraryName;
+    return LibraryName.c_str();
 }
 
 }// namespace InGameOverlay

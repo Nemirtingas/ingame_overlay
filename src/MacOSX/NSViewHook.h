@@ -19,9 +19,7 @@
 
 #pragma once
 
-#include <InGameOverlay/RendererHook.h>
-
-#include "../InternalIncludes.h"
+#include "../RendererHookInternal.h"
 
 #import <Carbon/Carbon.h>
 #import <Foundation/Foundation.h>
@@ -58,7 +56,7 @@ private:
 
 public:
     std::function<void()> KeyCombinationCallback;
-    std::set<int> NativeKeyCombination;
+    std::vector<int> NativeKeyCombination;
     bool KeyCombinationPushed;
     bool ApplicationInputsHidden;
     bool OverlayInputsHidden;
@@ -70,11 +68,11 @@ public:
     void ResetRenderState();
     bool PrepareForOverlay();
 
-    bool StartHook(std::function<void()>& key_combination_callback, std::set<InGameOverlay::ToggleKey> const& toggle_keys);
+    bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static NSViewHook_t* Inst();
-    virtual const std::string& GetLibraryName() const;
+    virtual const char* GetLibraryName() const;
 
 };
 
