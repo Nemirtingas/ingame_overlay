@@ -12,6 +12,7 @@
 #include "../common/stb_image.h"
 #include "../common/thumbs_up.h"
 #include "../common/thumbs_down.h"
+#include "../common/thumbs_down_small.h"
 #include "../common/right_facing_fist.h"
 
 #define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 1
@@ -150,7 +151,7 @@ void shared_library_load(void* hmodule)
             {
                 // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
                 OverlayData->ThumbsUp = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
-                OverlayData->ThumbsDown = CreateImageFromData(thumbs_down_png, thumbs_down_png_len);
+                OverlayData->ThumbsDown = CreateImageFromData(thumbs_down_small_png, thumbs_down_small_png_len);
                 OverlayData->RightFacingFist = CreateImageFromData(right_facing_fist_png, right_facing_fist_png_len);
 
                 OverlayData->OverlayImage1 = OverlayData->Renderer->CreateResource();
@@ -170,6 +171,9 @@ void shared_library_load(void* hmodule)
                 OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
                 OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #else
+                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::None);
+                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::None);
+
                 OverlayData->OverlayImage1->Load(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
                 OverlayData->OverlayImage2->Load(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #endif
@@ -228,9 +232,9 @@ void shared_library_load(void* hmodule)
 
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout
                 if (OverlayData->OverlayImage2->GetResourceId() != 0)
-                    ImGui::Image(OverlayData->OverlayImage2->GetResourceId(), { 64, 64 });
+                    ImGui::Image(OverlayData->OverlayImage2->GetResourceId(), ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
                 else
-                    ImGui::Dummy({ 64, 64 });
+                    ImGui::Dummy(ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
             }
             ImGui::End();
         };
