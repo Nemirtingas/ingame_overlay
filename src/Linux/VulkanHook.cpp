@@ -1321,10 +1321,16 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
         {
             auto vulkanImage = reinterpret_cast<VulkanImage_t*>(handle);
 
+            // TODO: Might need to wait on the last command buffer?
+            // Message: Validation Error: [ VUID-vkFreeDescriptorSets-pDescriptorSets-00309 ] Object 0: handle = 0x45d6d1000000004c, type = VK_OBJECT_TYPE_DESCRIPTOR_SET;
+            // MessageID = 0xbfce1114
+            // vkFreeDescriptorSets(): pDescriptorSets[0] VkDescriptorSet 0x45d6d1000000004c[] is in use by VkCommandBuffer 0x1b0f501bff0[].
+            // The Vulkan spec states: All submitted commands that refer to any element of pDescriptorSets must have completed execution (https://vulkan.lunarg.com/doc/view/1.3.275.0/windows/1.3-extensions/vkspec.html#VUID-vkFreeDescriptorSets-pDescriptorSets-00309)
+
+            _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
+            _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
             _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, _VulkanAllocationCallbacks);
             _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
-            _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
-            _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
 
             delete vulkanImage;
         }
