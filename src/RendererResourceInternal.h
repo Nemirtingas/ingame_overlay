@@ -32,12 +32,16 @@ class RendererResourceInternal_t : public RendererResource_t
 protected:
     RendererHookInternal_t* _RendererHook;
 
+    bool _DoBatchLoad();
+    bool _DoImmediateLoad();
     bool _DoAutoLoad();
+    bool _AttachementChanged();
+    void _UnloadOldResource();
 
 public:
+    std::weak_ptr<uint64_t> _OldRendererResource;
     std::weak_ptr<uint64_t> _RendererResource;
     ResourceAutoLoad_t _AutoLoad;
-    bool _AttachementChanged;
     const void* _Data;
     uint32_t _Width;
     uint32_t _Height;

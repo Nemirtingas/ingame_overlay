@@ -61,7 +61,7 @@ public:
     /// <returns>Can be loaded</returns>
     virtual bool CanBeLoaded() const = 0;
     /// <summary>
-    /// Explicitly load the resource. (If not already loaded)
+    /// Explicitly load the resource. (If not already loaded or if you changed its attachement)
     /// </summary>
     /// <returns>Is the resource ready on the GPU.</returns>
     virtual bool LoadAttachedResource() = 0;
@@ -74,7 +74,8 @@ public:
     /// <returns></returns>
     virtual bool Load(const void* data, uint32_t width, uint32_t height) = 0;
     /// <summary>
-    /// Gets the resource id usable by ImGui::Image().
+    /// Gets the resource id usable by ImGui::Image(). It will also trigger the autoload if set.
+    /// If autoload is in batch mode, the loading can be deferred by a few frames. (at least 1)
     /// </summary>
     /// <returns>The ImGui's image handle</returns>
     virtual uint64_t GetResourceId() = 0;
@@ -91,6 +92,7 @@ public:
     /// <summary>
     /// Attach a resource to this RendererResource, it will NOT OWN the data.
     /// You are responsible to not outlive this object usage to the resource buffer.
+    /// Attaching a new resource will trigger the autoload if it is enabled, else, the old resource will still be used until you unload it.
     /// </summary>
     /// <param name="data">The resource raw data (in RGBA format)</param>
     /// <param name="width">The resource width</param>

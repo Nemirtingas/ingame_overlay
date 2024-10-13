@@ -11,8 +11,10 @@
 #define STBI_NO_STDIO
 #include "../common/stb_image.h"
 #include "../common/thumbs_up.h"
+#include "../common/thumbs_down.h"
+#include "../common/right_facing_fist.h"
 
-#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 0
+#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 1
 #define INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD 0
 
 using namespace std::chrono_literals;
@@ -23,6 +25,13 @@ constexpr size_t CountOf(T(&)[N])
     return N;
 }
 
+struct Image
+{
+    int32_t Width;
+    int32_t Height;
+    std::vector<uint32_t> Image;
+};
+
 struct OverlayData_t
 {
     std::thread Worker;
@@ -30,7 +39,13 @@ struct OverlayData_t
     InGameOverlay::ToggleKey ToggleKeys[2] = { InGameOverlay::ToggleKey::SHIFT, InGameOverlay::ToggleKey::F2 };
     ImFontAtlas* FontAtlas = nullptr;
     InGameOverlay::RendererHook_t* Renderer = nullptr;
-    InGameOverlay::RendererResource_t* ThumbsUpImage = nullptr;
+    InGameOverlay::RendererResource_t* OverlayImage1 = nullptr;
+    InGameOverlay::RendererResource_t* OverlayImage2 = nullptr;
+    std::chrono::system_clock::time_point ImageTimer;
+    bool ThumbUpSelected;
+    Image ThumbsUp;
+    Image ThumbsDown;
+    Image RightFacingFist;
     std::recursive_mutex OverlayMutex;
     char OverlayInputTextBuffer[256]{};
     bool Show;
@@ -38,13 +53,6 @@ struct OverlayData_t
 };
 
 static OverlayData_t* OverlayData;
-
-struct Image
-{
-    int32_t Width;
-    int32_t Height;
-    std::vector<uint32_t> Image;
-};
 
 Image CreateImageFromData(void const* data, size_t data_len)
 {
@@ -138,28 +146,54 @@ void shared_library_load(void* hmodule)
             if (!OverlayData->Show)
                 return;
 
-            if (OverlayData->ThumbsUpImage == nullptr)
+            if (OverlayData->OverlayImage1 == nullptr)
             {
+                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
+                OverlayData->ThumbsUp = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+                OverlayData->ThumbsDown = CreateImageFromData(thumbs_down_png, thumbs_down_png_len);
+                OverlayData->RightFacingFist = CreateImageFromData(right_facing_fist_png, right_facing_fist_png_len);
+
+                OverlayData->OverlayImage1 = OverlayData->Renderer->CreateResource();
+                OverlayData->OverlayImage2 = OverlayData->Renderer->CreateResource();
+
+                OverlayData->ImageTimer = std::chrono::system_clock::now();
+                OverlayData->ThumbUpSelected = true;
+
 #if INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD
-                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
-                static auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
-
-                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
-                OverlayData->ThumbsUpImage->AttachResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+                OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #elif INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD
-                // When auto load is used, you need to keep the data alive, the resource will not keep ownership or make a copy
-                static auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
-
-                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
                 // Set here the AutoLoad because by default, the RendererHook uses Batch auto load. Could also use RendererHook_t::SetResourceAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse)
-                OverlayData->ThumbsUpImage->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
-                OverlayData->ThumbsUpImage->AttachResource(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
-#else
-                auto decodedImage = CreateImageFromData(thumbs_up_png, thumbs_up_png_len);
+                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
+                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
 
-                OverlayData->ThumbsUpImage = OverlayData->Renderer->CreateResource();
-                OverlayData->ThumbsUpImage->Load(decodedImage.Image.data(), decodedImage.Width, decodedImage.Height);
+                OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+#else
+                OverlayData->OverlayImage1->Load(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                OverlayData->OverlayImage2->Load(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #endif
+            }
+            
+            if ((std::chrono::system_clock::now() - OverlayData->ImageTimer) > 1s)
+            {
+                // This is NOT the way to switch images, is it GPU costly and inefficient.
+                // Doing someting like this will unload the image from the GPU, and then upload the other buffer onto the GPU.
+                // You should load often used images once in your GPU and then switch the ImGui's image id in the code instead.
+                // But for the autoload feature example's sack, we do it the wrong way.
+                if (OverlayData->ThumbUpSelected)
+                {
+                    OverlayData->OverlayImage1->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);
+                    OverlayData->OverlayImage2->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);
+                }
+                else
+                {
+                    OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
+                    OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
+                }
+
+                OverlayData->ImageTimer = std::chrono::system_clock::now();
+                OverlayData->ThumbUpSelected = !OverlayData->ThumbUpSelected;
             }
 
             auto& io = ImGui::GetIO();
@@ -184,8 +218,19 @@ void shared_library_load(void* hmodule)
                 ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
-                if (OverlayData->ThumbsUpImage->GetResourceId() != 0)
-                    ImGui::Image(OverlayData->ThumbsUpImage->GetResourceId(), {64, 64});
+                // Good habit is to use a dummy when the image is not ready, to not screw up your layout
+                if (OverlayData->OverlayImage1->GetResourceId() != 0)
+                    ImGui::Image(OverlayData->OverlayImage1->GetResourceId(), { 64, 64 });
+                else
+                    ImGui::Dummy({ 64, 64 });
+
+                ImGui::SameLine();
+
+                // Good habit is to use a dummy when the image is not ready, to not screw up your layout
+                if (OverlayData->OverlayImage2->GetResourceId() != 0)
+                    ImGui::Image(OverlayData->OverlayImage2->GetResourceId(), { 64, 64 });
+                else
+                    ImGui::Dummy({ 64, 64 });
             }
             ImGui::End();
         };
@@ -197,7 +242,8 @@ void shared_library_load(void* hmodule)
 
             if (hookState == InGameOverlay::OverlayHookState::Removing)
             {
-                OverlayData->ThumbsUpImage->Delete();
+                OverlayData->OverlayImage1->Delete();
+                OverlayData->OverlayImage2->Delete();
                 OverlayData->Show = false;
             }
         };

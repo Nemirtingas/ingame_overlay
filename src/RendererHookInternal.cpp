@@ -39,14 +39,19 @@ void RendererHookInternal_t::_LoadResources()
 
 	auto batchSize = _ResourcesToLoad.size() > _BatchSize ? _BatchSize : _ResourcesToLoad.size();
 	for (int i = 0; i < batchSize; ++i)
+	{
+		if (_ResourcesToLoad[i]->IsLoaded())
+			_ResourcesToLoad[i]->Unload(false);
+
 		_ResourcesToLoad[i]->LoadAttachedResource();
+	}
 
 	_ResourcesToLoad.erase(_ResourcesToLoad.begin(), _ResourcesToLoad.begin() + batchSize);
 }
 
 void RendererHookInternal_t::AppendResourceToLoadBatch(RendererResourceInternal_t* pResource)
 {
-	if (!pResource->CanBeLoaded() || pResource->IsLoaded())
+	if (!pResource->CanBeLoaded())
 		return;
 
 	if (std::find(_ResourcesToLoad.begin(), _ResourcesToLoad.end(), pResource) == _ResourcesToLoad.end())
