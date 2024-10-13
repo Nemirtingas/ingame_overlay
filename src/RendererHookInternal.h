@@ -35,7 +35,6 @@ class RendererHookInternal_t : public RendererHook_t
     ResourceAutoLoad_t _AutoLoad;
     uint32_t _BatchSize;
     std::vector<RendererResourceInternal_t*> _ResourcesToLoad;
-    std::vector<RendererResourceInternal_t*> _OldResourcesToUnload;
 
 protected:
     RendererHookInternal_t();

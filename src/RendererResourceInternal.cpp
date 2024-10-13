@@ -26,9 +26,7 @@ namespace InGameOverlay {
 RendererResourceInternal_t::RendererResourceInternal_t(RendererHookInternal_t* rendererHook, ResourceAutoLoad_t autoLoad) noexcept :
 	_RendererHook(rendererHook),
 	_AutoLoad(autoLoad),
-	_Data(nullptr),
-	_Width(0),
-	_Height(0)
+	_Data(nullptr)
 {
 }
 
@@ -43,14 +41,6 @@ bool RendererResourceInternal_t::_DoBatchLoad()
 	return false;
 }
 
-bool RendererResourceInternal_t::_DoImmediateLoad()
-{
-	Unload(false);
-
-	_RendererResource = _RendererHook->CreateImageResource(_Data, _Width, _Height);
-	return IsLoaded();
-}
-
 bool RendererResourceInternal_t::_DoAutoLoad()
 {
 	if (_AutoLoad == ResourceAutoLoad_t::None || !CanBeLoaded())
@@ -59,7 +49,8 @@ bool RendererResourceInternal_t::_DoAutoLoad()
 	if (_AutoLoad == ResourceAutoLoad_t::Batch)
 		return _DoBatchLoad();
 
-	return _DoImmediateLoad();
+	UnloadOldResource();
+	return LoadAttachedResource();
 }
 
 void RendererResourceInternal_t::Delete()
@@ -69,7 +60,7 @@ void RendererResourceInternal_t::Delete()
 
 bool RendererResourceInternal_t::IsLoaded() const
 {
-	return !_RendererResource.expired();
+	return !_RendererResource.RendererResource.expired();
 }
 
 ResourceAutoLoad_t RendererResourceInternal_t::AutoLoad() const
@@ -100,8 +91,8 @@ bool RendererResourceInternal_t::LoadAttachedResource()
 	if (!CanBeLoaded())
 		return false;
 
-	_RendererResource = _RendererHook->CreateImageResource(_Data, _Width, _Height);
-	return !_RendererResource.expired();
+	_RendererResource.RendererResource = _RendererHook->CreateImageResource(_Data, _RendererResource.Width, _RendererResource.Height);
+	return IsLoaded();
 }
 
 bool RendererResourceInternal_t::Load(const void* data, uint32_t width, uint32_t height)
@@ -109,11 +100,11 @@ bool RendererResourceInternal_t::Load(const void* data, uint32_t width, uint32_t
 	Unload(true);
 
 	_Data = nullptr;
-	_Width = width;
-	_Height = height;
-	_OldRendererResource.reset();
-	_RendererResource = _RendererHook->CreateImageResource(data, width, height);
-	return !_RendererResource.expired();
+	_RendererResource.Width = width;
+	_RendererResource.Height = height;
+	_OldRendererResource.Reset();
+	_RendererResource.RendererResource = _RendererHook->CreateImageResource(data, width, height);
+	return IsLoaded();
 }
 
 uint64_t RendererResourceInternal_t::GetResourceId()
@@ -126,13 +117,17 @@ uint64_t RendererResourceInternal_t::GetResourceId()
 
 	if (IsLoaded())
 	{
-		auto r = _RendererResource.lock();
+		// When in batch autoload, the old resource might still be loaded, unload it now.
+		if (AttachementChanged())
+			UnloadOldResource();
+
+		auto r = _RendererResource.RendererResource.lock();
 		if (r != nullptr)
 			return *r;
 	}
 	if (AttachementChanged())
 	{
-		auto r = _OldRendererResource.lock();
+		auto r = _OldRendererResource.RendererResource.lock();
 		if (r != nullptr)
 			return *r;
 	}
@@ -142,12 +137,16 @@ uint64_t RendererResourceInternal_t::GetResourceId()
 
 uint32_t RendererResourceInternal_t::Width() const
 {
-	return _Width;
+	return IsLoaded()
+		? _RendererResource.Width
+		: _OldRendererResource.Width;
 }
 
 uint32_t RendererResourceInternal_t::Height() const
 {
-	return _Height;
+	return IsLoaded()
+		? _RendererResource.Height
+		: _OldRendererResource.Height;
 }
 
 void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width, uint32_t height)
@@ -155,31 +154,25 @@ void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width
 	if (IsLoaded())
 		_OldRendererResource = _RendererResource;
 
-	_RendererResource.reset();
+	_RendererResource.RendererResource.reset();
 	_Data = data;
-	_Width = width;
-	_Height = height;
+	_RendererResource.Width = width;
+	_RendererResource.Height = height;
 }
 
 void RendererResourceInternal_t::ClearAttachedResource()
 {
 	_Data = nullptr;
-
-	if (!IsLoaded())
-	{
-		_Width = 0;
-		_Height = 0;
-	}
 }
 
 void RendererResourceInternal_t::Unload(bool clearAttachedResource)
 {
 	UnloadOldResource();
 
-	if (auto r = _RendererResource.lock())
-		_RendererHook->ReleaseImageResource(_RendererResource);
+	if (auto r = _RendererResource.RendererResource.lock())
+		_RendererHook->ReleaseImageResource(_RendererResource.RendererResource);
 
-	_RendererResource.reset();
+	_RendererResource.Reset();
 
 	if (clearAttachedResource)
 		ClearAttachedResource();
@@ -187,15 +180,15 @@ void RendererResourceInternal_t::Unload(bool clearAttachedResource)
 
 bool RendererResourceInternal_t::AttachementChanged()
 {
-	return !_OldRendererResource.expired();
+	return !_OldRendererResource.RendererResource.expired();
 }
 
 void RendererResourceInternal_t::UnloadOldResource()
 {
-	if (auto r = _OldRendererResource.lock())
-		_RendererHook->ReleaseImageResource(_OldRendererResource);
+	if (auto r = _OldRendererResource.RendererResource.lock())
+		_RendererHook->ReleaseImageResource(_OldRendererResource.RendererResource);
 
-	_OldRendererResource.reset();
+	_OldRendererResource.Reset();
 }
 
 }

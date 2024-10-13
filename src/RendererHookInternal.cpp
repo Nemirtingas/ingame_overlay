@@ -37,21 +37,10 @@ void RendererHookInternal_t::_LoadResources()
 	if (_ResourcesToLoad.empty())
 		return;
 
-	for (auto& resource : _OldResourcesToUnload)
-		resource->UnloadOldResource();
-
-	_OldResourcesToUnload.clear();
-
 	auto batchSize = _ResourcesToLoad.size() > _BatchSize ? _BatchSize : _ResourcesToLoad.size();
 
 	for (int i = 0; i < batchSize; ++i)
-	{
-		// Remove old resources next frame, it might be currently in use.
-		if (_ResourcesToLoad[i]->AttachementChanged())
-			_OldResourcesToUnload.emplace_back(_ResourcesToLoad[i]);
-
 		_ResourcesToLoad[i]->LoadAttachedResource();
-	}
 
 	_ResourcesToLoad.erase(_ResourcesToLoad.begin(), _ResourcesToLoad.begin() + batchSize);
 }

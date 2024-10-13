@@ -29,20 +29,31 @@ class RendererHookInternal_t;
 
 class RendererResourceInternal_t : public RendererResource_t
 {
+    struct ResourceState_t
+    {
+        std::weak_ptr<uint64_t> RendererResource;
+        uint32_t Width = 0;
+        uint32_t Height = 0;
+
+        inline void Reset()
+        {
+            RendererResource.reset();
+            Width = 0;
+            Height = 0;
+        }
+    };
+
 protected:
     RendererHookInternal_t* _RendererHook;
 
     bool _DoBatchLoad();
-    bool _DoImmediateLoad();
     bool _DoAutoLoad();
 
 public:
-    std::weak_ptr<uint64_t> _OldRendererResource;
-    std::weak_ptr<uint64_t> _RendererResource;
+    ResourceState_t _OldRendererResource;
+    ResourceState_t _RendererResource;
     ResourceAutoLoad_t _AutoLoad;
     const void* _Data;
-    uint32_t _Width;
-    uint32_t _Height;
 
     RendererResourceInternal_t(RendererHookInternal_t* rendererHook, ResourceAutoLoad_t autoLoad) noexcept;
 
