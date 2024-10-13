@@ -35,8 +35,6 @@ protected:
     bool _DoBatchLoad();
     bool _DoImmediateLoad();
     bool _DoAutoLoad();
-    bool _AttachementChanged();
-    void _UnloadOldResource();
 
 public:
     std::weak_ptr<uint64_t> _OldRendererResource;
@@ -81,6 +79,10 @@ public:
     virtual void ClearAttachedResource();
 
     virtual void Unload(bool clearAttachedResource = true);
+
+    bool AttachementChanged();
+
+    void UnloadOldResource();
 };
 
 }

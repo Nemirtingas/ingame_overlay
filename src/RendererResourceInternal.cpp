@@ -62,19 +62,6 @@ bool RendererResourceInternal_t::_DoAutoLoad()
 	return _DoImmediateLoad();
 }
 
-bool RendererResourceInternal_t::_AttachementChanged()
-{
-	return !_OldRendererResource.expired();
-}
-
-void RendererResourceInternal_t::_UnloadOldResource()
-{
-	if (auto r = _OldRendererResource.lock())
-		_RendererHook->ReleaseImageResource(_OldRendererResource);
-
-	_OldRendererResource.reset();
-}
-
 void RendererResourceInternal_t::Delete()
 {
 	delete this;
@@ -104,7 +91,7 @@ bool RendererResourceInternal_t::LoadAttachedResource()
 {
 	if (IsLoaded())
 	{
-		if (!_AttachementChanged())
+		if (!AttachementChanged())
 			return true;
 
 		Unload(false);
@@ -113,7 +100,6 @@ bool RendererResourceInternal_t::LoadAttachedResource()
 	if (!CanBeLoaded())
 		return false;
 
-	_UnloadOldResource();
 	_RendererResource = _RendererHook->CreateImageResource(_Data, _Width, _Height);
 	return !_RendererResource.expired();
 }
@@ -132,14 +118,26 @@ bool RendererResourceInternal_t::Load(const void* data, uint32_t width, uint32_t
 
 uint64_t RendererResourceInternal_t::GetResourceId()
 {
-	if (_AttachementChanged() || !IsLoaded())
+	if (AttachementChanged() || !IsLoaded())
 	{
-		if (!_DoAutoLoad() && !_AttachementChanged())
+		if (!_DoAutoLoad() && !AttachementChanged())
 			return 0;
 	}
 
-	auto r = !_AttachementChanged() ? _RendererResource.lock() : _OldRendererResource.lock();
-	return r != nullptr ? *r : 0;
+	if (IsLoaded())
+	{
+		auto r = _RendererResource.lock();
+		if (r != nullptr)
+			return *r;
+	}
+	if (AttachementChanged())
+	{
+		auto r = _OldRendererResource.lock();
+		if (r != nullptr)
+			return *r;
+	}
+
+	return 0;
 }
 
 uint32_t RendererResourceInternal_t::Width() const
@@ -176,7 +174,7 @@ void RendererResourceInternal_t::ClearAttachedResource()
 
 void RendererResourceInternal_t::Unload(bool clearAttachedResource)
 {
-	_UnloadOldResource();
+	UnloadOldResource();
 
 	if (auto r = _RendererResource.lock())
 		_RendererHook->ReleaseImageResource(_RendererResource);
@@ -185,6 +183,19 @@ void RendererResourceInternal_t::Unload(bool clearAttachedResource)
 
 	if (clearAttachedResource)
 		ClearAttachedResource();
+}
+
+bool RendererResourceInternal_t::AttachementChanged()
+{
+	return !_OldRendererResource.expired();
+}
+
+void RendererResourceInternal_t::UnloadOldResource()
+{
+	if (auto r = _OldRendererResource.lock())
+		_RendererHook->ReleaseImageResource(_OldRendererResource);
+
+	_OldRendererResource.reset();
 }
 
 }
