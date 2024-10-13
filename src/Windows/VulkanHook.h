@@ -82,6 +82,7 @@ private:
     std::vector<VulkanFrame_t> _Frames;
     VkRenderPass _VulkanRenderPass;
     std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
+    VkFormat _VulkanTargetFormat;
 
     VkDevice _VulkanDevice;
     VkQueue _VulkanQueue;
@@ -112,6 +113,7 @@ private:
     void _FreeVulkanRessources();
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
+    void _SelectFormatSurface();
     bool _GetPhysicalDevice();
 
     bool _CreateImageSampler();
@@ -203,6 +205,7 @@ private:
     decltype(::vkGetBufferMemoryRequirements)            *_vkGetBufferMemoryRequirements;
     decltype(::vkGetImageMemoryRequirements)             *_vkGetImageMemoryRequirements;
     decltype(::vkEnumeratePhysicalDevices)               *_vkEnumeratePhysicalDevices;
+    decltype(::vkGetPhysicalDeviceSurfaceFormatsKHR)     *_vkGetPhysicalDeviceSurfaceFormatsKHR;
     decltype(::vkGetPhysicalDeviceProperties)            *_vkGetPhysicalDeviceProperties;
     decltype(::vkGetPhysicalDeviceQueueFamilyProperties) *_vkGetPhysicalDeviceQueueFamilyProperties;
     decltype(::vkGetPhysicalDeviceMemoryProperties)      *_vkGetPhysicalDeviceMemoryProperties;

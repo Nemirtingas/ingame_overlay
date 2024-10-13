@@ -267,7 +267,7 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             VkImageViewCreateInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            info.format = VK_FORMAT_B8G8R8A8_UNORM;
+            info.format = _VulkanTargetFormat;
             info.image = frame.BackBuffer;
 
             info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -452,6 +452,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
     LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
     LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceSurfaceFormatsKHR);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
 #undef LOAD_VULKAN_FUNCTION
@@ -502,6 +503,70 @@ int32_t VulkanHook_t::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice phys
     }
 
     return -1;
+}
+
+void VulkanHook_t::_SelectFormatSurface()
+{
+    _VulkanTargetFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+    // TODO: Find a way to use something like this:
+    //static constexpr VkFormat requestSurfaceImageFormat[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM, VK_FORMAT_R8G8B8_UNORM };
+    //static constexpr uint32_t requestSurfaceImageFormatCount = sizeof(requestSurfaceImageFormat)/sizeof(*requestSurfaceImageFormat);
+    //static constexpr VkColorSpaceKHR requestSurfaceColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+
+    //VkResult err;
+    //VkWin32SurfaceCreateInfoKHR sci;
+    //PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
+    //
+    //vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)
+    //    vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR");
+    //if (!vkCreateWin32SurfaceKHR)
+    //{
+    //    _glfwInputError(GLFW_API_UNAVAILABLE,
+    //        "Win32: Vulkan instance missing VK_KHR_win32_surface extension");
+    //    return VK_ERROR_EXTENSION_NOT_PRESENT;
+    //}
+    //
+    //memset(&sci, 0, sizeof(sci));
+    //sci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    //sci.hinstance = _glfw.win32.instance;
+    //sci.hwnd = window->win32.handle;
+    //
+    //err = vkCreateWin32SurfaceKHR(instance, &sci, allocator, surface);
+
+    //uint32_t availCount;
+    //_vkGetPhysicalDeviceSurfaceFormatsKHR(_VulkanPhysicalDevice, surface, &availCount, nullptr);
+    //std::vector<VkSurfaceFormatKHR> availFormat;
+    //availFormat.resize((int)availCount);
+    //_vkGetPhysicalDeviceSurfaceFormatsKHR(_VulkanPhysicalDevice, surface, &availCount, availFormat.data());
+    //
+    //// First check if only one format, VK_FORMAT_UNDEFINED, is available, which would imply that any format is available
+    //if (availCount == 1)
+    //{
+    //    if (availFormat[0].format == VK_FORMAT_UNDEFINED)
+    //    {
+    //        return VkSurfaceFormatKHR{
+    //            requestSurfaceImageFormat[0],
+    //            requestSurfaceColorSpace
+    //        };
+    //    }
+    //
+    //    // No point in searching another format
+    //    return availFormat[0];
+    //}
+    //
+    //// Request several formats, the first found will be used
+    //for (uint32_t i = 0; i < requestSurfaceImageFormatCount; ++i)
+    //{
+    //    for (uint32_t j = 0; j < availCount; ++j)
+    //    {
+    //        if (availFormat[i].format == requestSurfaceImageFormat[i] && availFormat[j].colorSpace == requestSurfaceColorSpace)
+    //            return availFormat[i];
+    //    }
+    //}
+    //
+    //// If none of the requested image formats could be found, use the first available
+    //return availFormat[0];
 }
 
 bool VulkanHook_t::_GetPhysicalDevice()
@@ -670,7 +735,7 @@ bool VulkanHook_t::_CreateRenderPass()
         return true;
 
     VkAttachmentDescription attachment = { };
-    attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
+    attachment.format = _VulkanTargetFormat;
     attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -758,6 +823,8 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
         WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
+
+        _SelectFormatSurface();
 
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
@@ -936,6 +1003,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
         inst->_ResetRenderState(OverlayHookState::Reset);
         inst->_DestroyRenderTargets();
     }
+    inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
     auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
     if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS)
     {
@@ -971,6 +1039,7 @@ VulkanHook_t::VulkanHook_t():
     _VulkanImageSampler(VK_NULL_HANDLE),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
+    _VulkanTargetFormat(VK_FORMAT_R8G8B8A8_UNORM),
     _VulkanDevice(VK_NULL_HANDLE),
     _VulkanQueue(VK_NULL_HANDLE),
     _ImGuiFontAtlas(nullptr),
@@ -1036,6 +1105,7 @@ VulkanHook_t::VulkanHook_t():
     _vkGetBufferMemoryRequirements(nullptr),
     _vkGetImageMemoryRequirements(nullptr),
     _vkEnumeratePhysicalDevices(nullptr),
+    _vkGetPhysicalDeviceSurfaceFormatsKHR(nullptr),
     _vkGetPhysicalDeviceProperties(nullptr),
     _vkGetPhysicalDeviceQueueFamilyProperties(nullptr),
     _vkGetPhysicalDeviceMemoryProperties(nullptr),
