@@ -56,7 +56,7 @@ public:
     /// </summary>
     virtual void SetAutoLoad(ResourceAutoLoad_t autoLoad) = 0;
     /// <summary>
-    /// Returns if the resource has an image attached to it so it can be lazy loaded.
+    /// Returns if the resource has an image attached to it so it can be auto loaded.
     /// </summary>
     /// <returns>Can be loaded</returns>
     virtual bool CanBeLoaded() const = 0;
@@ -77,7 +77,7 @@ public:
     /// Gets the resource id usable by ImGui::Image(). It will also trigger the autoload if set.
     /// If autoload is in batch mode, the loading can be deferred by a few frames. (at least 1)
     /// </summary>
-    /// <returns>The ImGui's image handle</returns>
+    /// <returns>The ImGui's image handle, 0 if it is not ready</returns>
     virtual uint64_t GetResourceId() = 0;
     /// <summary>
     ///   Return the loaded or attached resource width.
@@ -104,7 +104,7 @@ public:
     virtual void ClearAttachedResource() = 0;
     /// <summary>
     /// Unloads the resource from the GPU. GetResourceId will return an invalid handle, IsLoaded will return false.
-    /// If lazy loading is enabled, it will load again the resource if its not cleared.
+    /// If auto loading is enabled, it will load again the resource if its not cleared.
     /// </summary>
     virtual void Unload(bool clearAttachedResource = true) = 0;
 };
