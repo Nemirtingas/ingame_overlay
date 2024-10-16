@@ -194,6 +194,7 @@ OpenGLXHook_t::~OpenGLXHook_t()
 
     //dlclose(_library);
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

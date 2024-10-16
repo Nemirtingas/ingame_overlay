@@ -326,6 +326,7 @@ NSViewHook_t::~NSViewHook_t()
     [NSEvent removeMonitor :_EventMonitor];
     _EventMonitor = nil;
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

@@ -638,6 +638,7 @@ WindowsHook_t::~WindowsHook_t()
 
     ResetRenderState(OverlayHookState::Removing);
 
+    _inst->UnhookAll();
     _inst = nullptr;
 }
 

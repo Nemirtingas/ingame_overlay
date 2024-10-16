@@ -1050,6 +1050,7 @@ VulkanHook_t::~VulkanHook_t()
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

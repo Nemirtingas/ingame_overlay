@@ -335,6 +335,7 @@ DX11Hook_t::~DX11Hook_t()
 
     _ResetRenderState(OverlayHookState::Removing);
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

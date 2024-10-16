@@ -246,8 +246,8 @@ void shared_library_load(void* hmodule)
 
             if (hookState == InGameOverlay::OverlayHookState::Removing)
             {
-                OverlayData->OverlayImage1->Delete();
-                OverlayData->OverlayImage2->Delete();
+                if (OverlayData->OverlayImage1 != nullptr) OverlayData->OverlayImage1->Delete();
+                if (OverlayData->OverlayImage2 != nullptr) OverlayData->OverlayImage2->Delete();
                 OverlayData->Show = false;
             }
         };

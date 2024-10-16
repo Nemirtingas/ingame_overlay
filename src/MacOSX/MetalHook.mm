@@ -190,6 +190,7 @@ MetalHook_t::~MetalHook_t()
         _MetalDevice = nil;
     }
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

@@ -1053,6 +1053,7 @@ VulkanHook_t::~VulkanHook_t()
     if (_X11Hooked)
         delete X11Hook_t::Inst();
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 

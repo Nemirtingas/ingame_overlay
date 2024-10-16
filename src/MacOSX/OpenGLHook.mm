@@ -197,6 +197,7 @@ OpenGLHook_t::~OpenGLHook_t()
         ImGui::DestroyContext();
     }
 
+    _Instance->UnhookAll();
     _Instance = nullptr;
 }
 
