@@ -66,6 +66,7 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
+    bool _SentOutOfDate;
     OverlayHookState _HookState;
     HWND _MainWindow;
 
@@ -82,6 +83,7 @@ private:
     std::vector<VulkanFrame_t> _Frames;
     VkRenderPass _VulkanRenderPass;
     std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
+    VkFormat _VulkanTargetFormat;
 
     VkDevice _VulkanDevice;
     VkQueue _VulkanQueue;
@@ -203,6 +205,7 @@ private:
     decltype(::vkGetBufferMemoryRequirements)            *_vkGetBufferMemoryRequirements;
     decltype(::vkGetImageMemoryRequirements)             *_vkGetImageMemoryRequirements;
     decltype(::vkEnumeratePhysicalDevices)               *_vkEnumeratePhysicalDevices;
+    decltype(::vkGetPhysicalDeviceSurfaceFormatsKHR)     *_vkGetPhysicalDeviceSurfaceFormatsKHR;
     decltype(::vkGetPhysicalDeviceProperties)            *_vkGetPhysicalDeviceProperties;
     decltype(::vkGetPhysicalDeviceQueueFamilyProperties) *_vkGetPhysicalDeviceQueueFamilyProperties;
     decltype(::vkGetPhysicalDeviceMemoryProperties)      *_vkGetPhysicalDeviceMemoryProperties;

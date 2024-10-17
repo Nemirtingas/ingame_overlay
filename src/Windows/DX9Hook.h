@@ -35,6 +35,7 @@ private:
     // Variables
     bool _Hooked;
     bool _WindowsHooked;
+    bool _UsesDXVK;
     HWND _LastWindow;
     uint32_t _DeviceReleasing;
     IDirect3DDevice9* _Device;
@@ -78,6 +79,7 @@ public:
     virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
 
+    void SetDXVK();
     void LoadFunctions(
         decltype(_IDirect3DDevice9Release) ReleaseFcn,
         decltype(_IDirect3DDevice9Present) PresentFcn,
