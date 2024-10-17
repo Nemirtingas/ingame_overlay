@@ -351,6 +351,8 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             _ImageResources.clear();
 
             _FreeVulkanRessources();
+
+            _SentOutOfDate = false;
     }
 }
 
@@ -503,70 +505,6 @@ int32_t VulkanHook_t::_GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice phys
     }
 
     return -1;
-}
-
-void VulkanHook_t::_SelectFormatSurface()
-{
-    _VulkanTargetFormat = VK_FORMAT_R8G8B8A8_UNORM;
-
-    // TODO: Find a way to use something like this:
-    //static constexpr VkFormat requestSurfaceImageFormat[] = { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8_UNORM, VK_FORMAT_R8G8B8_UNORM };
-    //static constexpr uint32_t requestSurfaceImageFormatCount = sizeof(requestSurfaceImageFormat)/sizeof(*requestSurfaceImageFormat);
-    //static constexpr VkColorSpaceKHR requestSurfaceColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
-
-    //VkResult err;
-    //VkWin32SurfaceCreateInfoKHR sci;
-    //PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
-    //
-    //vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR)
-    //    vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR");
-    //if (!vkCreateWin32SurfaceKHR)
-    //{
-    //    _glfwInputError(GLFW_API_UNAVAILABLE,
-    //        "Win32: Vulkan instance missing VK_KHR_win32_surface extension");
-    //    return VK_ERROR_EXTENSION_NOT_PRESENT;
-    //}
-    //
-    //memset(&sci, 0, sizeof(sci));
-    //sci.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-    //sci.hinstance = _glfw.win32.instance;
-    //sci.hwnd = window->win32.handle;
-    //
-    //err = vkCreateWin32SurfaceKHR(instance, &sci, allocator, surface);
-
-    //uint32_t availCount;
-    //_vkGetPhysicalDeviceSurfaceFormatsKHR(_VulkanPhysicalDevice, surface, &availCount, nullptr);
-    //std::vector<VkSurfaceFormatKHR> availFormat;
-    //availFormat.resize((int)availCount);
-    //_vkGetPhysicalDeviceSurfaceFormatsKHR(_VulkanPhysicalDevice, surface, &availCount, availFormat.data());
-    //
-    //// First check if only one format, VK_FORMAT_UNDEFINED, is available, which would imply that any format is available
-    //if (availCount == 1)
-    //{
-    //    if (availFormat[0].format == VK_FORMAT_UNDEFINED)
-    //    {
-    //        return VkSurfaceFormatKHR{
-    //            requestSurfaceImageFormat[0],
-    //            requestSurfaceColorSpace
-    //        };
-    //    }
-    //
-    //    // No point in searching another format
-    //    return availFormat[0];
-    //}
-    //
-    //// Request several formats, the first found will be used
-    //for (uint32_t i = 0; i < requestSurfaceImageFormatCount; ++i)
-    //{
-    //    for (uint32_t j = 0; j < availCount; ++j)
-    //    {
-    //        if (availFormat[i].format == requestSurfaceImageFormat[i] && availFormat[j].colorSpace == requestSurfaceColorSpace)
-    //            return availFormat[i];
-    //    }
-    //}
-    //
-    //// If none of the requested image formats could be found, use the first available
-    //return availFormat[0];
 }
 
 bool VulkanHook_t::_GetPhysicalDevice()
@@ -824,8 +762,6 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
         WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
 
-        _SelectFormatSurface();
-
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
 
@@ -989,6 +925,13 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
     INGAMEOVERLAY_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
 
+    // Send out of date khr and see if the game recreates its swapchain, so we can get the rendering color space :p
+    if (!inst->_SentOutOfDate)
+    {
+        inst->_SentOutOfDate = true;
+        return VkResult::VK_ERROR_OUT_OF_DATE_KHR;
+    }
+
     inst->_PrepareForOverlay(queue, pPresentInfo);
     return inst->_VkQueuePresentKHR(queue, pPresentInfo);
 }
@@ -997,15 +940,17 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
 {
     INGAMEOVERLAY_INFO("vkCreateSwapchainKHR");
     auto inst = VulkanHook_t::Inst();
+    auto createRenderTargets = false;
 
     if (inst->_VulkanDevice == device)
     {
+        createRenderTargets = !inst->_Frames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
         inst->_DestroyRenderTargets();
     }
     inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
     auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
-    if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS)
+    if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS && createRenderTargets)
     {
         inst->_CreateRenderTargets(*pSwapchain);
         inst->_ResetRenderState(OverlayHookState::Ready);
@@ -1027,6 +972,7 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 VulkanHook_t::VulkanHook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
     _MainWindow(nullptr),
     _VulkanLoader(nullptr),

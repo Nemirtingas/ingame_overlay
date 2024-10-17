@@ -66,6 +66,7 @@ private:
     // Variables
     bool _Hooked;
     bool _X11Hooked;
+    bool _SentOutOfDate;
     void* _Window;
     OverlayHookState _HookState;
 
@@ -113,7 +114,6 @@ private:
     void _FreeVulkanRessources();
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
-    void _SelectFormatSurface();
     bool _GetPhysicalDevice();
 
     bool _CreateImageSampler();
