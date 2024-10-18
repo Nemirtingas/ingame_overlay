@@ -27,7 +27,7 @@
 
 namespace InGameOverlay {
 
-#define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&VulkanHook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     return false;\
 } } while(0)
@@ -72,13 +72,13 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         _WindowsHooked = true;
 
         BeginHook();
-        TRY_HOOK_FUNCTION(VkAcquireNextImageKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImageKHR);
         if (_VkAcquireNextImage2KHR != nullptr)
-            TRY_HOOK_FUNCTION(VkAcquireNextImage2KHR);
+            TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImage2KHR);
 
-        TRY_HOOK_FUNCTION(VkQueuePresentKHR);
-        TRY_HOOK_FUNCTION(VkCreateSwapchainKHR);
-        TRY_HOOK_FUNCTION(VkDestroyDevice);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkQueuePresentKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkCreateSwapchainKHR);
+        TRY_HOOK_FUNCTION_OR_FAIL(VkDestroyDevice);
         EndHook();
 
         INGAMEOVERLAY_INFO("Hooked Vulkan");
@@ -267,7 +267,7 @@ bool VulkanHook_t::_CreateRenderTargets(VkSwapchainKHR swapChain)
             VkImageViewCreateInfo info = { };
             info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            info.format = VK_FORMAT_B8G8R8A8_UNORM;
+            info.format = _VulkanTargetFormat;
             info.image = frame.BackBuffer;
 
             info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -351,6 +351,8 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             _ImageResources.clear();
 
             _FreeVulkanRessources();
+
+            _SentOutOfDate = false;
     }
 }
 
@@ -452,6 +454,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceMemoryProperties);
     LOAD_VULKAN_FUNCTION(vkEnumerateDeviceExtensionProperties);
     LOAD_VULKAN_FUNCTION(vkEnumeratePhysicalDevices);
+    LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceSurfaceFormatsKHR);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceProperties);
     LOAD_VULKAN_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
 #undef LOAD_VULKAN_FUNCTION
@@ -670,7 +673,7 @@ bool VulkanHook_t::_CreateRenderPass()
         return true;
 
     VkAttachmentDescription attachment = { };
-    attachment.format = VK_FORMAT_B8G8R8A8_UNORM;
+    attachment.format = _VulkanTargetFormat;
     attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -922,6 +925,13 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
     INGAMEOVERLAY_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
 
+    // Send out of date khr and see if the game recreates its swapchain, so we can get the rendering color space :p
+    if (!inst->_SentOutOfDate)
+    {
+        inst->_SentOutOfDate = true;
+        return VkResult::VK_ERROR_OUT_OF_DATE_KHR;
+    }
+
     inst->_PrepareForOverlay(queue, pPresentInfo);
     return inst->_VkQueuePresentKHR(queue, pPresentInfo);
 }
@@ -930,14 +940,17 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
 {
     INGAMEOVERLAY_INFO("vkCreateSwapchainKHR");
     auto inst = VulkanHook_t::Inst();
+    auto createRenderTargets = false;
 
     if (inst->_VulkanDevice == device)
     {
+        createRenderTargets = !inst->_Frames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
         inst->_DestroyRenderTargets();
     }
+    inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
     auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
-    if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS)
+    if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS && createRenderTargets)
     {
         inst->_CreateRenderTargets(*pSwapchain);
         inst->_ResetRenderState(OverlayHookState::Ready);
@@ -959,6 +972,7 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 VulkanHook_t::VulkanHook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
     _MainWindow(nullptr),
     _VulkanLoader(nullptr),
@@ -971,6 +985,7 @@ VulkanHook_t::VulkanHook_t():
     _VulkanImageSampler(VK_NULL_HANDLE),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
+    _VulkanTargetFormat(VK_FORMAT_R8G8B8A8_UNORM),
     _VulkanDevice(VK_NULL_HANDLE),
     _VulkanQueue(VK_NULL_HANDLE),
     _ImGuiFontAtlas(nullptr),
@@ -1036,6 +1051,7 @@ VulkanHook_t::VulkanHook_t():
     _vkGetBufferMemoryRequirements(nullptr),
     _vkGetImageMemoryRequirements(nullptr),
     _vkEnumeratePhysicalDevices(nullptr),
+    _vkGetPhysicalDeviceSurfaceFormatsKHR(nullptr),
     _vkGetPhysicalDeviceProperties(nullptr),
     _vkGetPhysicalDeviceQueueFamilyProperties(nullptr),
     _vkGetPhysicalDeviceMemoryProperties(nullptr),

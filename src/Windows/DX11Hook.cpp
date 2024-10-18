@@ -27,6 +27,10 @@ namespace InGameOverlay {
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX11Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
+} } while(0)
+
+#define TRY_HOOK_FUNCTION_OR_FAIL(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX11Hook_t::_My##NAME))) { \
+    INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
     UnhookAll();\
     return false;\
 } } while(0)
@@ -70,12 +74,12 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 
         BeginHook();
         TRY_HOOK_FUNCTION(ID3D11DeviceRelease);
-        TRY_HOOK_FUNCTION(IDXGISwapChainPresent);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeTarget);
-        TRY_HOOK_FUNCTION(IDXGISwapChainResizeBuffers);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
+        TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeBuffers);
 
         if (_IDXGISwapChain1Present1 != nullptr)
-            TRY_HOOK_FUNCTION(IDXGISwapChain1Present1);
+            TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChain1Present1);
 
         EndHook();
 
@@ -105,14 +109,15 @@ bool DX11Hook_t::IsStarted()
 
 void DX11Hook_t::_UpdateHookDeviceRefCount()
 {
+    const int BaseRefCount = 2;
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 2; break;
+        case OverlayHookState::Removing: _HookDeviceRefCount = BaseRefCount; break;
         // 1 refs from us, 10 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample)
         //case OverlayHookState::Reset: _HookDeviceRefCount = 15 + _ImageResources.size(); break;
         // 1 refs from us, 12 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample, vertex buffer, index buffer)
-        case OverlayHookState::Ready: _HookDeviceRefCount = 17 + _ImageResources.size();
+        case OverlayHookState::Ready: _HookDeviceRefCount = BaseRefCount + 15 + _ImageResources.size();
     }
 }
 
@@ -311,6 +316,7 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 DX11Hook_t::DX11Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
+    _UsesDXVK(false),
     _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
@@ -355,6 +361,15 @@ const char* DX11Hook_t::GetLibraryName() const
 RendererHookType_t DX11Hook_t::GetRendererHookType() const
 {
     return RendererHookType_t::DirectX11;
+}
+
+void DX11Hook_t::SetDXVK()
+{
+    if (!_UsesDXVK)
+    {
+        _UsesDXVK = true;
+        LibraryName += " (DXVK)";
+    }
 }
 
 void DX11Hook_t::LoadFunctions(
