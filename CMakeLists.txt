@@ -115,6 +115,7 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(INGAMEOVERLAY_DYNAMIC_RUNTIME "Link against dynamic runtime (Windows)" ON)
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
@@ -172,6 +173,14 @@ set(INGAMEOVERLAY_IMGUI_HEADERS
   $<$<BOOL:${IMGUI_USER_CONFIG}>:${IMGUI_USER_CONFIG}>
 )
 
+if(${INGAMEOVERLAY_DYNAMIC_RUNTIME})
+set(MINIDETOUR_DYNAMIC_RUNTIME "" CACHE BOOL ON FORCE)
+set(SYSTEM_DYNAMIC_RUNTIME "" CACHE BOOL ON FORCE)
+else()
+set(MINIDETOUR_DYNAMIC_RUNTIME "" CACHE BOOL OFF FORCE)
+set(SYSTEM_DYNAMIC_RUNTIME "" CACHE BOOL OFF FORCE)
+endif()
+
 if(NOT ${INGAMEOVERLAY_USE_SYSTEM_LIBRARIES})
   if(${INGAMEOVERLAY_USE_SPDLOG})
     add_subdirectory(deps/spdlog EXCLUDE_FROM_ALL)
@@ -195,7 +204,7 @@ add_library(ingame_overlay
 )
 
 set_target_properties(ingame_overlay PROPERTIES
-  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>"
   POSITION_INDEPENDENT_CODE ON
   C_VISIBILITY_PRESET hidden
   CXX_VISIBILITY_PRESET hidden
@@ -306,7 +315,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET dx9_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
 
     add_executable(dx10_app
       tests/dx10/main.cpp
@@ -343,7 +352,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET dx10_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
 
     add_executable(dx11_app
       tests/dx11/main.cpp
@@ -380,7 +389,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET dx11_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
 
     add_executable(dx12_app
       tests/dx12/main.cpp
@@ -419,7 +428,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET dx12_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
 
     add_executable(windows_opengl3_app
       tests/windows_opengl3/main.cpp
@@ -456,7 +465,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET windows_opengl3_app PROPERTY
-      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
 
     # Vulkan officially supports only 64 bits apps.
     if (CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -504,7 +513,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       )
 
       set_property(TARGET windows_vulkan_app PROPERTY
-        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>")
     endif()
 
   elseif(APPLE)
@@ -715,7 +724,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
   )
 
   set_target_properties(overlay_example PROPERTIES
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>"
     POSITION_INDEPENDENT_CODE ON
     C_VISIBILITY_PRESET hidden
     CXX_VISIBILITY_PRESET hidden
@@ -744,7 +753,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
   )
 
   set_target_properties(test_overlay PROPERTIES
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:INGAMEOVERLAY_DYNAMIC_RUNTIME>:DLL>"
     POSITION_INDEPENDENT_CODE ON
     C_VISIBILITY_PRESET hidden
     CXX_VISIBILITY_PRESET hidden
