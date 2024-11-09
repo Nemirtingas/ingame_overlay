@@ -911,7 +911,7 @@ private:
     ATOM _DummyWindowAtom;
 
     RendererDetector_t() :
-        _RendererHook(false),
+        _RendererHook(nullptr),
         _DetectionStarted(false),
         _DetectionDone(false),
         _DetectionCount(0),
