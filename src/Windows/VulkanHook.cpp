@@ -942,12 +942,13 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
     auto inst = VulkanHook_t::Inst();
     auto createRenderTargets = false;
 
-    if (inst->_VulkanDevice == device)
+    if (inst->_VulkanDevice == device && inst->_HookState != OverlayHookState::Removing)
     {
         createRenderTargets = !inst->_Frames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
         inst->_DestroyRenderTargets();
     }
+    inst->_SentOutOfDate = true;
     inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
     auto res = inst->_VkCreateSwapchainKHR(device, pCreateInfo, pAllocator, pSwapchain);
     if (inst->_VulkanDevice == device && res == VkResult::VK_SUCCESS && createRenderTargets)
