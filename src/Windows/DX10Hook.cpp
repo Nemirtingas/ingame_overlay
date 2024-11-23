@@ -159,6 +159,11 @@ void DX10Hook_t::_ResetRenderState(OverlayHookState state)
             _ImageResources.clear();
             _DestroyRenderTargets();
             SafeRelease(_Device);
+            break;
+
+        case OverlayHookState::Reset:
+            _DestroyRenderTargets();
+
     }
 
     if (state == OverlayHookState::Removing)
@@ -200,10 +205,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             return;
         }
 
-        _HookState = OverlayHookState::Ready;
-        _UpdateHookDeviceRefCount();
-
-        OverlayHookReady(_HookState);
+        _ResetRenderState(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX10_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
@@ -246,11 +248,20 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX10Hook_t::Inst();
+    auto createRenderTargets = false;
 
-    inst->OverlayHookReady(OverlayHookState::Reset);
-    inst->_DestroyRenderTargets();
+    if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
+    {
+        createRenderTargets = true;
+        inst->_ResetRenderState(OverlayHookState::Reset);
+    }
     auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
-    inst->_CreateRenderTargets(_this);
+    if (createRenderTargets)
+    {
+        inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
+            ? OverlayHookState::Ready
+            : OverlayHookState::Removing);
+    }
 
     return r;
 }
@@ -259,11 +270,20 @@ HRESULT STDMETHODCALLTYPE DX10Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX10Hook_t::Inst();
+    auto createRenderTargets = false;
 
-    inst->OverlayHookReady(OverlayHookState::Reset);
-    inst->_DestroyRenderTargets();
+    if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
+    {
+        createRenderTargets = true;
+        inst->_ResetRenderState(OverlayHookState::Reset);
+    }
     auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
-    inst->_CreateRenderTargets(_this);
+    if (createRenderTargets)
+    {
+        inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
+            ? OverlayHookState::Ready
+            : OverlayHookState::Removing);
+    }
 
     return r;
 }

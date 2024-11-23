@@ -353,6 +353,10 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             _FreeVulkanRessources();
 
             _SentOutOfDate = false;
+            break;
+
+        case OverlayHookState::Reset:
+            _DestroyRenderTargets();
     }
 }
 
@@ -946,7 +950,6 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
     {
         createRenderTargets = !inst->_Frames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
-        inst->_DestroyRenderTargets();
     }
     inst->_SentOutOfDate = true;
     inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
