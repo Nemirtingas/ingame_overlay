@@ -928,11 +928,11 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
     INGAMEOVERLAY_INFO("vkQueuePresentKHR");
     auto inst = VulkanHook_t::Inst();
 
-    // Send out of date khr and see if the game recreates its swapchain, so we can get the rendering color space :p
+    // Send VK_SUBOPTIMAL_KHR and see if the game recreates its swapchain, so we can get the rendering color space :p
     if (!inst->_SentOutOfDate)
     {
         inst->_SentOutOfDate = true;
-        return VkResult::VK_ERROR_OUT_OF_DATE_KHR;
+        return VkResult::VK_SUBOPTIMAL_KHR;
     }
 
     inst->_PrepareForOverlay(queue, pPresentInfo);
