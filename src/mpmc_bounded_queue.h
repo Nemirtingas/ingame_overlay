@@ -64,7 +64,7 @@ public:
                 pos = enqueue_pos_.load(std::memory_order_relaxed);
         }
         cell->data_ = data;
-        item_count_.fetch_sub(1, std::memory_order_relaxed);
+        item_count_.fetch_add(1, std::memory_order_relaxed);
         cell->sequence_.store(pos + 1, std::memory_order_release);
         return true;
     }
