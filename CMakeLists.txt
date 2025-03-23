@@ -5,6 +5,7 @@ project(ingame_overlay)
 
 if(WIN32) # Setup some variables for Windows build
   set(INGAMEOVERLAY_SOURCES
+    src/Windows/SimpleWindowsGamingInput.cpp
     src/Windows/RendererDetector.cpp
     src/Windows/DX9Hook.cpp
     src/Windows/DX10Hook.cpp
@@ -18,6 +19,8 @@ if(WIN32) # Setup some variables for Windows build
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/VulkanHelpers.h
     src/Windows/DirectXVTables.h
+    src/Windows/SimpleWindowsGamingInput.h
+    src/Windows/WindowsGamingInputVTables.h
     src/Windows/DXVKDetector.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
