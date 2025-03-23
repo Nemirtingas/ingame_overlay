@@ -23,6 +23,8 @@
 #include <backends/imgui_impl_win32.h>
 #include <System/Library.h>
 
+#include "WindowsGamingInputVTables.h"
+
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace InGameOverlay {
@@ -127,6 +129,8 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
                 return false;
             }
         }
+
+        _StartWGIHook();
 
         INGAMEOVERLAY_INFO("Hooked Windows");
         _KeyCombinationCallback = std::move(keyCombinationCallback);
@@ -317,9 +321,9 @@ void WindowsHook_t::_RawEvent(RAWINPUT& raw)
         }
         break;
 
-        //case RIM_TYPEKEYBOARD:
-            //_AppendEvent(_GameHwnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
-            //break;
+    //case RIM_TYPEKEYBOARD:
+        //_AppendEvent(_GameHwnd, raw.data.keyboard.Message, raw.data.keyboard.VKey, 0);
+        //break;
     }
 }
 
@@ -600,6 +604,155 @@ BOOL WINAPI WindowsHook_t::_MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilt
     return res;
 }
 
+// Windows::Gaming::Input
+void WindowsHook_t::_StartWGIHook()
+{
+    _RawControllerStatics = SimpleWindowsGamingInput::GetRawGameControllerStatics();
+    _GamepadStatics = SimpleWindowsGamingInput::GetGamepadStatics();
+    
+    if (_RawControllerStatics == nullptr || _GamepadStatics == nullptr)
+        return;
+
+    auto hookedRaw = false;
+    SimpleWindowsGamingInput::VectorView<SimpleWindowsGamingInput::IRawGameController*>* rawControllers = nullptr;
+    if (SUCCEEDED(_RawControllerStatics->get_RawGameControllers(&rawControllers)) && rawControllers != nullptr)
+    {
+        unsigned int s;
+        if (SUCCEEDED(rawControllers->get_Size(&s)) && s > 0)
+        {
+            SimpleWindowsGamingInput::IRawGameController* rawController = nullptr;
+            if (SUCCEEDED(rawControllers->GetAt(0, &rawController)) && rawController != nullptr)
+            {
+                _StartRawControllerHook(rawController);
+                hookedRaw = true;
+
+                rawController->Release();
+            }
+        }
+
+        rawControllers->Release();
+    }
+
+    auto hookedGamepad = false;
+    SimpleWindowsGamingInput::VectorView<SimpleWindowsGamingInput::IGamepad*>* gamepads = nullptr;
+    if (SUCCEEDED(_GamepadStatics->get_Gamepads(&gamepads)) && gamepads != nullptr)
+    {
+        unsigned int s;
+        if (SUCCEEDED(gamepads->get_Size(&s)) && s > 0)
+        {
+            SimpleWindowsGamingInput::IGamepad* gamepad = nullptr;
+            if (SUCCEEDED(gamepads->GetAt(0, &gamepad)) && gamepad != nullptr)
+            {
+                _StartGamepadHook(gamepad);
+                hookedGamepad = true;
+
+                gamepad->Release();
+            }
+        }
+
+        gamepads->Release();
+    }
+
+    if (!hookedRaw)
+        _RawControllerStatics->add_RawGameControllerAdded(&_RawControllerAddedHandler, &_OnRawControllerAddedToken);
+    
+    if (!hookedGamepad)
+        _GamepadStatics->add_GamepadAdded(&_GamepadAddedHandler, &_OnGamepadAddedToken);
+}
+
+void WindowsHook_t::_StartRawControllerHook(SimpleWindowsGamingInput::IRawGameController* pRawController)
+{
+    void** vtable = *(void***)pRawController;
+    *(void**)&_RawControllerGetCurrentReading = vtable[(int)IRawGameControllerVTable::GetCurrentReading];
+
+    BeginHook();
+
+    if (!HookFunc(std::make_pair((void**)&_RawControllerGetCurrentReading, (void*)&WindowsHook_t::_MyRawControllerGetCurrentReading)))
+    {
+        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+    }
+
+    EndHook();
+}
+
+void WindowsHook_t::_StartGamepadHook(SimpleWindowsGamingInput::IGamepad* pGamepad)
+{
+    void** vtable = *(void***)pGamepad;
+    *(void**)&_GamepadGetCurrentReading = vtable[(int)IGamepadVTable::GetCurrentReading];
+
+    BeginHook();
+
+    if (!HookFunc(std::make_pair((void**)&_GamepadGetCurrentReading, (void*)&WindowsHook_t::_MyGamepadGetCurrentReading)))
+    {
+        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+    }
+
+    EndHook();
+}
+
+HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyRawControllerGetCurrentReading(SimpleWindowsGamingInput::IRawGameController* _this, UINT32 buttonArrayLength, boolean* buttonArray, UINT32 switchArrayLength, SimpleWindowsGamingInput::GameControllerSwitchPosition* switchArray, UINT32 axisArrayLength, DOUBLE* axisArray, UINT64* timestamp)
+{
+    WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    auto result = (_this->*inst->_RawControllerGetCurrentReading)(buttonArrayLength, buttonArray, switchArrayLength, switchArray, axisArrayLength, axisArray, timestamp);
+
+    if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
+        return result;
+
+    if (buttonArray != nullptr)
+        memset(buttonArray, 0, sizeof(*buttonArray) * buttonArrayLength);
+
+    if (switchArray != nullptr)
+        memset(switchArray, 0, sizeof(*switchArray) * switchArrayLength);
+
+    if (axisArray != nullptr)
+        memset(axisArray, 0, sizeof(axisArray) * axisArrayLength);
+
+    if (timestamp != nullptr)
+        *timestamp = 0;
+
+    return result;
+}
+
+HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyGamepadGetCurrentReading(SimpleWindowsGamingInput::IGamepad* _this, SimpleWindowsGamingInput::GamepadReading* value)
+{
+    WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    auto result = (_this->*inst->_GamepadGetCurrentReading)(value);
+
+    if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
+        return result;
+
+    if (value != nullptr)
+        memset(value, 0, sizeof(*value));
+
+    return result;
+}
+
+HRESULT WindowsHook_t::_OnRawControllerAdded(SimpleWindowsGamingInput::IInspectable*, SimpleWindowsGamingInput::IRawGameController* pRawController)
+{
+    WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    inst->_RawControllerStatics->remove_RawGameControllerAdded(inst->_OnRawControllerAddedToken);
+    inst->_OnRawControllerAddedToken = {};
+
+    inst->_StartRawControllerHook(pRawController);
+
+    return S_OK;
+}
+
+HRESULT WindowsHook_t::_OnGamepadAdded(SimpleWindowsGamingInput::IInspectable*, SimpleWindowsGamingInput::IGamepad* pGamepad)
+{
+    WindowsHook_t* inst = WindowsHook_t::Inst();
+
+    inst->_GamepadStatics->remove_GamepadAdded(inst->_OnGamepadAddedToken);
+    inst->_OnGamepadAddedToken = {};
+
+    inst->_StartGamepadHook(pGamepad);
+
+    return S_OK;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////
 
 WindowsHook_t::WindowsHook_t() :
@@ -628,7 +781,14 @@ WindowsHook_t::WindowsHook_t() :
     _GetMessageA(nullptr),
     _GetMessageW(nullptr),
     _PeekMessageA(nullptr),
-    _PeekMessageW(nullptr)
+    _PeekMessageW(nullptr),
+    // WGI
+    _OnRawControllerAddedToken({}),
+    _OnGamepadAddedToken({}),
+    _RawControllerAddedHandler(&WindowsHook_t::_OnRawControllerAdded),
+    _GamepadAddedHandler(&WindowsHook_t::_OnGamepadAdded),
+    _RawControllerGetCurrentReading(nullptr),
+    _GamepadGetCurrentReading(nullptr)
 {
 }
 
@@ -638,7 +798,20 @@ WindowsHook_t::~WindowsHook_t()
 
     ResetRenderState(OverlayHookState::Removing);
 
-    _inst->UnhookAll();
+    //if (_OnRawControllerAddedToken.value != 0)
+    //{
+    //    _RawControllerStatics->remove_RawGameControllerAdded(_OnRawControllerAddedToken);
+    //    _OnRawControllerAddedToken = {};
+    //    _RawControllerAddedHandler.ReleaseAndGetAddressOf();
+    //}
+    //if (_OnGamepadAddedToken.value != 0)
+    //{
+    //    _GamepadStatics->remove_GamepadAdded(_OnGamepadAddedToken);
+    //    _OnGamepadAddedToken = {};
+    //    _GamepadAddedHandler.ReleaseAndGetAddressOf();
+    //}
+
+    UnhookAll();
     _inst = nullptr;
 }
 

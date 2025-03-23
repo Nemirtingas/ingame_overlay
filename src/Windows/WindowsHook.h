@@ -21,6 +21,8 @@
 
 #include "../RendererHookInternal.h"
 
+#include  "SimpleWindowsGamingInput.h"
+
 #include "../mpmc_bounded_queue.h"
 
 namespace InGameOverlay {
@@ -103,6 +105,29 @@ private:
     static BOOL  WINAPI _MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax);
     static BOOL  WINAPI _MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
     static BOOL  WINAPI _MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg);
+
+    // Hook to WGI
+    SimpleWindowsGamingInput::IRawGameControllerStatics* _RawControllerStatics;
+    SimpleWindowsGamingInput::IGamepadStatics* _GamepadStatics;
+    
+    SimpleWindowsGamingInput::EventRegistrationToken _OnRawControllerAddedToken;
+    SimpleWindowsGamingInput::EventRegistrationToken _OnGamepadAddedToken;
+    
+    SimpleWindowsGamingInput::RawGameControllerEventHandler _RawControllerAddedHandler;
+    SimpleWindowsGamingInput::GamepadEventHandler _GamepadAddedHandler;
+    
+    decltype(&SimpleWindowsGamingInput::IRawGameController::GetCurrentReading) _RawControllerGetCurrentReading;
+    decltype(&SimpleWindowsGamingInput::IGamepad::GetCurrentReading) _GamepadGetCurrentReading;
+    
+    void _StartWGIHook();
+    void _StartRawControllerHook(SimpleWindowsGamingInput::IRawGameController* pRawController);
+    void _StartGamepadHook(SimpleWindowsGamingInput::IGamepad* pGamepad);
+    
+    static HRESULT STDMETHODCALLTYPE _MyRawControllerGetCurrentReading(SimpleWindowsGamingInput::IRawGameController* _this, UINT32 buttonArrayLength, boolean* buttonArray, UINT32 switchArrayLength, SimpleWindowsGamingInput::GameControllerSwitchPosition* switchArray, UINT32 axisArrayLength, DOUBLE* axisArray, UINT64* timestamp);
+    static HRESULT STDMETHODCALLTYPE _MyGamepadGetCurrentReading(SimpleWindowsGamingInput::IGamepad* _this, SimpleWindowsGamingInput::GamepadReading* value);
+    
+    static HRESULT _OnRawControllerAdded(SimpleWindowsGamingInput::IInspectable*, SimpleWindowsGamingInput::IRawGameController*);
+    static HRESULT _OnGamepadAdded(SimpleWindowsGamingInput::IInspectable*, SimpleWindowsGamingInput::IGamepad*);
 
     static short _ImGuiGetKeyState(int nVirtKey);
 public:
