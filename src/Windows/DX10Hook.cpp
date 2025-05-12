@@ -47,6 +47,25 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
+static InGameOverlay::ScreenshotBufferFormat_t D3DFormatToScreenshotFormat(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R8G8B8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R10G10B10A2_UNORM:         return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
+        case DXGI_FORMAT_B5G6R5_UNORM:              return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
+        case DXGI_FORMAT_B5G5R5A1_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_UNORM:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
+        default:                                    return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+    }
+}
+
 bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -210,6 +229,10 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
     if (ImGui_ImplDX10_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot(pSwapChain);
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -220,7 +243,75 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
         _Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
         ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot(pSwapChain);
     }
+}
+
+void DX10Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
+{
+    InGameOverlay::ScreenshotData_t screenshotData;
+    if (_CaptureScreenshot(pSwapChain, screenshotData))
+        _SendScreenshot(&screenshotData);
+    else
+        _SendScreenshot(nullptr);
+}
+
+bool DX10Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain, ScreenshotData_t& outData)
+{
+    bool result = false;
+    ID3D10Texture2D* backBuffer = nullptr;
+    ID3D10Texture2D* stagingTexture = nullptr;
+    D3D10_TEXTURE2D_DESC desc;
+    D3D10_MAPPED_TEXTURE2D mappedResource;
+
+    HRESULT hr = pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(hr) || backBuffer == nullptr)
+        goto cleanup;
+
+    backBuffer->GetDesc(&desc);
+
+    desc.Usage = D3D10_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D10_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+
+    hr = _Device->CreateTexture2D(&desc, nullptr, &stagingTexture);
+    if (FAILED(hr) || stagingTexture == nullptr)
+        goto cleanup;
+
+    _Device->CopyResource(stagingTexture, backBuffer);
+
+    hr = stagingTexture->Map(0, D3D10_MAP_READ, 0, &mappedResource);
+    if (FAILED(hr))
+        goto cleanup;
+
+    UINT bytesPerPixel = 4;
+    UINT rowSize = desc.Width * bytesPerPixel;
+    UINT dataSize = desc.Height * rowSize;
+    outData.Buffer.resize(dataSize);
+
+    BYTE* src = static_cast<BYTE*>(mappedResource.pData);
+    BYTE* dest = outData.Buffer.data();
+
+    for (UINT i = 0; i < desc.Height; i++)
+        memcpy(dest + i * rowSize, src + i * mappedResource.RowPitch, rowSize);
+
+    outData.Width = desc.Width;
+    outData.Height = desc.Height;
+    outData.Format = D3DFormatToScreenshotFormat(desc.Format);
+
+    stagingTexture->Unmap(0);
+
+    result = true;
+
+cleanup:
+
+    SafeRelease(stagingTexture);
+    SafeRelease(backBuffer);
+
+    return result;
 }
 
 ULONG STDMETHODCALLTYPE DX10Hook_t::_MyID3D10DeviceRelease(ID3D10Device* _this)

@@ -23,6 +23,9 @@
 namespace InGameOverlay {
 
 RendererHookInternal_t::RendererHookInternal_t() :
+	_ScreenshotCallback(nullptr),
+	_ScreenshotCallbackUserParameter(nullptr),
+	_TakeScreenshotType(ScreenshotType_t::None),
 	_AutoLoad(ResourceAutoLoad_t::Batch),
 	_BatchSize(10)
 {
@@ -45,6 +48,18 @@ void RendererHookInternal_t::_LoadResources()
 	_ResourcesToLoad.erase(_ResourcesToLoad.begin(), _ResourcesToLoad.begin() + batchSize);
 }
 
+ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
+{
+	return _TakeScreenshotType;
+}
+
+void RendererHookInternal_t::_SendScreenshot(ScreenshotData_t* screenshot)
+{
+	_TakeScreenshotType = ScreenshotType_t::None;
+	if (screenshot != nullptr && _ScreenshotCallback != nullptr)
+		_ScreenshotCallback(screenshot, _ScreenshotCallbackUserParameter);
+}
+
 void RendererHookInternal_t::AppendResourceToLoadBatch(RendererResourceInternal_t* pResource)
 {
 	if (!pResource->CanBeLoaded())
@@ -52,6 +67,12 @@ void RendererHookInternal_t::AppendResourceToLoadBatch(RendererResourceInternal_
 
 	if (std::find(_ResourcesToLoad.begin(), _ResourcesToLoad.end(), pResource) == _ResourcesToLoad.end())
 		_ResourcesToLoad.emplace_back(pResource);
+}
+
+void RendererHookInternal_t::SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam)
+{
+	_ScreenshotCallback = callback;
+	_ScreenshotCallbackUserParameter = userParam;
 }
 
 uint32_t RendererHookInternal_t::GetAutoLoadBatchSize()
@@ -72,6 +93,11 @@ ResourceAutoLoad_t RendererHookInternal_t::GetResourceAutoLoad() const
 void RendererHookInternal_t::SetResourceAutoLoad(ResourceAutoLoad_t autoLoad)
 {
 	_AutoLoad = autoLoad;
+}
+
+void RendererHookInternal_t::TakeScreenshot(ScreenshotType_t type)
+{
+	_TakeScreenshotType = type;
 }
 
 RendererResource_t* RendererHookInternal_t::CreateResource()

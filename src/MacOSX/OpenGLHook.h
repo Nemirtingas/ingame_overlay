@@ -66,6 +66,8 @@ private:
 
     void _ResetRenderState();
     void _PrepareForOverlay();
+    void _HandleScreenshot();
+    bool _CaptureScreenshot(ScreenshotData_t& outData);
 
     // Hook to render functions
     Method _NSOpenGLContextFlushBufferMethod;

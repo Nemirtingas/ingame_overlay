@@ -47,6 +47,25 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
+static InGameOverlay::ScreenshotBufferFormat_t D3DFormatToScreenshotFormat(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R8G8B8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R10G10B10A2_UNORM:         return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
+        case DXGI_FORMAT_B5G6R5_UNORM:              return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
+        case DXGI_FORMAT_B5G5R5A1_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_UNORM:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
+        default:                                    return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+    }
+}
+
 static inline uint32_t MakeHeapId(uint32_t heapIndex, uint32_t usedIndex)
 {
     return (heapIndex << 16) | usedIndex;
@@ -421,6 +440,10 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
     {
         auto& frame = _OverlayFrames[pSwapChain3->GetCurrentBackBufferIndex()];
 
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot(frame);
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -449,9 +472,171 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         frame.CommandList->Close();
 
         pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&frame.CommandList);
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot(frame);
     }
 
     pSwapChain3->Release();
+}
+
+void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
+{
+    InGameOverlay::ScreenshotData_t screenshotData;
+    if (_CaptureScreenshot(frame, screenshotData))
+        _SendScreenshot(&screenshotData);
+    else
+        _SendScreenshot(nullptr);
+}
+
+bool DX12Hook_t::_CaptureScreenshot(DX12Frame_t& frame, ScreenshotData_t& outData)
+{
+    bool result = false;
+
+    ID3D12CommandAllocator* pCommandAlloc = nullptr;
+    ID3D12GraphicsCommandList* pCommandList = nullptr;
+    ID3D12Fence* pFence = nullptr;
+    ID3D12Resource* pCopySource = nullptr;
+    ID3D12Resource* pStaging = nullptr;
+
+    D3D12_RESOURCE_DESC desc = frame.BackBuffer->GetDesc();
+    
+    UINT rowPitch = (desc.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+    UINT imageSize = rowPitch * desc.Height;
+
+    D3D12_HEAP_PROPERTIES sourceHeapProperties;
+    D3D12_HEAP_PROPERTIES defaultHeapProperties{};
+    D3D12_HEAP_PROPERTIES readBackHeapProperties{};
+
+    D3D12_RESOURCE_DESC bufferDesc = {};
+    D3D12_RESOURCE_BARRIER barrier = {};
+
+    D3D12_TEXTURE_COPY_LOCATION copyDest{};
+    D3D12_TEXTURE_COPY_LOCATION copySrc{};
+
+    HRESULT hr = frame.BackBuffer->GetHeapProperties(&sourceHeapProperties, nullptr);
+    if (SUCCEEDED(hr) && sourceHeapProperties.Type == D3D12_HEAP_TYPE_READBACK)
+    {
+        pCopySource = frame.BackBuffer;
+        goto readback;
+    }
+
+    // Create a command allocator
+    hr = _Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCommandAlloc));
+    if (FAILED(hr) || pCommandAlloc == nullptr)
+        goto cleanup;
+
+    // Spin up a new command list
+    hr = _Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCommandAlloc, nullptr, IID_PPV_ARGS(&pCommandList));
+    if (FAILED(hr) || pCommandList == nullptr)
+        goto cleanup;
+
+    // Create a fence    
+    hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&pFence));
+    if (FAILED(hr) || pFence == nullptr)
+        goto cleanup;
+
+    defaultHeapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+    readBackHeapProperties.Type = D3D12_HEAP_TYPE_READBACK;
+
+    // Readback resources must be buffers
+    bufferDesc.DepthOrArraySize = 1;
+    bufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    bufferDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    bufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    bufferDesc.Height = 1;
+    bufferDesc.Width = rowPitch * desc.Height;
+    bufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    bufferDesc.MipLevels = 1;
+    bufferDesc.SampleDesc.Count = 1;
+
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+    barrier.Transition.pResource = frame.BackBuffer;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+    // Create a staging texture
+    hr = _Device->CreateCommittedResource(&readBackHeapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&pStaging));
+    if (FAILED(hr) || pStaging == nullptr)
+        goto cleanup;
+
+    pCopySource = pStaging;
+
+readback:
+    // Transition the resource if necessary
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    pCommandList->ResourceBarrier(1, &barrier);
+
+    // Get the copy target location
+    copyDest.pResource = pCopySource;
+    copyDest.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    copyDest.PlacedFootprint.Footprint.Width = static_cast<UINT>(desc.Width);
+    copyDest.PlacedFootprint.Footprint.Height = desc.Height;
+    copyDest.PlacedFootprint.Footprint.Depth = 1;
+    copyDest.PlacedFootprint.Footprint.RowPitch = static_cast<UINT>(rowPitch);
+    copyDest.PlacedFootprint.Footprint.Format = desc.Format;
+
+    copySrc.pResource = frame.BackBuffer;
+    copySrc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    copySrc.SubresourceIndex = 0;
+
+    // Copy the texture
+    pCommandList->CopyTextureRegion(&copyDest, 0, 0, 0, &copySrc, nullptr);
+
+    // Transition the source resource to the next state
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+    pCommandList->ResourceBarrier(1, &barrier);
+
+    hr = pCommandList->Close();
+    if (FAILED(hr))
+        goto cleanup;
+
+    // Execute the command list
+    _CommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&pCommandList);
+
+    // Signal the fence
+    hr = _CommandQueue->Signal(pFence, 1);
+    if (FAILED(hr))
+        goto cleanup;
+
+    // Block until the copy is complete
+    while (pFence->GetCompletedValue() < 1)
+        SwitchToThread();
+
+    BYTE* pMappedMemory = nullptr;
+    D3D12_RANGE readRange = { 0, static_cast<SIZE_T>(imageSize) };
+    hr = pStaging->Map(0, &readRange, (void**)&pMappedMemory);
+    if (FAILED(hr))
+        goto cleanup;
+
+    UINT bytesPerPixel = 4;
+    UINT rowSize = desc.Width * bytesPerPixel;
+    UINT dataSize = desc.Height * rowSize;
+    outData.Buffer.resize(dataSize);
+
+    BYTE* dest = outData.Buffer.data();
+
+    for (UINT i = 0; i < desc.Height; i++)
+        memcpy(dest + i * rowSize, pMappedMemory + i * rowPitch, rowSize);
+
+    outData.Width = desc.Width;
+    outData.Height = desc.Height;
+    outData.Format = D3DFormatToScreenshotFormat(desc.Format);
+
+    pStaging->Unmap(0, nullptr);
+
+    result = true;
+
+cleanup:
+
+    SafeRelease(pStaging);
+    SafeRelease(pFence);
+    SafeRelease(pCommandList);
+    SafeRelease(pCommandAlloc);
+
+    return result;
 }
 
 ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)

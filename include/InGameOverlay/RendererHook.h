@@ -62,6 +62,53 @@ enum class RendererHookType_t : uint8_t
     Any        = DirectX9 | DirectX10 | DirectX11 | DirectX12 | OpenGL | Vulkan | Metal,
 };
 
+enum class ScreenshotType_t : uint8_t
+{
+    None = 0,
+    BeforeOverlay = 1,
+    AfterOverlay = 2,
+};
+
+enum class ScreenshotBufferFormat_t : uint16_t
+{
+    Unknown = 0,
+    // 8-bit formats
+    R8G8B8,
+    X8R8G8B8,
+    A8R8G8B8,
+    B8G8R8A8,
+    B8G8R8X8,
+    R8G8B8A8_UNORM_SRGB,
+    B8G8R8A8_UNORM_SRGB,
+    B8G8R8X8_UNORM_SRGB,
+
+    // 10-bit formats
+    A2R10G10B10,
+    A2B10G10R10,
+    R10G10B10A2,
+
+    // 16-bit formats
+    R5G6B5,
+    X1R5G5B5,
+    A1R5G5B5,
+    B5G6R5,
+    B5G5R5A1,
+
+    // HDR / float formats
+    R16G16B16A16_FLOAT,
+    R16G16B16A16_UNORM,
+};
+
+struct ScreenshotData_t
+{
+    std::vector<uint8_t> Buffer;
+    uint32_t Width;
+    uint32_t Height;
+    ScreenshotBufferFormat_t Format;
+};
+
+typedef void (*ScreenshotCallback_t)(ScreenshotData_t const* screenshot, void* userParameter);
+
 /// <summary>
 ///   The renderer hook.
 ///     ResourceAutoLoad_t: Default value is ResourceAutoLoad_t::Batch
@@ -69,12 +116,16 @@ enum class RendererHookType_t : uint8_t
 /// </summary>
 class RendererHook_t
 {
+
 public:
     virtual ~RendererHook_t() {}
 
     // TODO: Deprecated direct use of thoses and use either a setter or plain C function pointers with void* user parameter.
     std::function<void()> OverlayProc;
     std::function<void(OverlayHookState)> OverlayHookReady;
+    std::function<void(ScreenshotData_t const&)> ScreenshotCallback;
+
+    virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam) = 0;
 
     /// <summary>
     ///   Starts the current renderer hook procedure, allowing a user to render things on the application window.
@@ -100,7 +151,7 @@ public:
     /// </param>
     /// <returns></returns>
     virtual void HideAppInputs(bool hide) = 0;
-	
+    
     /// <summary>
     ///   Change the overlay input policy.
     /// </summary>
@@ -176,6 +227,8 @@ public:
     /// </param>
     /// <returns></returns>
     virtual RendererResource_t* CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach) = 0;
+
+    virtual void TakeScreenshot(ScreenshotType_t type) = 0;
 };
 
 }

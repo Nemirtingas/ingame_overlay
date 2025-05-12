@@ -15,8 +15,8 @@
 #include "../common/thumbs_down_small.h"
 #include "../common/right_facing_fist.h"
 
-#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 1
-#define INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD 0
+#define INGAMEOVERLAY_TEST_BATCH_RESOURCE_LOAD 0
+#define INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD 1
 
 using namespace std::chrono_literals;
 
@@ -42,11 +42,13 @@ struct OverlayData_t
     InGameOverlay::RendererHook_t* Renderer = nullptr;
     InGameOverlay::RendererResource_t* OverlayImage1 = nullptr;
     InGameOverlay::RendererResource_t* OverlayImage2 = nullptr;
+    InGameOverlay::RendererResource_t* OverlayImageScreenshot = nullptr;
     std::chrono::system_clock::time_point ImageTimer;
     bool ThumbUpSelected;
     Image ThumbsUp;
     Image ThumbsDown;
     Image RightFacingFist;
+    Image Screenshot;
     std::recursive_mutex OverlayMutex;
     char OverlayInputTextBuffer[256]{};
     bool Show;
@@ -121,6 +123,14 @@ InGameOverlay::RendererHook_t* test_filterer_renderer_detector(InGameOverlay::Re
     return rendererHook;
 }
 
+void image_or_dummy(InGameOverlay::RendererResource_t* resource, float width, float height)
+{
+    if (resource->GetResourceId() != 0)
+        ImGui::Image(resource->GetResourceId(), { width, height });
+    else
+        ImGui::Dummy({ width, height });
+}
+
 void shared_library_load(void* hmodule)
 {
     OverlayData = new OverlayData_t();
@@ -134,8 +144,8 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         //OverlayData->Renderer = test_renderer_detector();
-        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
-        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12);
+        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12, false);
         if (OverlayData->Renderer == nullptr)
             return;
 
@@ -218,23 +228,46 @@ void shared_library_load(void* hmodule)
                 }
 
                 ImGui::TextUnformatted("Hello from overlay !");
+                ImGui::SameLine();
+                if (ImGui::Button("Take screenshot before overlay"))
+                    OverlayData->Renderer->TakeScreenshot(InGameOverlay::ScreenshotType_t::BeforeOverlay);
+
+                ImGui::SameLine();
+                if (ImGui::Button("Take screenshot after overlay"))
+                    OverlayData->Renderer->TakeScreenshot(InGameOverlay::ScreenshotType_t::AfterOverlay);
+
                 ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                 ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout
-                if (OverlayData->OverlayImage1->GetResourceId() != 0)
-                    ImGui::Image(OverlayData->OverlayImage1->GetResourceId(), { 64, 64 });
-                else
-                    ImGui::Dummy({ 64, 64 });
-
+                image_or_dummy(OverlayData->OverlayImage1, 64, 64);
+                
                 ImGui::SameLine();
-
+                
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout
-                if (OverlayData->OverlayImage2->GetResourceId() != 0)
-                    ImGui::Image(OverlayData->OverlayImage2->GetResourceId(), ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
-                else
-                    ImGui::Dummy(ImVec2(OverlayData->OverlayImage2->Width(), OverlayData->OverlayImage2->Height()));
+                image_or_dummy(OverlayData->OverlayImage2, 64, 64);
+
+                if (OverlayData->OverlayImageScreenshot)
+                {
+                    bool opened = true;
+                    if (ImGui::Begin("Screenshot window", &opened, ImGuiWindowFlags_AlwaysAutoResize))
+                    {
+                        if (!opened)
+                        {
+                            if (OverlayData->OverlayImageScreenshot)
+                            {
+                                OverlayData->OverlayImageScreenshot->Delete();
+                                OverlayData->OverlayImageScreenshot = nullptr;
+                            }
+                        }
+                        else
+                        {
+                            image_or_dummy(OverlayData->OverlayImageScreenshot, OverlayData->OverlayImageScreenshot->Width() / 2, OverlayData->OverlayImageScreenshot->Height() / 2);
+                        }
+                    }
+                    ImGui::End();
+                }
             }
             ImGui::End();
         };
@@ -246,6 +279,15 @@ void shared_library_load(void* hmodule)
 
             if (hookState == InGameOverlay::OverlayHookState::Removing)
             {
+                if (OverlayData->OverlayImage1 != nullptr && OverlayData->OverlayImage1->GetResourceId() != 0)
+                    OverlayData->OverlayImage1->Unload();
+
+                if (OverlayData->OverlayImage2 != nullptr && OverlayData->OverlayImage2->GetResourceId() != 0)
+                    OverlayData->OverlayImage2->Unload();
+
+                if (OverlayData->OverlayImageScreenshot != nullptr && OverlayData->OverlayImageScreenshot->GetResourceId() != 0)
+                    OverlayData->OverlayImageScreenshot->Unload();
+
                 if (OverlayData->OverlayImage1 != nullptr)
                 {
                     OverlayData->OverlayImage1->Delete();
@@ -255,6 +297,11 @@ void shared_library_load(void* hmodule)
                 {
                     OverlayData->OverlayImage2->Delete();
                     OverlayData->OverlayImage2 = nullptr;
+                }
+                if (OverlayData->OverlayImageScreenshot != nullptr)
+                {
+                    OverlayData->OverlayImageScreenshot->Delete();
+                    OverlayData->OverlayImageScreenshot = nullptr;
                 }
                 OverlayData->Show = false;
             }
@@ -294,6 +341,21 @@ void shared_library_load(void* hmodule)
                 OverlayData->Show = true;
             }
         }, OverlayData->ToggleKeys, CountOf(OverlayData->ToggleKeys), OverlayData->FontAtlas);
+
+        OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotData_t const* screenshot, void* userParam)
+        {
+            if (OverlayData->OverlayImageScreenshot)
+            {
+                OverlayData->OverlayImageScreenshot->Delete();
+            }
+
+            OverlayData->Screenshot.Width = screenshot->Width;
+            OverlayData->Screenshot.Height = screenshot->Height;
+            OverlayData->Screenshot.Image.resize(screenshot->Height * screenshot->Width);
+            memcpy(OverlayData->Screenshot.Image.data(), screenshot->Buffer.data(), screenshot->Buffer.size());
+
+            OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateAndLoadResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height, true);
+        }, nullptr);
     });
 }
 
@@ -305,6 +367,16 @@ void shared_library_unload(void* hmodule)
             OverlayData->Worker.join();
 
         OverlayData->Show = false;
+
+        if (OverlayData->OverlayImage1 != nullptr && OverlayData->OverlayImage1->GetResourceId() != 0)
+            OverlayData->OverlayImage1->Unload();
+
+        if (OverlayData->OverlayImage2 != nullptr && OverlayData->OverlayImage2->GetResourceId() != 0)
+            OverlayData->OverlayImage2->Unload();
+
+        if (OverlayData->OverlayImageScreenshot != nullptr && OverlayData->OverlayImageScreenshot->GetResourceId() != 0)
+            OverlayData->OverlayImageScreenshot->Unload();
+
         delete OverlayData->Renderer; OverlayData->Renderer = nullptr;
     }
     delete OverlayData;

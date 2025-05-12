@@ -835,6 +835,10 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Window)_Window))
             return;
         
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot();
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -902,7 +906,24 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
             _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
         }
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot();
     }
+}
+
+void VulkanHook_t::_HandleScreenshot()
+{
+    InGameOverlay::ScreenshotData_t screenshotData;
+    if (_CaptureScreenshot(screenshotData))
+        _SendScreenshot(&screenshotData);
+    else
+        _SendScreenshot(nullptr);
+}
+
+bool VulkanHook_t::_CaptureScreenshot(ScreenshotData_t& outData)
+{
+    return false;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)

@@ -47,6 +47,22 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
+static InGameOverlay::ScreenshotBufferFormat_t D3DFormatToScreenshotFormat(D3DFORMAT format)
+{
+    switch (format)
+    {
+        case D3DFMT_R8G8B8:           return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8;
+        case D3DFMT_X8R8G8B8:         return InGameOverlay::ScreenshotBufferFormat_t::X8R8G8B8;
+        case D3DFMT_A8R8G8B8:         return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+        case D3DFMT_R5G6B5:           return InGameOverlay::ScreenshotBufferFormat_t::R5G6B5;
+        case D3DFMT_X1R5G5B5:         return InGameOverlay::ScreenshotBufferFormat_t::X1R5G5B5;
+        case D3DFMT_A1R5G5B5:         return InGameOverlay::ScreenshotBufferFormat_t::A1R5G5B5;
+        case D3DFMT_A2R10G10B10:      return InGameOverlay::ScreenshotBufferFormat_t::A2R10G10B10;
+        case D3DFMT_A2B10G10R10:      return InGameOverlay::ScreenshotBufferFormat_t::A2B10G10R10;
+        default:                      return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+    }
+}
+
 bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -208,6 +224,10 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
     if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot();
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -217,7 +237,80 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         ImGui::Render();
 
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot();
     }
+}
+
+void DX9Hook_t::_HandleScreenshot()
+{
+    InGameOverlay::ScreenshotData_t screenshotData;
+    if (_CaptureScreenshot(screenshotData))
+        _SendScreenshot(&screenshotData);
+    else
+        _SendScreenshot(nullptr);
+}
+
+bool DX9Hook_t::_CaptureScreenshot(ScreenshotData_t& outData)
+{
+    bool result = false;
+    IDirect3DSurface9* backBuffer = nullptr;
+    HRESULT hr = _Device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+    if (FAILED(hr) || backBuffer == nullptr)
+        goto cleanup;
+
+    D3DSURFACE_DESC desc;
+    backBuffer->GetDesc(&desc);
+
+    IDirect3DSurface9* cpuSurface = nullptr;
+    hr = _Device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &cpuSurface, nullptr);
+
+    if (FAILED(hr) || cpuSurface == nullptr)
+        goto cleanup;
+
+    hr = _Device->GetRenderTargetData(backBuffer, cpuSurface);
+    if (FAILED(hr))
+        goto cleanup;
+
+    D3DLOCKED_RECT lockedRect;
+    hr = cpuSurface->LockRect(&lockedRect, nullptr, D3DLOCK_READONLY);
+    if (FAILED(hr))
+        goto cleanup;
+
+    UINT bytesPerPixel = 4;
+    UINT rowSize = desc.Width * bytesPerPixel;
+    UINT dataSize = desc.Height * rowSize;
+    outData.Buffer.resize(dataSize);
+
+    uint32_t* src = reinterpret_cast<uint32_t*>(lockedRect.pBits);
+    uint8_t* dest = reinterpret_cast<uint8_t*>(outData.Buffer.data());
+
+    for (uint32_t i = 0; i < desc.Height; ++i)
+    {
+        for (uint32_t j = 0; j < desc.Width; ++j)
+        {
+            // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader, force alpha to 0xff
+            uint32_t color = *src++;
+            reinterpret_cast<uint32_t*>(dest)[j] = ((color & 0xff) << 16) | (color & 0xff00) | ((color & 0xff0000) >> 16) | (0xff000000);
+        }
+        dest += desc.Width * bytesPerPixel;
+    }
+
+    outData.Width = desc.Width;
+    outData.Height = desc.Height;
+    outData.Format = D3DFormatToScreenshotFormat(desc.Format);
+
+    cpuSurface->UnlockRect();
+
+    result = true;
+
+cleanup:
+
+    SafeRelease(cpuSurface);
+    SafeRelease(backBuffer);
+
+    return result;
 }
 
 ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* _this)
