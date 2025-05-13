@@ -47,22 +47,22 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-static InGameOverlay::ScreenshotBufferFormat_t D3DFormatToScreenshotFormat(DXGI_FORMAT format)
+static InGameOverlay::ScreenshotBufferFormat_t RendererFormatToScreenshotFormat(DXGI_FORMAT format)
 {
     switch (format)
     {
-        case DXGI_FORMAT_R8G8B8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
-        case DXGI_FORMAT_B8G8R8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
-        case DXGI_FORMAT_B8G8R8X8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
-        case DXGI_FORMAT_R10G10B10A2_UNORM:         return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
-        case DXGI_FORMAT_B5G6R5_UNORM:              return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
-        case DXGI_FORMAT_B5G5R5A1_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
-        case DXGI_FORMAT_R16G16B16A16_FLOAT:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
-        case DXGI_FORMAT_R16G16B16A16_UNORM:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
-        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
-        default:                                    return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+        case DXGI_FORMAT_R8G8B8A8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R10G10B10A2_UNORM  : return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
+        case DXGI_FORMAT_B5G6R5_UNORM       : return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
+        case DXGI_FORMAT_B5G5R5A1_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT : return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_UNORM : return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
+        default:                              return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
     }
 }
 
@@ -491,6 +491,8 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
 
 bool DX12Hook_t::_CaptureScreenshot(DX12Frame_t& frame, ScreenshotData_t& outData)
 {
+    const UINT bytesPerPixel = 4;
+
     bool result = false;
 
     ID3D12CommandAllocator* pCommandAlloc = nullptr;
@@ -501,7 +503,7 @@ bool DX12Hook_t::_CaptureScreenshot(DX12Frame_t& frame, ScreenshotData_t& outDat
 
     D3D12_RESOURCE_DESC desc = frame.BackBuffer->GetDesc();
     
-    UINT rowPitch = (desc.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+    UINT rowPitch = (desc.Width * bytesPerPixel + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
     UINT imageSize = rowPitch * desc.Height;
 
     D3D12_HEAP_PROPERTIES sourceHeapProperties;
@@ -513,6 +515,8 @@ bool DX12Hook_t::_CaptureScreenshot(DX12Frame_t& frame, ScreenshotData_t& outDat
 
     D3D12_TEXTURE_COPY_LOCATION copyDest{};
     D3D12_TEXTURE_COPY_LOCATION copySrc{};
+
+    D3D12_RANGE readRange = { 0, static_cast<SIZE_T>(imageSize) };
 
     HRESULT hr = frame.BackBuffer->GetHeapProperties(&sourceHeapProperties, nullptr);
     if (SUCCEEDED(hr) && sourceHeapProperties.Type == D3D12_HEAP_TYPE_READBACK)
@@ -606,12 +610,10 @@ readback:
         SwitchToThread();
 
     BYTE* pMappedMemory = nullptr;
-    D3D12_RANGE readRange = { 0, static_cast<SIZE_T>(imageSize) };
     hr = pStaging->Map(0, &readRange, (void**)&pMappedMemory);
     if (FAILED(hr))
         goto cleanup;
 
-    UINT bytesPerPixel = 4;
     UINT rowSize = desc.Width * bytesPerPixel;
     UINT dataSize = desc.Height * rowSize;
     outData.Buffer.resize(dataSize);
@@ -623,7 +625,7 @@ readback:
 
     outData.Width = desc.Width;
     outData.Height = desc.Height;
-    outData.Format = D3DFormatToScreenshotFormat(desc.Format);
+    outData.Format = RendererFormatToScreenshotFormat(desc.Format);
 
     pStaging->Unmap(0, nullptr);
 

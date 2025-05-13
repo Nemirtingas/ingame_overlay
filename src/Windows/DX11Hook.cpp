@@ -47,22 +47,22 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-static InGameOverlay::ScreenshotBufferFormat_t D3DFormatToScreenshotFormat(DXGI_FORMAT format)
+static InGameOverlay::ScreenshotBufferFormat_t RendererFormatToScreenshotFormat(DXGI_FORMAT format)
 {
     switch (format)
     {
-        case DXGI_FORMAT_R8G8B8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
-        case DXGI_FORMAT_B8G8R8A8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
-        case DXGI_FORMAT_B8G8R8X8_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
-        case DXGI_FORMAT_R10G10B10A2_UNORM:         return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
-        case DXGI_FORMAT_B5G6R5_UNORM:              return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
-        case DXGI_FORMAT_B5G5R5A1_UNORM:            return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
-        case DXGI_FORMAT_R16G16B16A16_FLOAT:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
-        case DXGI_FORMAT_R16G16B16A16_UNORM:        return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
-        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:       return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
-        default:                                    return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+        case DXGI_FORMAT_R8G8B8A8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R10G10B10A2_UNORM  : return InGameOverlay::ScreenshotBufferFormat_t::R10G10B10A2;
+        case DXGI_FORMAT_B5G6R5_UNORM       : return InGameOverlay::ScreenshotBufferFormat_t::B5G6R5;
+        case DXGI_FORMAT_B5G5R5A1_UNORM     : return InGameOverlay::ScreenshotBufferFormat_t::B5G5R5A1;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT : return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_UNORM : return InGameOverlay::ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8A8_UNORM_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotBufferFormat_t::B8G8R8X8_UNORM_SRGB;
+        default:                              return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
     }
 }
 
@@ -296,6 +296,8 @@ void DX11Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
 
 bool DX11Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain, ScreenshotData_t& outData)
 {
+    const UINT bytesPerPixel = 4;
+
     bool result = false;
     ID3D11Texture2D* backBuffer = nullptr;
     ID3D11Texture2D* stagingTexture = nullptr;
@@ -324,7 +326,6 @@ bool DX11Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain, ScreenshotData_t
     if (FAILED(hr))
         goto cleanup;
 
-    UINT bytesPerPixel = 4;
     UINT rowSize = desc.Width * bytesPerPixel;
     UINT dataSize = desc.Height * rowSize;
     outData.Buffer.resize(dataSize);
@@ -337,7 +338,7 @@ bool DX11Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain, ScreenshotData_t
 
     outData.Width = desc.Width;
     outData.Height = desc.Height;
-    outData.Format = D3DFormatToScreenshotFormat(desc.Format);
+    outData.Format = RendererFormatToScreenshotFormat(desc.Format);
 
     _DeviceContext->Unmap(stagingTexture, 0);
 
