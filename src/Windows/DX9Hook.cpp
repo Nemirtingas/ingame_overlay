@@ -47,19 +47,19 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
-static InGameOverlay::ScreenshotBufferFormat_t RendererFormatToScreenshotFormat(D3DFORMAT format)
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(D3DFORMAT format)
 {
     switch (format)
     {
-        case D3DFMT_R8G8B8     : return InGameOverlay::ScreenshotBufferFormat_t::R8G8B8;
-        case D3DFMT_X8R8G8B8   : return InGameOverlay::ScreenshotBufferFormat_t::X8R8G8B8;
-        case D3DFMT_A8R8G8B8   : return InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
-        case D3DFMT_R5G6B5     : return InGameOverlay::ScreenshotBufferFormat_t::R5G6B5;
-        case D3DFMT_X1R5G5B5   : return InGameOverlay::ScreenshotBufferFormat_t::X1R5G5B5;
-        case D3DFMT_A1R5G5B5   : return InGameOverlay::ScreenshotBufferFormat_t::A1R5G5B5;
-        case D3DFMT_A2R10G10B10: return InGameOverlay::ScreenshotBufferFormat_t::A2R10G10B10;
-        case D3DFMT_A2B10G10R10: return InGameOverlay::ScreenshotBufferFormat_t::A2B10G10R10;
-        default:                 return InGameOverlay::ScreenshotBufferFormat_t::Unknown;
+        case D3DFMT_R8G8B8     : return InGameOverlay::ScreenshotDataFormat_t::R8G8B8;
+        case D3DFMT_X8R8G8B8   : return InGameOverlay::ScreenshotDataFormat_t::X8R8G8B8;
+        case D3DFMT_A8R8G8B8   : return InGameOverlay::ScreenshotDataFormat_t::A8R8G8B8;
+        case D3DFMT_R5G6B5     : return InGameOverlay::ScreenshotDataFormat_t::R5G6B5;
+        case D3DFMT_X1R5G5B5   : return InGameOverlay::ScreenshotDataFormat_t::X1R5G5B5;
+        case D3DFMT_A1R5G5B5   : return InGameOverlay::ScreenshotDataFormat_t::A1R5G5B5;
+        case D3DFMT_A2R10G10B10: return InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10;
+        case D3DFMT_A2B10G10R10: return InGameOverlay::ScreenshotDataFormat_t::A2B10G10R10;
+        default:                 return InGameOverlay::ScreenshotDataFormat_t::Unknown;
     }
 }
 
@@ -245,17 +245,12 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
 void DX9Hook_t::_HandleScreenshot()
 {
-    InGameOverlay::ScreenshotData_t screenshotData;
-    if (_CaptureScreenshot(screenshotData))
-        _SendScreenshot(&screenshotData);
-    else
+    if (!_CaptureScreenshot())
         _SendScreenshot(nullptr);
 }
 
-bool DX9Hook_t::_CaptureScreenshot(ScreenshotData_t& outData)
+bool DX9Hook_t::_CaptureScreenshot()
 {
-    const UINT bytesPerPixel = 4;
-
     bool result = false;
     IDirect3DSurface9* backBuffer = nullptr;
     HRESULT hr = _Device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
@@ -280,27 +275,14 @@ bool DX9Hook_t::_CaptureScreenshot(ScreenshotData_t& outData)
     if (FAILED(hr))
         goto cleanup;
 
-    UINT rowSize = desc.Width * bytesPerPixel;
-    UINT dataSize = desc.Height * rowSize;
-    outData.Buffer.resize(dataSize);
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = desc.Width;
+    screenshot.Height = desc.Height;
+    screenshot.Pitch = lockedRect.Pitch;
+    screenshot.Data = reinterpret_cast<void*>(lockedRect.pBits);
+    screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
 
-    uint32_t* src = reinterpret_cast<uint32_t*>(lockedRect.pBits);
-    uint8_t* dest = reinterpret_cast<uint8_t*>(outData.Buffer.data());
-
-    for (uint32_t i = 0; i < desc.Height; ++i)
-    {
-        for (uint32_t j = 0; j < desc.Width; ++j)
-        {
-            // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader, force alpha to 0xff
-            uint32_t color = *src++;
-            reinterpret_cast<uint32_t*>(dest)[j] = ((color & 0xff) << 16) | (color & 0xff00) | ((color & 0xff0000) >> 16) | (0xff000000);
-        }
-        dest += desc.Width * bytesPerPixel;
-    }
-
-    outData.Width = desc.Width;
-    outData.Height = desc.Height;
-    outData.Format = RendererFormatToScreenshotFormat(desc.Format);
+    _SendScreenshot(&screenshot);
 
     cpuSurface->UnlockRect();
 

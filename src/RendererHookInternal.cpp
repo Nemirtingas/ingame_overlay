@@ -53,11 +53,37 @@ ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
 	return _TakeScreenshotType;
 }
 
-void RendererHookInternal_t::_SendScreenshot(ScreenshotData_t* screenshot)
+void RendererHookInternal_t::_SendScreenshot(ScreenshotCallbackParameter_t* screenshot)
 {
 	_TakeScreenshotType = ScreenshotType_t::None;
 	if (screenshot != nullptr && _ScreenshotCallback != nullptr)
+	{
+		switch (screenshot->Format)
+		{
+			case InGameOverlay::ScreenshotDataFormat_t::R5G6B5             : 
+			case InGameOverlay::ScreenshotDataFormat_t::X1R5G5B5           : 
+			case InGameOverlay::ScreenshotDataFormat_t::A1R5G5B5           : 
+			case InGameOverlay::ScreenshotDataFormat_t::B5G6R5             : 
+			case InGameOverlay::ScreenshotDataFormat_t::B5G5R5A1           : screenshot->PixelSize = 2 ; break;
+
+			case InGameOverlay::ScreenshotDataFormat_t::R8G8B8             : screenshot->PixelSize = 3 ; break;
+
+			case InGameOverlay::ScreenshotDataFormat_t::X8R8G8B8           : 
+			case InGameOverlay::ScreenshotDataFormat_t::A8R8G8B8           : 
+			case InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8           : 
+			case InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8           : 
+			case InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8           : 
+			case InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10        : 
+			case InGameOverlay::ScreenshotDataFormat_t::A2B10G10R10        : 
+			case InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2        : screenshot->PixelSize = 4 ; break;
+
+			case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT : 
+			case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM : screenshot->PixelSize = 8 ; break;
+
+			case InGameOverlay::ScreenshotDataFormat_t::R32G32B32A32_FLOAT : screenshot->PixelSize = 16; break;
+		}
 		_ScreenshotCallback(screenshot, _ScreenshotCallbackUserParameter);
+	}
 }
 
 void RendererHookInternal_t::AppendResourceToLoadBatch(RendererResourceInternal_t* pResource)

@@ -48,7 +48,7 @@ private:
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(Display* display, GLXDrawable drawable);
     void _HandleScreenshot();
-    bool _CaptureScreenshot(ScreenshotData_t& outData);
+    bool _CaptureScreenshot();
 
     // Hook to render functions
     decltype(::glXSwapBuffers)* _GLXSwapBuffers;

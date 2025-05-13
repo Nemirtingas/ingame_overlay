@@ -154,14 +154,11 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
 void OpenGLHook_t::_HandleScreenshot()
 {
-    InGameOverlay::ScreenshotData_t screenshotData;
-    if (_CaptureScreenshot(screenshotData))
-        _SendScreenshot(&screenshotData);
-    else
+    if (!_CaptureScreenshot())
         _SendScreenshot(nullptr);
 }
 
-bool OpenGLHook_t::_CaptureScreenshot(ScreenshotData_t& outData)
+bool OpenGLHook_t::_CaptureScreenshot()
 {
     int viewport[8];
     int width, height;
@@ -171,29 +168,34 @@ bool OpenGLHook_t::_CaptureScreenshot(ScreenshotData_t& outData)
 
     int bytesPerPixel = 4;
 
-    outData.Buffer.resize(width * height * bytesPerPixel);
+    std::vector<uint8_t> buffer(width * height * bytesPerPixel);
 
     GLboolean isDoubleBuffered = GL_FALSE;
     glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
 
     glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, outData.Buffer.data());
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
 
     std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
 
     for (int i = 0; i < (height / 2); ++i)
     {
-        uint8_t* topLine = outData.Buffer.data() + i * width * bytesPerPixel;
-        uint8_t* bottomLine = outData.Buffer.data() + (height - i - 1) * width * bytesPerPixel;
+        uint8_t* topLine = buffer.data() + i * width * bytesPerPixel;
+        uint8_t* bottomLine = buffer.data() + (height - i - 1) * width * bytesPerPixel;
 
         memcpy(lineBuffer.data(), topLine, width * bytesPerPixel);
         memcpy(topLine, bottomLine, width * bytesPerPixel);
         memcpy(bottomLine, lineBuffer.data(), width * bytesPerPixel);
     }
 
-    outData.Width = width;
-    outData.Height = height;
-    outData.Format = InGameOverlay::ScreenshotBufferFormat_t::A8R8G8B8;
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = width;
+    screenshot.Height = height;
+    screenshot.Pitch = bytesPerPixel * width;
+    screenshot.Data = reinterpret_cast<void*>(buffer.data());
+    screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+
+    _SendScreenshot(&screenshot);
 
     return true;
 }

@@ -69,7 +69,7 @@ enum class ScreenshotType_t : uint8_t
     AfterOverlay = 2,
 };
 
-enum class ScreenshotBufferFormat_t : uint16_t
+enum class ScreenshotDataFormat_t : uint16_t
 {
     Unknown = 0,
     // 8-bit formats
@@ -78,14 +78,7 @@ enum class ScreenshotBufferFormat_t : uint16_t
     A8R8G8B8,
     B8G8R8A8,
     B8G8R8X8,
-    R8G8B8A8_UNORM_SRGB,
-    B8G8R8A8_UNORM_SRGB,
-    B8G8R8X8_UNORM_SRGB,
-
-    R8G8B8A8_UNORM,
-    B8G8R8A8_UNORM,
-    R8G8B8A8_SRGB,
-    B8G8R8A8_SRGB,
+    R8G8B8A8,
 
     // 10-bit formats
     A2R10G10B10,
@@ -105,15 +98,21 @@ enum class ScreenshotBufferFormat_t : uint16_t
     R32G32B32A32_FLOAT,
 };
 
-struct ScreenshotData_t
+/// <summary>
+///   The screenshot pixels data and format. To copy this buffer, you can reserve Width * Height * PixelSize bytes, but you will need to
+///   copy row by row because of the pitch.
+/// </summary>
+struct ScreenshotCallbackParameter_t
 {
-    std::vector<uint8_t> Buffer;
     uint32_t Width;
     uint32_t Height;
-    ScreenshotBufferFormat_t Format;
+    uint32_t PixelSize;
+    uint32_t Pitch;
+    void* Data;
+    ScreenshotDataFormat_t Format;
 };
 
-typedef void (*ScreenshotCallback_t)(ScreenshotData_t const* screenshot, void* userParameter);
+typedef void (*ScreenshotCallback_t)(ScreenshotCallbackParameter_t const* screenshot, void* userParameter);
 
 /// <summary>
 ///   The renderer hook.

@@ -109,7 +109,7 @@ private:
 
     void _PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
     void _HandleScreenshot(VulkanFrame_t& frame);
-    bool _CaptureScreenshot(VulkanFrame_t& frame, ScreenshotData_t& outData);
+    bool _CaptureScreenshot(VulkanFrame_t& frame);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
     PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);

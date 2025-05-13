@@ -53,21 +53,21 @@ static inline uint32_t GetImageDescriptorPool(uint32_t descriptorId)
     return descriptorId / VulkanHook_t::MaxDescriptorCountPerPool;
 }
 
-static InGameOverlay::ScreenshotBufferFormat_t RendererFormatToScreenshotFormat(VkFormat format)
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(VkFormat format)
 {
     switch (format)
     {
-        case VK_FORMAT_R8G8B8A8_UNORM          : return ScreenshotBufferFormat_t::R8G8B8A8_UNORM;
-        case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotBufferFormat_t::R8G8B8A8_SRGB;
-        case VK_FORMAT_B8G8R8A8_UNORM          : return ScreenshotBufferFormat_t::B8G8R8A8_UNORM;
-        case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotBufferFormat_t::B8G8R8A8_SRGB;
-        case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return ScreenshotBufferFormat_t::R10G10B10A2;
-        case VK_FORMAT_R16G16B16A16_SFLOAT     : return ScreenshotBufferFormat_t::R16G16B16A16_FLOAT;
-        case VK_FORMAT_R16G16B16A16_UNORM      : return ScreenshotBufferFormat_t::R16G16B16A16_UNORM;
-        case VK_FORMAT_R32G32B32A32_SFLOAT     : return ScreenshotBufferFormat_t::R32G32B32A32_FLOAT;
-        case VK_FORMAT_B5G6R5_UNORM_PACK16     : return ScreenshotBufferFormat_t::B5G6R5;
-        case VK_FORMAT_B5G5R5A1_UNORM_PACK16   : return ScreenshotBufferFormat_t::B5G5R5A1;
-        default:                                 return ScreenshotBufferFormat_t::Unknown;
+        case VK_FORMAT_R8G8B8A8_UNORM          : 
+        case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotDataFormat_t::R8G8B8A8;
+        case VK_FORMAT_B8G8R8A8_UNORM          :
+        case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotDataFormat_t::B8G8R8A8;
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return ScreenshotDataFormat_t::R10G10B10A2;
+        case VK_FORMAT_R16G16B16A16_SFLOAT     : return ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
+        case VK_FORMAT_R16G16B16A16_UNORM      : return ScreenshotDataFormat_t::R16G16B16A16_UNORM;
+        case VK_FORMAT_R32G32B32A32_SFLOAT     : return ScreenshotDataFormat_t::R32G32B32A32_FLOAT;
+        case VK_FORMAT_B5G6R5_UNORM_PACK16     : return ScreenshotDataFormat_t::B5G6R5;
+        case VK_FORMAT_B5G5R5A1_UNORM_PACK16   : return ScreenshotDataFormat_t::B5G5R5A1;
+        default:                                 return ScreenshotDataFormat_t::Unknown;
     }
 }
 
@@ -935,14 +935,11 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
 void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
 {
-    InGameOverlay::ScreenshotData_t screenshotData;
-    if (_CaptureScreenshot(frame, screenshotData))
-        _SendScreenshot(&screenshotData);
-    else
+    if (!_CaptureScreenshot(frame))
         _SendScreenshot(nullptr);
 }
 
-bool VulkanHook_t::_CaptureScreenshot(VulkanFrame_t& frame, ScreenshotData_t& outData)
+bool VulkanHook_t::_CaptureScreenshot(VulkanFrame_t& frame)
 {
     const int32_t bytesPerPixel = 4; // Assuming 4 bytes per pixel
     const int32_t width = ImGui::GetIO().DisplaySize.x;
@@ -1078,15 +1075,14 @@ bool VulkanHook_t::_CaptureScreenshot(VulkanFrame_t& frame, ScreenshotData_t& ou
     if (vkResult != VK_SUCCESS)
         goto cleanup;
 
-    mapped = static_cast<const char*>(data);
-    outData.Buffer.resize(rowSize * height);
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = width;
+    screenshot.Height = height;
+    screenshot.Pitch = layout.rowPitch;
+    screenshot.Data = reinterpret_cast<void*>(data);
+    screenshot.Format = RendererFormatToScreenshotFormat(_VulkanTargetFormat);
 
-    for (uint32_t y = 0; y < height; ++y)
-        memcpy(outData.Buffer.data() + y * rowSize, mapped + layout.offset + layout.rowPitch * y, rowSize);
-
-    outData.Width = width;
-    outData.Height = height;
-    outData.Format = RendererFormatToScreenshotFormat(_VulkanTargetFormat);
+    _SendScreenshot(&screenshot);
 
     _vkUnmapMemory(_VulkanDevice, dstMemory);
 

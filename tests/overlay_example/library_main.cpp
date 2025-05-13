@@ -30,7 +30,7 @@ struct Image
 {
     int32_t Width;
     int32_t Height;
-    std::vector<uint32_t> Image;
+    std::vector<uint8_t> Image;
 };
 
 struct OverlayData_t
@@ -66,14 +66,196 @@ Image CreateImageFromData(void const* data, size_t data_len)
     if (buffer == nullptr)
         return res;
 
-    res.Image.resize(size_t(width) * size_t(height));
+    res.Image.resize(size_t(width) * size_t(height) * 4);
     res.Width = width;
     res.Height = height;
-    memcpy(res.Image.data(), buffer, res.Image.size() * sizeof(uint32_t));
+    memcpy(res.Image.data(), buffer, res.Image.size());
 
     stbi_image_free(buffer);
 
     return res;
+}
+
+static float Float16ToFloat(uint16_t h)
+{
+    uint32_t sign = (h >> 15) & 0x1;
+    uint32_t exponent = (h >> 10) & 0x1F;
+    uint32_t mantissa = h & 0x3FF;
+
+    uint32_t f;
+
+    if (exponent == 0)
+    {
+        if (mantissa == 0)
+        {
+            f = (sign << 31); // Zero
+        }
+        else
+        {
+            // Subnormal -> normalize
+            exponent = 1;
+            while ((mantissa & 0x400) == 0)
+            {
+                mantissa <<= 1;
+                exponent--;
+            }
+            mantissa &= 0x3FF;
+            exponent += 127 - 15;
+            f = (sign << 31) | (exponent << 23) | (mantissa << 13);
+        }
+    }
+    else if (exponent == 0x1F)
+    {
+        // Inf or NaN
+        f = (sign << 31) | (0xFF << 23) | (mantissa << 13);
+    }
+    else
+    {
+        exponent = exponent - 15 + 127;
+        f = (sign << 31) | (exponent << 23) | (mantissa << 13);
+    }
+
+    float result;
+    memcpy(&result, &f, sizeof(result));
+    return result;
+}
+
+static void write_pixel(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+{
+    dst[0] = r;
+    dst[1] = g;
+    dst[2] = b;
+    dst[3] = a;
+}
+
+static void ConvertR8G8B8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t r = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t b = currentPixelBuffer[2];
+    write_pixel(destination, r, g, b, 255);
+}
+
+static void ConvertB8G8R8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t b = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t r = currentPixelBuffer[2];
+    write_pixel(destination, r, g, b, 255);
+}
+
+static void ConvertR8G8B8A8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t r = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t b = currentPixelBuffer[2];
+    uint8_t a = currentPixelBuffer[3];
+    write_pixel(destination, r, g, b, 255);
+}
+
+static void ConvertX8R8G8B8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t b = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t r = currentPixelBuffer[2];
+    write_pixel(destination, r, g, b, 255);
+}
+
+static void ConvertA8R8G8B8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t b = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t r = currentPixelBuffer[2];
+    uint8_t a = currentPixelBuffer[3];
+    write_pixel(destination, r, g, b, 255);
+}
+
+static void ConvertB8G8R8A8ToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    uint8_t b = currentPixelBuffer[0];
+    uint8_t g = currentPixelBuffer[1];
+    uint8_t r = currentPixelBuffer[2];
+    uint8_t a = currentPixelBuffer[3];
+    write_pixel(destination, r, g, b, 255);
+}
+
+#define ConvertB8G8R8X8ToRGBA ConvertB8G8R8ToRGBA
+
+static void ConvertR16G16B16A16FloatToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    const uint16_t* fp = reinterpret_cast<const uint16_t*>(currentPixelBuffer);
+    auto f16_to_u8 = [](uint16_t half) -> uint8_t {
+        return static_cast<uint8_t>(std::min(255.f, std::max(0.f, Float16ToFloat(half) * 255.f)));
+    };
+    write_pixel(destination,
+        f16_to_u8(fp[0]),
+        f16_to_u8(fp[1]),
+        f16_to_u8(fp[2]),
+        255);
+}
+
+static void ConvertR16G16B16A16UnormToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    const uint16_t* up = reinterpret_cast<const uint16_t*>(currentPixelBuffer);
+    write_pixel(destination, 
+        static_cast<uint8_t>((up[0] * 255) / 65535),
+        static_cast<uint8_t>((up[1] * 255) / 65535),
+        static_cast<uint8_t>((up[2] * 255) / 65535),
+        255);
+}
+
+static void ConvertR32G32B32A32FloatToRGBA(uint8_t* destination, const uint8_t* currentPixelBuffer)
+{
+    const float* fp = reinterpret_cast<const float*>(currentPixelBuffer);
+    write_pixel(destination,
+        static_cast<uint8_t>(std::clamp(fp[0] * 255.0f, 0.0f, 255.0f)),
+        static_cast<uint8_t>(std::clamp(fp[1] * 255.0f, 0.0f, 255.0f)),
+        static_cast<uint8_t>(std::clamp(fp[2] * 255.0f, 0.0f, 255.0f)),
+        255);
+}
+
+static bool ConvertToRGBA8888(const InGameOverlay::ScreenshotCallbackParameter_t* input, std::vector<uint8_t>& outRGBA)
+{
+    const uint32_t width = input->Width;
+    const uint32_t height = input->Height;
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(input->Data);
+
+    void(*convertFunc)(uint8_t*, const uint8_t*) = nullptr;
+
+    switch (input->Format)
+    {
+        case InGameOverlay::ScreenshotDataFormat_t::R8G8B8             : convertFunc = ConvertR8G8B8ToRGBA           ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::X8R8G8B8           : convertFunc = ConvertX8R8G8B8ToRGBA         ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::A8R8G8B8           : convertFunc = ConvertA8R8G8B8ToRGBA         ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8           : convertFunc = ConvertB8G8R8A8ToRGBA         ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8           : convertFunc = ConvertB8G8R8X8ToRGBA         ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8           : convertFunc = ConvertR8G8B8A8ToRGBA         ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10        : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::A2B10G10R10        : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2        : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R5G6B5             : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::X1R5G5B5           : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::A1R5G5B5           : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::B5G6R5             : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::B5G5R5A1           : convertFunc = nullptr                       ; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT : convertFunc = ConvertR16G16B16A16FloatToRGBA; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM : convertFunc = ConvertR16G16B16A16UnormToRGBA; break;
+        case InGameOverlay::ScreenshotDataFormat_t::R32G32B32A32_FLOAT : convertFunc = ConvertR32G32B32A32FloatToRGBA; break;
+    }
+
+    if (convertFunc == nullptr)
+        return false;
+
+    outRGBA.resize(width * height * 4);
+    for (uint32_t i = 0; i < height; ++i)
+    {
+        for (uint32_t j = 0; j < width; ++j)
+        {
+            convertFunc(outRGBA.data() + (j + i * width) * 4, src + i * input->Pitch + (j * input->PixelSize));
+        }
+    }
+
+    return true;
 }
 
 InGameOverlay::RendererHook_t* test_renderer_detector()
@@ -144,8 +326,9 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         //OverlayData->Renderer = test_renderer_detector();
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
         //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
-        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12, false);
+        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12, false);
         if (OverlayData->Renderer == nullptr)
             return;
 
@@ -342,7 +525,7 @@ void shared_library_load(void* hmodule)
             }
         }, OverlayData->ToggleKeys, CountOf(OverlayData->ToggleKeys), OverlayData->FontAtlas);
 
-        OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotData_t const* screenshot, void* userParam)
+        OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotCallbackParameter_t const* screenshot, void* userParam)
         {
             if (OverlayData->OverlayImageScreenshot)
             {
@@ -351,10 +534,8 @@ void shared_library_load(void* hmodule)
 
             OverlayData->Screenshot.Width = screenshot->Width;
             OverlayData->Screenshot.Height = screenshot->Height;
-            OverlayData->Screenshot.Image.resize(screenshot->Height * screenshot->Width);
-            memcpy(OverlayData->Screenshot.Image.data(), screenshot->Buffer.data(), screenshot->Buffer.size());
-
-            OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateAndLoadResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height, true);
+            if (ConvertToRGBA8888(screenshot, OverlayData->Screenshot.Image))
+                OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateAndLoadResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height, true);
         }, nullptr);
     });
 }

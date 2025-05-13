@@ -55,7 +55,7 @@ private:
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags);
     void _HandleScreenshot(IDXGISwapChain* pSwapChain);
-    bool _CaptureScreenshot(IDXGISwapChain* pSwapChain, ScreenshotData_t& outData);
+    bool _CaptureScreenshot(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions
     decltype(&ID3D11Device::Release)         _ID3D11DeviceRelease;

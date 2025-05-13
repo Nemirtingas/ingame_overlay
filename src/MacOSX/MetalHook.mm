@@ -130,14 +130,11 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
 
 void MetalHook_t::_HandleScreenshot()
 {
-    InGameOverlay::ScreenshotData_t screenshotData;
-    if (_CaptureScreenshot(screenshotData))
-        _SendScreenshot(&screenshotData);
-    else
+    if (!_CaptureScreenshot())
         _SendScreenshot(nullptr);
 }
 
-bool MetalHook_t::_CaptureScreenshot(ScreenshotData_t& outData)
+bool MetalHook_t::_CaptureScreenshot()
 {
     return false;
 }

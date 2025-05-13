@@ -47,7 +47,7 @@ protected:
 
     ScreenshotType_t _ScreenshotType();
 
-    void _SendScreenshot(ScreenshotData_t* screenshot);
+    void _SendScreenshot(ScreenshotCallbackParameter_t* screenshot);
 
 public:
     void AppendResourceToLoadBatch(RendererResourceInternal_t* pResource);
