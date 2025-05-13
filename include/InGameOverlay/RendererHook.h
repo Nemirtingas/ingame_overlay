@@ -82,6 +82,11 @@ enum class ScreenshotBufferFormat_t : uint16_t
     B8G8R8A8_UNORM_SRGB,
     B8G8R8X8_UNORM_SRGB,
 
+    R8G8B8A8_UNORM,
+    B8G8R8A8_UNORM,
+    R8G8B8A8_SRGB,
+    B8G8R8A8_SRGB,
+
     // 10-bit formats
     A2R10G10B10,
     A2B10G10R10,
@@ -97,6 +102,7 @@ enum class ScreenshotBufferFormat_t : uint16_t
     // HDR / float formats
     R16G16B16A16_FLOAT,
     R16G16B16A16_UNORM,
+    R32G32B32A32_FLOAT,
 };
 
 struct ScreenshotData_t
@@ -123,7 +129,6 @@ public:
     // TODO: Deprecated direct use of thoses and use either a setter or plain C function pointers with void* user parameter.
     std::function<void()> OverlayProc;
     std::function<void(OverlayHookState)> OverlayHookReady;
-    std::function<void(ScreenshotData_t const&)> ScreenshotCallback;
 
     virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam) = 0;
 

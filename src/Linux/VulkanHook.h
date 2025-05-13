@@ -108,8 +108,8 @@ private:
     void _ResetRenderState(OverlayHookState state);
 
     void _PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
-    void _HandleScreenshot();
-    bool _CaptureScreenshot(ScreenshotData_t& outData);
+    void _HandleScreenshot(VulkanFrame_t& frame);
+    bool _CaptureScreenshot(VulkanFrame_t& frame, ScreenshotData_t& outData);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
     PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName);
@@ -164,6 +164,8 @@ private:
     decltype(::vkCmdBeginRenderPass)                     *_vkCmdBeginRenderPass;
     decltype(::vkCmdEndRenderPass)                       *_vkCmdEndRenderPass;
     decltype(::vkDestroyRenderPass)                      *_vkDestroyRenderPass;
+    decltype(::vkCmdCopyImage)                           *_vkCmdCopyImage;
+    decltype(::vkGetImageSubresourceLayout)              *_vkGetImageSubresourceLayout;
     decltype(::vkCreateSemaphore)                        *_vkCreateSemaphore;
     decltype(::vkDestroySemaphore)                       *_vkDestroySemaphore;
     decltype(::vkCreateBuffer)                           *_vkCreateBuffer;
