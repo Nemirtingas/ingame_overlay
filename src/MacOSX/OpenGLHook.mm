@@ -189,7 +189,10 @@ bool OpenGLHook_t::_CaptureScreenshot(ScreenshotData_t& outData)
 
     outData.Buffer.resize(width * height * bytesPerPixel);
 
-    glReadBuffer(GL_FRONT);
+    GLboolean isDoubleBuffered = GL_FALSE;
+    glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
+
+    glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, outData.Buffer.data());
 
     std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
