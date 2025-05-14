@@ -245,12 +245,6 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
 void DX9Hook_t::_HandleScreenshot()
 {
-    if (!_CaptureScreenshot())
-        _SendScreenshot(nullptr);
-}
-
-bool DX9Hook_t::_CaptureScreenshot()
-{
     bool result = false;
     IDirect3DSurface9* backBuffer = nullptr;
     HRESULT hr = _Device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
@@ -293,7 +287,8 @@ cleanup:
     SafeRelease(cpuSurface);
     SafeRelease(backBuffer);
 
-    return result;
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* _this)

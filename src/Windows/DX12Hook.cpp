@@ -482,12 +482,6 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
 
 void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
 {
-    if (!_CaptureScreenshot(frame))
-        _SendScreenshot(nullptr);
-}
-
-bool DX12Hook_t::_CaptureScreenshot(DX12Frame_t& frame)
-{
     bool result = false;
 
     ID3D12CommandAllocator* pCommandAlloc = nullptr;
@@ -631,7 +625,8 @@ cleanup:
     SafeRelease(pCommandList);
     SafeRelease(pCommandAlloc);
 
-    return result;
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)

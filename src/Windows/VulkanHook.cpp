@@ -935,16 +935,8 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
 void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
 {
-    if (!_CaptureScreenshot(frame))
-        _SendScreenshot(nullptr);
-}
-
-bool VulkanHook_t::_CaptureScreenshot(VulkanFrame_t& frame)
-{
-    const int32_t bytesPerPixel = 4; // Assuming 4 bytes per pixel
     const int32_t width = ImGui::GetIO().DisplaySize.x;
     const int32_t height = ImGui::GetIO().DisplaySize.y;
-    const size_t rowSize = width * bytesPerPixel;
 
     bool result = false;
 
@@ -1098,7 +1090,8 @@ cleanup:
     if (cmdBuffer != VK_NULL_HANDLE)
         _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &cmdBuffer);
 
-    return result;
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)

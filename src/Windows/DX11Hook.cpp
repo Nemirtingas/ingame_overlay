@@ -287,14 +287,6 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
 void DX11Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
 {
-    if (!_CaptureScreenshot(pSwapChain))
-        _SendScreenshot(nullptr);
-}
-
-bool DX11Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain)
-{
-    const UINT bytesPerPixel = 4;
-
     bool result = false;
     ID3D11Texture2D* backBuffer = nullptr;
     ID3D11Texture2D* stagingTexture = nullptr;
@@ -314,7 +306,7 @@ bool DX11Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain)
     desc.MiscFlags = 0;
 
     hr = _Device->CreateTexture2D(&desc, nullptr, &stagingTexture);
-    if (FAILED(hr) ||stagingTexture == nullptr)
+    if (FAILED(hr) || stagingTexture == nullptr)
         goto cleanup;
 
     _DeviceContext->CopyResource(stagingTexture, backBuffer);
@@ -341,7 +333,8 @@ cleanup:
     SafeRelease(stagingTexture);
     SafeRelease(backBuffer);
 
-    return result;
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX11Hook_t::_MyID3D11DeviceRelease(ID3D11Device* _this)

@@ -154,12 +154,6 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
 void OpenGLHook_t::_HandleScreenshot()
 {
-    if (!_CaptureScreenshot())
-        _SendScreenshot(nullptr);
-}
-
-bool OpenGLHook_t::_CaptureScreenshot()
-{
     int viewport[8];
     int width, height;
     glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
@@ -196,8 +190,6 @@ bool OpenGLHook_t::_CaptureScreenshot()
     screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
 
     _SendScreenshot(&screenshot);
-
-    return true;
 }
 
 BOOL WINAPI OpenGLHook_t::_MyWGLSwapBuffers(HDC hDC)

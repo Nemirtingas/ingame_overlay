@@ -130,13 +130,7 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
 
 void MetalHook_t::_HandleScreenshot()
 {
-    if (!_CaptureScreenshot())
-        _SendScreenshot(nullptr);
-}
-
-bool MetalHook_t::_CaptureScreenshot()
-{
-    return false;
+    _SendScreenshot(nullptr);
 }
 
 id<MTLRenderCommandEncoder> MetalHook_t::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)

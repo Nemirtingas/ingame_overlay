@@ -251,14 +251,6 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
 void DX10Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
 {
-    if (!_CaptureScreenshot(pSwapChain))
-        _SendScreenshot(nullptr);
-}
-
-bool DX10Hook_t::_CaptureScreenshot(IDXGISwapChain* pSwapChain)
-{
-    const UINT bytesPerPixel = 4;
-
     bool result = false;
 
     ID3D10Texture2D* backBuffer = nullptr;
@@ -305,7 +297,8 @@ cleanup:
     SafeRelease(stagingTexture);
     SafeRelease(backBuffer);
 
-    return result;
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX10Hook_t::_MyID3D10DeviceRelease(ID3D10Device* _this)

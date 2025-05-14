@@ -174,12 +174,6 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
 void OpenGLXHook_t::_HandleScreenshot()
 {
-    if (!_CaptureScreenshot())
-        _SendScreenshot(nullptr);
-}
-
-bool OpenGLXHook_t::_CaptureScreenshot()
-{
     int viewport[8];
     int width, height;
     glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
@@ -216,8 +210,6 @@ bool OpenGLXHook_t::_CaptureScreenshot()
     screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
 
     _SendScreenshot(&screenshot);
-
-    return true;
 }
 
 void OpenGLXHook_t::_MyGLXSwapBuffers(Display* display, GLXDrawable drawable)
