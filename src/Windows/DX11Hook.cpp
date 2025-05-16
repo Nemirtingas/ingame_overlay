@@ -47,6 +47,25 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+        case DXGI_FORMAT_R8G8B8A8_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R10G10B10A2_UNORM  : return InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2;
+        case DXGI_FORMAT_B5G6R5_UNORM       : return InGameOverlay::ScreenshotDataFormat_t::B5G6R5;
+        case DXGI_FORMAT_B5G5R5A1_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::B5G5R5A1;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_UNORM : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        default:                              return InGameOverlay::ScreenshotDataFormat_t::Unknown;
+    }
+}
+
 static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
 {
     HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
@@ -246,6 +265,10 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
     if (ImGui_ImplDX11_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot(pSwapChain);
+
         ImGui::NewFrame();
     
         OverlayProc();
@@ -256,7 +279,62 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
         _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot(pSwapChain);
     }
+}
+
+void DX11Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
+{
+    bool result = false;
+    ID3D11Texture2D* backBuffer = nullptr;
+    ID3D11Texture2D* stagingTexture = nullptr;
+
+    D3D11_TEXTURE2D_DESC desc;
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+
+    HRESULT hr = pSwapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    if (FAILED(hr))
+        goto cleanup;
+
+    backBuffer->GetDesc(&desc);
+
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.MiscFlags = 0;
+
+    hr = _Device->CreateTexture2D(&desc, nullptr, &stagingTexture);
+    if (FAILED(hr) || stagingTexture == nullptr)
+        goto cleanup;
+
+    _DeviceContext->CopyResource(stagingTexture, backBuffer);
+
+    hr = _DeviceContext->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mappedResource);
+    if (FAILED(hr))
+        goto cleanup;
+
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = desc.Width;
+    screenshot.Height = desc.Height;
+    screenshot.Pitch = mappedResource.RowPitch;
+    screenshot.Data = reinterpret_cast<void*>(mappedResource.pData);
+    screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
+
+    _SendScreenshot(&screenshot);
+
+    _DeviceContext->Unmap(stagingTexture, 0);
+
+    result = true;
+
+cleanup:
+
+    SafeRelease(stagingTexture);
+    SafeRelease(backBuffer);
+
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX11Hook_t::_MyID3D11DeviceRelease(ID3D11Device* _this)

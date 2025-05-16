@@ -55,6 +55,24 @@ static inline uint32_t GetImageDescriptorPool(uint32_t descriptorId)
     return descriptorId / VulkanHook_t::MaxDescriptorCountPerPool;
 }
 
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(VkFormat format)
+{
+    switch (format)
+    {
+        case VK_FORMAT_R8G8B8A8_UNORM          : 
+        case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotDataFormat_t::R8G8B8A8;
+        case VK_FORMAT_B8G8R8A8_UNORM          :
+        case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotDataFormat_t::B8G8R8A8;
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return ScreenshotDataFormat_t::R10G10B10A2;
+        case VK_FORMAT_R16G16B16A16_SFLOAT     : return ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
+        case VK_FORMAT_R16G16B16A16_UNORM      : return ScreenshotDataFormat_t::R16G16B16A16_UNORM;
+        case VK_FORMAT_R32G32B32A32_SFLOAT     : return ScreenshotDataFormat_t::R32G32B32A32_FLOAT;
+        case VK_FORMAT_B5G6R5_UNORM_PACK16     : return ScreenshotDataFormat_t::B5G6R5;
+        case VK_FORMAT_B5G5R5A1_UNORM_PACK16   : return ScreenshotDataFormat_t::B5G5R5A1;
+        default:                                 return ScreenshotDataFormat_t::Unknown;
+    }
+}
+
 bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -408,9 +426,11 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkQueueWaitIdle);
     LOAD_VULKAN_FUNCTION(vkGetDeviceQueue);
     LOAD_VULKAN_FUNCTION(vkCreateRenderPass);
-    LOAD_VULKAN_FUNCTION(vkDestroyRenderPass);
     LOAD_VULKAN_FUNCTION(vkCmdBeginRenderPass);
     LOAD_VULKAN_FUNCTION(vkCmdEndRenderPass);
+    LOAD_VULKAN_FUNCTION(vkDestroyRenderPass);
+    LOAD_VULKAN_FUNCTION(vkCmdCopyImage);
+    LOAD_VULKAN_FUNCTION(vkGetImageSubresourceLayout);
     LOAD_VULKAN_FUNCTION(vkCreateSemaphore);
     LOAD_VULKAN_FUNCTION(vkDestroySemaphore);
     LOAD_VULKAN_FUNCTION(vkCreateBuffer);
@@ -835,6 +855,10 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Window)_Window))
             return;
         
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot(frame);
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -902,7 +926,171 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
             _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
         }
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot(frame);
     }
+}
+
+void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
+{
+    const int32_t width = ImGui::GetIO().DisplaySize.x;
+    const int32_t height = ImGui::GetIO().DisplaySize.y;
+
+    bool result = false;
+
+    VkResult vkResult;
+
+    // 1. Create staging image (host-visible)
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = _VulkanTargetFormat;
+    imageInfo.extent.width = width;
+    imageInfo.extent.height = height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_LINEAR;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VkImage dstImage = VK_NULL_HANDLE;
+    VkDeviceMemory dstMemory = VK_NULL_HANDLE;
+    VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+
+    VkMemoryRequirements memReqs{};
+    VkMemoryAllocateInfo allocInfo{};
+    VkPhysicalDeviceMemoryProperties memProps{};
+    VkCommandBufferAllocateInfo cmdBufAllocInfo{};
+    VkCommandBufferBeginInfo beginInfo{};
+    VkImageMemoryBarrier barrier{};
+    VkImageCopy imageCopy{};
+    VkSubmitInfo submitInfo{};
+    VkImageSubresource subresource{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
+    VkSubresourceLayout layout{};
+
+    const char* mapped = nullptr;
+
+    vkResult = _vkCreateImage(_VulkanDevice, &imageInfo, nullptr, &dstImage);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    // 2. Allocate memory for staging image
+    _vkGetImageMemoryRequirements(_VulkanDevice, dstImage, &memReqs);
+
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReqs.size;
+
+    // Find host-visible memory type
+    _vkGetPhysicalDeviceMemoryProperties(_VulkanPhysicalDevice, &memProps);
+    for (uint32_t i = 0; i < memProps.memoryTypeCount; i++)
+    {
+        if ((memReqs.memoryTypeBits & (1 << i)) &&
+            (memProps.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)))
+        {
+            allocInfo.memoryTypeIndex = i;
+            break;
+        }
+    }
+
+    vkResult = _vkAllocateMemory(_VulkanDevice, &allocInfo, nullptr, &dstMemory);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    vkResult = _vkBindImageMemory(_VulkanDevice, dstImage, dstMemory, 0);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    // 3. Command buffer: Copy from srcImage to dstImage
+    cmdBufAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmdBufAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmdBufAllocInfo.commandPool = frame.CommandPool;
+    cmdBufAllocInfo.commandBufferCount = 1;
+
+    vkResult = _vkAllocateCommandBuffers(_VulkanDevice, &cmdBufAllocInfo, &cmdBuffer);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkResult = _vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    // Transition dst image to transfer dst layout
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.image = dstImage;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    _vkCmdPipelineBarrier(cmdBuffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+    // Copy from src (swapchain) to dst (linear)
+    imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    imageCopy.srcSubresource.layerCount = 1;
+    imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    imageCopy.dstSubresource.layerCount = 1;
+    imageCopy.extent.width = width;
+    imageCopy.extent.height = height;
+    imageCopy.extent.depth = 1;
+
+    _vkCmdCopyImage(cmdBuffer,
+        frame.BackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        dstImage, VK_IMAGE_LAYOUT_GENERAL,
+        1, &imageCopy);
+
+    _vkEndCommandBuffer(cmdBuffer);
+
+    // Submit and wait
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+    _vkQueueSubmit(_VulkanQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    _vkQueueWaitIdle(_VulkanQueue);
+
+    // 4. Map memory
+    _vkGetImageSubresourceLayout(_VulkanDevice, dstImage, &subresource, &layout);
+
+    void* data;
+    vkResult = _vkMapMemory(_VulkanDevice, dstMemory, 0, VK_WHOLE_SIZE, 0, &data);
+    if (vkResult != VK_SUCCESS)
+        goto cleanup;
+
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = width;
+    screenshot.Height = height;
+    screenshot.Pitch = layout.rowPitch;
+    screenshot.Data = reinterpret_cast<void*>(data);
+    screenshot.Format = RendererFormatToScreenshotFormat(_VulkanTargetFormat);
+
+    _SendScreenshot(&screenshot);
+
+    _vkUnmapMemory(_VulkanDevice, dstMemory);
+
+    result = true;
+
+cleanup:
+    if (dstImage != VK_NULL_HANDLE)
+        _vkDestroyImage(_VulkanDevice, dstImage, nullptr);
+
+    if (dstMemory != VK_NULL_HANDLE)
+        _vkFreeMemory(_VulkanDevice, dstMemory, nullptr);
+
+    if (cmdBuffer != VK_NULL_HANDLE)
+        _vkFreeCommandBuffers(_VulkanDevice, frame.CommandPool, 1, &cmdBuffer);
+
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
@@ -977,6 +1165,7 @@ VulkanHook_t::VulkanHook_t():
     _Hooked(false),
     _X11Hooked(false),
     _Window(nullptr),
+    _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
     _VulkanLoader(nullptr),
     _VulkanAllocationCallbacks(nullptr),
@@ -1011,6 +1200,8 @@ VulkanHook_t::VulkanHook_t():
     _vkCmdBeginRenderPass(nullptr),
     _vkCmdEndRenderPass(nullptr),
     _vkDestroyRenderPass(nullptr),
+    _vkCmdCopyImage(nullptr),
+    _vkGetImageSubresourceLayout(nullptr),
     _vkCreateSemaphore(nullptr),
     _vkDestroySemaphore(nullptr),
     _vkCreateBuffer(nullptr),
@@ -1330,6 +1521,7 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
     vulkanRendererImage->ImageId = (ImTextureID)vulkanImageDescriptor.DescriptorSet;
     vulkanRendererImage->VulkanImageMemory = vulkanImageMemory;
     vulkanRendererImage->ImageDescriptorId = vulkanImageDescriptor;
+    vulkanRendererImage->VulkanImage = vulkanImage;
     vulkanRendererImage->VulkanImageView = vulkanImageView;
 
     image = std::shared_ptr<uint64_t>((uint64_t*)vulkanRendererImage, [this](uint64_t* handle)
@@ -1346,8 +1538,8 @@ std::weak_ptr<uint64_t> VulkanHook_t::CreateImageResource(const void* image_data
 
             _ReleaseDescriptor(vulkanImage->ImageDescriptorId);
             _vkDestroyImageView(_VulkanDevice, vulkanImage->VulkanImageView, _VulkanAllocationCallbacks);
-            _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, _VulkanAllocationCallbacks);
             _vkFreeMemory(_VulkanDevice, vulkanImage->VulkanImageMemory, _VulkanAllocationCallbacks);
+            _vkDestroyImage(_VulkanDevice, vulkanImage->VulkanImage, _VulkanAllocationCallbacks);
 
             delete vulkanImage;
         }

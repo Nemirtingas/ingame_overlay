@@ -59,6 +59,7 @@ private:
 
     void _ResetRenderState();
     void _PrepareForOverlay(RenderPass_t& renderPass);
+    void _HandleScreenshot();
 
     // Hook to render functions
     Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;

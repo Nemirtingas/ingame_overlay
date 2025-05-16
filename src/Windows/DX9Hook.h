@@ -50,6 +50,7 @@ private:
     void _UpdateHookDeviceRefCount();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);
+    void _HandleScreenshot();
 
     // Hook to render functions
     decltype(&IDirect3DDevice9::Release)     _IDirect3DDevice9Release;

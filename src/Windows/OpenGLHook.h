@@ -49,6 +49,7 @@ private:
 
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(HDC hDC);
+    void _HandleScreenshot();
 
     // Hook to render functions
     WGLSwapBuffers_t _WGLSwapBuffers;

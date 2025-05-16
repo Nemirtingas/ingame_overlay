@@ -32,6 +32,9 @@ class RendererResourceInternal_t;
 
 class RendererHookInternal_t : public RendererHook_t
 {
+    ScreenshotCallback_t _ScreenshotCallback;
+    void* _ScreenshotCallbackUserParameter;
+    ScreenshotType_t _TakeScreenshotType;
     ResourceAutoLoad_t _AutoLoad;
     uint32_t _BatchSize;
     std::vector<RendererResourceInternal_t*> _ResourcesToLoad;
@@ -42,8 +45,14 @@ protected:
 
     void _LoadResources();
 
+    ScreenshotType_t _ScreenshotType();
+
+    void _SendScreenshot(ScreenshotCallbackParameter_t* screenshot);
+
 public:
     void AppendResourceToLoadBatch(RendererResourceInternal_t* pResource);
+
+    virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam);
 
     virtual uint32_t GetAutoLoadBatchSize();
 
@@ -56,6 +65,8 @@ public:
     virtual RendererResource_t* CreateResource();
 
     virtual RendererResource_t* CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach);
+
+    virtual void TakeScreenshot(ScreenshotType_t type);
 
     virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height) = 0;
 

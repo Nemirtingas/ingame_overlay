@@ -109,6 +109,10 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
     
     if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(renderPass.Descriptor))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot();
+
         ImGui::NewFrame();
         
         OverlayProc();
@@ -118,7 +122,15 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
         ImGui::Render();
 
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), renderPass.CommandBuffer, renderPass.Encoder);
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot();
     }
+}
+
+void MetalHook_t::_HandleScreenshot()
+{
+    _SendScreenshot(nullptr);
 }
 
 id<MTLRenderCommandEncoder> MetalHook_t::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)

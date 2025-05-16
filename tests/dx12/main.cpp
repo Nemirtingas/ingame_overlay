@@ -276,10 +276,35 @@ bool CreateDeviceD3D(HWND hWnd)
         pdx12Debug->EnableDebugLayer();
 #endif
 
+    IDXGIFactory2* pFactory;
+    CreateDXGIFactory1(IID_PPV_ARGS(&pFactory));
+
+    IDXGIAdapter1* pAdapter;
+    for (UINT adapterIndex = 0; SUCCEEDED(pFactory->EnumAdapters1(adapterIndex, &pAdapter)); ++adapterIndex)
+    {
+        DXGI_ADAPTER_DESC1 desc;
+        pAdapter->GetDesc1(&desc);
+
+        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE || desc.VendorId != 4098)
+        {
+            pAdapter->Release();
+            continue; // Ignore WARP
+        }
+
+        // Test if this adapter supports DX12
+        if (SUCCEEDED(D3D12CreateDevice(pAdapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_pd3dDevice))))
+        {
+            pAdapter->Release();
+            break;
+        }
+
+        pAdapter->Release();
+    }
+
     // Create device
-    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-    if (D3D12CreateDevice(NULL, featureLevel, IID_PPV_ARGS(&g_pd3dDevice)) != S_OK)
-        return false;
+    //D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+    //if (D3D12CreateDevice(NULL, featureLevel, IID_PPV_ARGS(&g_pd3dDevice)) != S_OK)
+    //    return false;
 
     // [DEBUG] Setup debug interface to break on any warnings/errors
 #ifdef DX12_ENABLE_DEBUG_LAYER

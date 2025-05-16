@@ -53,6 +53,7 @@ private:
     void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain, UINT flags);
+    void _HandleScreenshot(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions
     decltype(&ID3D10Device::Release)         _ID3D10DeviceRelease;

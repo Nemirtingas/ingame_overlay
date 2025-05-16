@@ -47,6 +47,22 @@ static inline void SafeRelease(T*& pUnk)
     }
 }
 
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(D3DFORMAT format)
+{
+    switch (format)
+    {
+        case D3DFMT_R8G8B8     : return InGameOverlay::ScreenshotDataFormat_t::R8G8B8;
+        case D3DFMT_X8R8G8B8   : return InGameOverlay::ScreenshotDataFormat_t::X8R8G8B8;
+        case D3DFMT_A8R8G8B8   : return InGameOverlay::ScreenshotDataFormat_t::A8R8G8B8;
+        case D3DFMT_R5G6B5     : return InGameOverlay::ScreenshotDataFormat_t::R5G6B5;
+        case D3DFMT_X1R5G5B5   : return InGameOverlay::ScreenshotDataFormat_t::X1R5G5B5;
+        case D3DFMT_A1R5G5B5   : return InGameOverlay::ScreenshotDataFormat_t::A1R5G5B5;
+        case D3DFMT_A2R10G10B10: return InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10;
+        case D3DFMT_A2B10G10R10: return InGameOverlay::ScreenshotDataFormat_t::A2B10G10R10;
+        default:                 return InGameOverlay::ScreenshotDataFormat_t::Unknown;
+    }
+}
+
 bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -208,6 +224,10 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
     if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot();
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -217,7 +237,58 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         ImGui::Render();
 
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot();
     }
+}
+
+void DX9Hook_t::_HandleScreenshot()
+{
+    bool result = false;
+    IDirect3DSurface9* backBuffer = nullptr;
+    HRESULT hr = _Device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+    if (FAILED(hr) || backBuffer == nullptr)
+        goto cleanup;
+
+    D3DSURFACE_DESC desc;
+    backBuffer->GetDesc(&desc);
+
+    IDirect3DSurface9* cpuSurface = nullptr;
+    hr = _Device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &cpuSurface, nullptr);
+
+    if (FAILED(hr) || cpuSurface == nullptr)
+        goto cleanup;
+
+    hr = _Device->GetRenderTargetData(backBuffer, cpuSurface);
+    if (FAILED(hr))
+        goto cleanup;
+
+    D3DLOCKED_RECT lockedRect;
+    hr = cpuSurface->LockRect(&lockedRect, nullptr, D3DLOCK_READONLY);
+    if (FAILED(hr))
+        goto cleanup;
+
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = desc.Width;
+    screenshot.Height = desc.Height;
+    screenshot.Pitch = lockedRect.Pitch;
+    screenshot.Data = reinterpret_cast<void*>(lockedRect.pBits);
+    screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
+
+    _SendScreenshot(&screenshot);
+
+    cpuSurface->UnlockRect();
+
+    result = true;
+
+cleanup:
+
+    SafeRelease(cpuSurface);
+    SafeRelease(backBuffer);
+
+    if (!result)
+        _SendScreenshot(nullptr);
 }
 
 ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* _this)

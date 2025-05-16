@@ -133,6 +133,10 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
     if (ImGui_ImplOpenGL3_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(hWnd))
     {
+        auto screenshotType = _ScreenshotType();
+        if (screenshotType == ScreenshotType_t::BeforeOverlay)
+            _HandleScreenshot();
+
         ImGui::NewFrame();
 
         OverlayProc();
@@ -142,7 +146,50 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         ImGui::Render();
 
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        if (screenshotType == ScreenshotType_t::AfterOverlay)
+            _HandleScreenshot();
     }
+}
+
+void OpenGLHook_t::_HandleScreenshot()
+{
+    int viewport[8];
+    int width, height;
+    glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
+    width = viewport[2];
+    height = viewport[3];
+
+    int bytesPerPixel = 4;
+
+    std::vector<uint8_t> buffer(width * height * bytesPerPixel);
+
+    GLboolean isDoubleBuffered = GL_FALSE;
+    glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
+
+    glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+
+    std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
+
+    for (int i = 0; i < (height / 2); ++i)
+    {
+        uint8_t* topLine = buffer.data() + i * width * bytesPerPixel;
+        uint8_t* bottomLine = buffer.data() + (height - i - 1) * width * bytesPerPixel;
+
+        memcpy(lineBuffer.data(), topLine, width * bytesPerPixel);
+        memcpy(topLine, bottomLine, width * bytesPerPixel);
+        memcpy(bottomLine, lineBuffer.data(), width * bytesPerPixel);
+    }
+
+    ScreenshotCallbackParameter_t screenshot;
+    screenshot.Width = width;
+    screenshot.Height = height;
+    screenshot.Pitch = bytesPerPixel * width;
+    screenshot.Data = reinterpret_cast<void*>(buffer.data());
+    screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+
+    _SendScreenshot(&screenshot);
 }
 
 BOOL WINAPI OpenGLHook_t::_MyWGLSwapBuffers(HDC hDC)

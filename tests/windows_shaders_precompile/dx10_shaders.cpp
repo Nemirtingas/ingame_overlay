@@ -73,3 +73,32 @@ std::vector<uint8_t> BuildDX10PixelShader()
     pixelShaderBlob->Release();
     return shader;
 }
+
+std::vector<uint8_t> BuildDX10RGBAPixelShader()
+{
+    static const char* pixelShader = "\
+    struct PS_INPUT\
+    {\
+        float4 pos : SV_POSITION; \
+        float4 col : COLOR0; \
+        float2 uv : TEXCOORD0; \
+    }; \
+        sampler sampler0; \
+        Texture2D texture0; \
+        \
+        float4 main(PS_INPUT input) : SV_Target\
+    {\
+        float4 out_col = texture0.Sample(sampler0, input.uv); \
+        return float4(out_col.r, out_col.g, out_col.b, 1.0); \
+    }";
+
+    ID3DBlob* pixelShaderBlob;
+    if (FAILED(D3DCompile(pixelShader, strlen(pixelShader), nullptr, nullptr, nullptr, "main", "ps_4_0", 0, 0, &pixelShaderBlob, nullptr)))
+        return {};
+
+    std::vector<uint8_t> shader(
+        reinterpret_cast<const uint8_t*>(pixelShaderBlob->GetBufferPointer()),
+        reinterpret_cast<const uint8_t*>(pixelShaderBlob->GetBufferPointer()) + pixelShaderBlob->GetBufferSize());
+    pixelShaderBlob->Release();
+    return shader;
+}
