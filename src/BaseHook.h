@@ -27,7 +27,7 @@
 class BaseHook_t
 {
 protected:
-    std::vector<mini_detour::hook> _HookedFunctions;
+    std::vector<MiniDetour::Hook_t> _HookedFunctions;
 
     BaseHook_t(const BaseHook_t&) = delete;
     BaseHook_t(BaseHook_t&&) = delete;

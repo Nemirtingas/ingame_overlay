@@ -42,8 +42,8 @@ void BaseHook_t::EndHook()
 
 bool BaseHook_t::HookFunc(std::pair<void**, void*> hook)
 {
-    mini_detour::hook md_hook;
-    void* res = md_hook.hook_func(*hook.first, hook.second);
+    MiniDetour::Hook_t md_hook;
+    void* res = md_hook.HookFunction(*hook.first, hook.second);
     if (res == nullptr)
         return false;
 
