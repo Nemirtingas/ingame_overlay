@@ -326,8 +326,8 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         //OverlayData->Renderer = test_renderer_detector();
-        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
-        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
+        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
         //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12, false);
         if (OverlayData->Renderer == nullptr)
             return;
