@@ -417,7 +417,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        ImGui_ImplDX12_Init(_Device, sc_desc.BufferCount, DXGI_FORMAT_R8G8B8A8_UNORM,
+        ImGui_ImplDX12_Init(_Device, sc_desc.BufferCount, sc_desc.BufferDesc.Format,
             shaderRessourceView.CpuHandle,
             shaderRessourceView.GpuHandle);
         WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
