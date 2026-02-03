@@ -7,3 +7,6 @@
 [submodule "deps/mini_detour"]
 	path = deps/mini_detour
 	url = https://github.com/Nemirtingas/mini_detour.git
+[submodule "tests/common/glfw"]
+	path = tests/common/glfw
+	url = https://github.com/glfw/glfw.git
