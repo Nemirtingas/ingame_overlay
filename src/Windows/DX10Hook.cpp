@@ -72,7 +72,7 @@ bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
     {
         if (_ID3D10DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr)
         {
-            INGAMEOVERLAY_WARN("Failed to hook DirectX 11: Rendering functions missing.");
+            INGAMEOVERLAY_WARN("Failed to hook DirectX 10: Rendering functions missing.");
             return false;
         }
 

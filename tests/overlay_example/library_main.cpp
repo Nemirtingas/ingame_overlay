@@ -377,7 +377,7 @@ void shared_library_load(void* hmodule)
                 // This is NOT the way to switch images, is it GPU costly and inefficient.
                 // Doing someting like this will unload the image from the GPU, and then upload the other buffer onto the GPU.
                 // You should load often used images once in your GPU and then switch the ImGui's image id in the code instead.
-                // But for the autoload feature example's sack, we do it the wrong way.
+                // But for the autoload feature example's sake, we do it the wrong way.
                 if (OverlayData->ThumbUpSelected)
                 {
                     OverlayData->OverlayImage1->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);

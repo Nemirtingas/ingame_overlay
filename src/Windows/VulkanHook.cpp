@@ -404,7 +404,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
 {
     _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)_VulkanLoader("vkGetInstanceProcAddr");
     _vkCreateInstance = (decltype(::vkCreateInstance)*)_VulkanLoader("vkCreateInstance");
-    _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_VulkanLoader("_vkDestroyInstance");
+    _vkDestroyInstance = (decltype(::vkDestroyInstance)*)_VulkanLoader("vkDestroyInstance");
 
     // Create Vulkan Instance
     {
@@ -792,7 +792,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (!_CreateRenderPass())
             return;
 
-        if (_DescriptorsPools.empty() && _AllocDescriptorPool())
+        if (_DescriptorsPools.empty() && !_AllocDescriptorPool())
             return;
 
         if (!_CreateImageDevices())
