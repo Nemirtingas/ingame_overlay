@@ -391,7 +391,6 @@ void VulkanHook_t::_FreeVulkanRessources()
     _DestroyRenderTargets();
     _DestroyImageDevices();
 
-    _ReleaseDescriptor(_ImGuiFontDescriptor);
     _DestroyDescriptorPools();
 
     _VulkanQueue = nullptr;
@@ -800,24 +799,22 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (!_CreateRenderTargets(pPresentInfo->pSwapchains[0]))
             return;
 
-        ImGui_ImplVulkan_LoadFunctions(&VulkanHook_t::_LoadVulkanFunction, this);
-        _ImGuiFontDescriptor = _GetFreeDescriptorSet();
+        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, &VulkanHook_t::_LoadVulkanFunction, this);
 
         ImGui_ImplVulkan_InitInfo init_info = { };
         init_info.PhysicalDevice = _VulkanPhysicalDevice;
         init_info.Device = _VulkanDevice;
         init_info.QueueFamily = _VulkanQueueFamily;
         init_info.Queue = _VulkanQueue;
-        init_info.PipelineCache = VK_NULL_HANDLE;
-        init_info.FontDescriptorSet = _ImGuiFontDescriptor.DescriptorSet;
-        init_info.Subpass = 0;
         init_info.MinImageCount = _Frames.size();
         init_info.ImageCount = _Frames.size();
         init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator = _VulkanAllocationCallbacks;
         init_info.UseDynamicRendering = false;
+        init_info.DescriptorPoolSize = 1;
+        init_info.RenderPass = _VulkanRenderPass;
 
-        ImGui_ImplVulkan_Init(&init_info, _VulkanRenderPass);
+        ImGui_ImplVulkan_Init(&init_info);
 
         _ResetRenderState(OverlayHookState::Ready);
     }

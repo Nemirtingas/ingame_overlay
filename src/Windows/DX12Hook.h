@@ -139,6 +139,7 @@ private:
     // Render Target View heap
     ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    uint32_t _ImGuiFontTextureId;
     void* _ImGuiFontAtlas;
 
     // Functions

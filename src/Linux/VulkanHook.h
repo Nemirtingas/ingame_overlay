@@ -88,8 +88,6 @@ private:
     VkDevice _VulkanDevice;
     VkQueue _VulkanQueue;
 
-    VulkanDescriptorSet_t _ImGuiFontDescriptor;
-
     std::set<std::shared_ptr<uint64_t>> _ImageResources;
     void* _ImGuiFontAtlas;
 
