@@ -21,6 +21,7 @@
 #include "WindowsHook.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_vulkan.h>
 
 #include "../VulkanHelpers.h"
@@ -812,7 +813,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator = _VulkanAllocationCallbacks;
         init_info.UseDynamicRendering = false;
-        init_info.DescriptorPoolSize = 1;
+        init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
         init_info.RenderPass = _VulkanRenderPass;
 
         ImGui_ImplVulkan_Init(&init_info);
@@ -856,6 +857,9 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot(frame);
+
+        const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
         ImGui::NewFrame();
 

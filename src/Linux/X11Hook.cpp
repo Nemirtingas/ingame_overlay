@@ -19,6 +19,8 @@
 
 #include "X11Hook.h"
 
+#undef Status
+
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
 #include <System/Library.h>

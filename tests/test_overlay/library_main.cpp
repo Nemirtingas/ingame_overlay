@@ -93,8 +93,6 @@ void shared_library_load(void* hmodule)
 
         OverlayData->FontAtlas->AddFontDefault(&fontcfg);
 
-        OverlayData->FontAtlas->Build();
-
         OverlayData->Renderer->StartHook([](){}, OverlayToggleKeys, 2, OverlayData->FontAtlas);
     });
 }

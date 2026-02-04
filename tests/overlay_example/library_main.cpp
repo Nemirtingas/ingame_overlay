@@ -500,8 +500,6 @@ void shared_library_load(void* hmodule)
 
         OverlayData->FontAtlas->AddFontDefault(&fontcfg);
 
-        OverlayData->FontAtlas->Build();
-
         OverlayData->Renderer->StartHook([]()
         {
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);

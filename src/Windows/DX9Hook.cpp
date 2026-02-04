@@ -21,6 +21,7 @@
 #include "WindowsHook.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_dx9.h>
 
 namespace InGameOverlay {
@@ -34,6 +35,7 @@ namespace InGameOverlay {
     UnhookAll();\
     return false;\
 } } while(0)
+
 
 DX9Hook_t* DX9Hook_t::_Instance = nullptr;
 
@@ -227,6 +229,9 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot();
+
+        const bool has_textures = (ImGui::GetIO().BackendFlags& ImGuiBackendFlags_RendererHasTextures) != 0;
+        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
         ImGui::NewFrame();
 

@@ -21,6 +21,7 @@
 #include "NSViewHook.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_opengl2.h>
 #include <backends/imgui_impl_opengl3.h>
 
@@ -152,6 +153,9 @@ void OpenGLHook_t::_PrepareForOverlay()
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot();
+
+        const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
         ImGui::NewFrame();
 
