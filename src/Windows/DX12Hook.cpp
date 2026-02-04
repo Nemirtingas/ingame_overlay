@@ -391,10 +391,10 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         _Device = nullptr;
         if (pSwapChain3->GetDevice(IID_PPV_ARGS(&_Device)) != S_OK)
-		{
-			pSwapChain3->Release();
+        {
+            pSwapChain3->Release();
             return;
-		}
+        }
 
         if (!_AllocShaderRessourceViewHeap())
         {
