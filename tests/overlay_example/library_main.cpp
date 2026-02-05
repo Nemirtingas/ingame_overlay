@@ -358,8 +358,6 @@ void shared_library_load(void* hmodule)
                 OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #elif INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD
                 // Set here the AutoLoad because by default, the RendererHook uses Batch auto load. Could also use RendererHook_t::SetResourceAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse)
-                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
-                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
 
                 OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
                 OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
@@ -525,15 +523,16 @@ void shared_library_load(void* hmodule)
 
         OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotCallbackParameter_t const* screenshot, void* userParam)
         {
-            if (OverlayData->OverlayImageScreenshot)
-            {
-                OverlayData->OverlayImageScreenshot->Delete();
-            }
+            if (OverlayData->OverlayImageScreenshot == nullptr)
+                OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateResource();
+
+            if (OverlayData->OverlayImageScreenshot == nullptr)
+                return;
 
             OverlayData->Screenshot.Width = screenshot->Width;
             OverlayData->Screenshot.Height = screenshot->Height;
             if (ConvertToRGBA8888(screenshot, OverlayData->Screenshot.Image))
-                OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateAndLoadResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height, true);
+                OverlayData->OverlayImageScreenshot->AttachResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height);
         }, nullptr);
     });
 }
