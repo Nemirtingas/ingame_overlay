@@ -122,11 +122,47 @@ void DX10Hook_t::_UpdateHookDeviceRefCount()
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 2; break;
-        // 1 ref from us, 10 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample)
-        //case OverlayHookState::Reset: _HookDeviceRefCount = 13 + _ImageResources.size(); break;
-        // 1 ref from us, 12 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample, vertex buffer, index buffer)
-        case OverlayHookState::Ready: _HookDeviceRefCount = 15 + _ImageResources.size();
+        case OverlayHookState::Removing: _HookDeviceRefCount = 
+            // _PrepareForOverlay
+            + 1 // ID3D10Device   pSwapChain->GetDevice
+
+            // ImGui_ImplDX10_Init
+            + 1 // ImGui ID3D10Device AddRef
+            ;
+            break;
+
+        case OverlayHookState::Ready: _HookDeviceRefCount =
+            // ImGui_ImplDX10_CreateDeviceObjects
+            + 1 // ID3D10BlendState (singleton per device)
+            + 1 // ID3D10RasterizerState (singleton per device)
+            + 1 // ID3D10DepthStencilState (singleton per device)
+            + 1 // ID3D10SamplerState (singleton per device)
+
+            // _PrepareForOverlay
+            + 1 // ID3D10Device pSwapChain->GetDevice
+
+            // _CreateRenderTargets
+            + 1 // _RenderTargetView
+
+            // ImGui_ImplDX10_Init
+            + 1 // ImGui ID3D10Device AddRef
+
+            // ImGui_ImplDX10_CreateDeviceObjects
+            + 1 // ImGui Vertex Shader
+            + 1 // ImGui Input Layout
+            + 1 // ImGui Constant Buffer
+            + 1 // ImGui Pixel Shader
+
+            // ImGui_ImplDX10_RenderDrawData
+            + 1 // ImGui Vertex Buffer
+            + 1 // ImGui Index Buffer
+            + 1 // ImGui Font Texture
+            + 1 // ImGui Font Shader View
+
+            + _ImageResourcesToRelease.size()
+            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
+            ;
+            break;
     }
 }
 
@@ -177,6 +213,8 @@ void DX10Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
             _DestroyRenderTargets();
             SafeRelease(_Device);
             break;
@@ -237,11 +275,13 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
         ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
+        ++_CurrentFrame;
         ImGui::NewFrame();
 
         OverlayProc();
 
         _LoadResources();
+        _ReleaseResources();
 
         ImGui::Render();
 
@@ -251,6 +291,97 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(pSwapChain);
     }
+}
+
+void DX10Hook_t::_LoadResources()
+{
+    if (_ImageResourcesToLoad.empty())
+        return;
+
+    struct ValidTexture_t
+    {
+        std::shared_ptr<RendererTexture_t> Resource;
+        const void* Data;
+        uint32_t Width;
+        uint32_t Height;
+    };
+
+    std::vector<ValidTexture_t> validResources;
+
+    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
+
+    for (size_t i = 0; i < loadParameterCount; ++i)
+    {
+        auto& param = _ImageResourcesToLoad[i];
+
+        auto r = param.Resource.lock();
+        if (!r)
+            continue;
+
+        validResources.push_back({
+            r,
+            param.Data,
+            param.Width,
+            param.Height
+            });
+    }
+
+    if (validResources.empty())
+        return;
+
+    for (auto& tex : validResources)
+    {
+        // Create texture
+        D3D10_TEXTURE2D_DESC desc = {};
+        desc.Width = tex.Width;
+        desc.Height = tex.Height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D10_USAGE_DEFAULT;
+        desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = 0;
+
+        ID3D10Texture2D* pTexture = nullptr;
+        D3D10_SUBRESOURCE_DATA subResource;
+        subResource.pSysMem = tex.Data;
+        subResource.SysMemPitch = tex.Width * 4;
+        subResource.SysMemSlicePitch = 0;
+        HRESULT hr = _Device->CreateTexture2D(&desc, &subResource, &pTexture);
+        IM_ASSERT(SUCCEEDED(hr));
+
+        // Create texture view
+        D3D10_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = desc.MipLevels;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+
+        ID3D10ShaderResourceView* srv = nullptr;
+        hr = _Device->CreateShaderResourceView(pTexture, &srvDesc, &srv);
+        IM_ASSERT(SUCCEEDED(hr));
+        // Release Texure, the shader resource increases the reference count.
+        pTexture->Release();
+
+        tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(srv);
+        tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+    }
+
+    _ImageResourcesToLoad.erase(
+        _ImageResourcesToLoad.begin(),
+        _ImageResourcesToLoad.begin() + loadParameterCount);
+
+    _UpdateHookDeviceRefCount();
+}
+
+void DX10Hook_t::_ReleaseResources()
+{
+    if (_ImageResourcesToRelease.empty())
+        return;
+
+    _ImageResourcesToRelease.clear();
+    _UpdateHookDeviceRefCount();
 }
 
 void DX10Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
@@ -310,10 +441,13 @@ ULONG STDMETHODCALLTYPE DX10Hook_t::_MyID3D10DeviceRelease(ID3D10Device* _this)
     auto inst = DX10Hook_t::Inst();
     auto result = (_this->*inst->_ID3D10DeviceRelease)();
 
-    INGAMEOVERLAY_INFO("ID3D10Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    if (_this == inst->_Device)
+    {
+        INGAMEOVERLAY_INFO("ID3D10Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
-        inst->_ResetRenderState(OverlayHookState::Removing);
+        if (inst->_DeviceReleasing == 0 && result <= inst->_HookDeviceRefCount)
+            inst->_ResetRenderState(OverlayHookState::Removing);
+    }
 
     return result;
 }
@@ -452,64 +586,29 @@ void DX10Hook_t::LoadFunctions(
     _IDXGISwapChain1Present1 = present1Fcn;
 }
 
-std::weak_ptr<uint64_t> DX10Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<RendererTexture_t> DX10Hook_t::AllocImageResource()
 {
-    ID3D10ShaderResourceView** resource = new ID3D10ShaderResourceView*(nullptr);
-
-    // Create texture
-    D3D10_TEXTURE2D_DESC desc = {};
-    desc.Width = static_cast<UINT>(width);
-    desc.Height = static_cast<UINT>(height);
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D10_USAGE_DEFAULT;
-    desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
-    desc.CPUAccessFlags = 0;
-
-    ID3D10Texture2D* pTexture = nullptr;
-    D3D10_SUBRESOURCE_DATA subResource;
-    subResource.pSysMem = image_data;
-    subResource.SysMemPitch = desc.Width * 4;
-    subResource.SysMemSlicePitch = 0;
-    _Device->CreateTexture2D(&desc, &subResource, &pTexture);
-
-    if (pTexture != nullptr)
-    {
-        // Create texture view
-        D3D10_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        srvDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = desc.MipLevels;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-
-        _Device->CreateShaderResourceView(pTexture, &srvDesc, resource);
-        // Release Texure, the shader resource increases the reference count.
-        pTexture->Release();
-    }
-
-    if (*resource == nullptr)
-        return std::shared_ptr<uint64_t>();
-
-    auto ptr = std::shared_ptr<uint64_t>((uint64_t*)resource, [](uint64_t* handle)
+    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
     {
         if (handle != nullptr)
         {
-            ID3D10ShaderResourceView** resource = reinterpret_cast<ID3D10ShaderResourceView**>(handle);
-            (*resource)->Release();
-            delete resource;
+            auto* resource = reinterpret_cast<ID3D10ShaderResourceView*>(handle->ImGuiTextureId);
+            SafeRelease(resource);
+            delete handle;
         }
     });
 
     _ImageResources.emplace(ptr);
 
-    _UpdateHookDeviceRefCount();
-
     return ptr;
 }
 
-void DX10Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void DX10Hook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
+{
+    _ImageResourcesToLoad.emplace_back(loadParameter);
+}
+
+void DX10Hook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -518,7 +617,11 @@ void DX10Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
         if (it != _ImageResources.end())
         {
             _ImageResources.erase(it);
-            _UpdateHookDeviceRefCount();
+            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
+            {
+                std::move(ptr),
+                _CurrentFrame
+            });
         }
     }
 }
