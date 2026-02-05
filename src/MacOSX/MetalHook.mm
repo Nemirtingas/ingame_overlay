@@ -248,7 +248,7 @@ void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithD
 
 std::weak_ptr<RendererTexture_t> MetalHook_t::AllocImageResource()
 {
-    return std::shared_ptr<uint64_t>();
+    return std::shared_ptr<RendererTexture_t>();
 }
 
 void MetalHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)

@@ -588,13 +588,7 @@ bool VulkanHook_t::_CreateImageFence()
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = 0;
 
-    VkResult result = _vkCreateFence(
-        _VulkanDevice,
-        &fenceInfo,
-        _VulkanAllocationCallbacks,
-        &_VulkanImageFence);
-
-    _CheckVkResult(result);
+    return _vkCreateFence(_VulkanDevice, &fenceInfo, _VulkanAllocationCallbacks, &_VulkanImageFence) == VkResult::VK_SUCCESS;
 }
 
 void VulkanHook_t::_DestroyImageFence()
@@ -840,7 +834,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (!_CreateRenderTargets(pPresentInfo->pSwapchains[0]))
             return;
 
-        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3 , &VulkanHook_t::_LoadVulkanFunction, this);
+        ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, &VulkanHook_t::_LoadVulkanFunction, this);
 
         ImGui_ImplVulkan_InitInfo init_info = { };
         init_info.PhysicalDevice = _VulkanPhysicalDevice;
@@ -1582,7 +1576,7 @@ std::weak_ptr<RendererTexture_t> VulkanHook_t::AllocImageResource()
         }
     });
 
-    ptr->ImGuiTextureId = reinterpret_cast<uint64_t>(vulkanImageDescriptor.DescriptorSet);
+    ptr->ImGuiTextureId = (uint64_t)vulkanImageDescriptor.DescriptorSet;
     ptr->ImageDescriptorId = vulkanImageDescriptor;
 
     _ImageResources.emplace(ptr);

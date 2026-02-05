@@ -384,6 +384,10 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             _FreeVulkanRessources();
 
             _SentOutOfDate = false;
+            break;
+
+        case OverlayHookState::Reset:
+            _DestroyRenderTargets();
     }
 }
 
@@ -548,7 +552,7 @@ bool VulkanHook_t::_GetPhysicalDevice()
     _vkEnumeratePhysicalDevices(_VulkanInstance, &physicalDeviceCount, physicalDevices.data());
     std::vector<VkExtensionProperties> extensionProperties;
 
-    int selectedDevicetype = SelectDeviceTypeStart;
+    int selectedDevicetype = 5;
 
     VkPhysicalDeviceProperties physicalDeviceProperties;
     for (uint32_t i = 0; i < physicalDeviceCount; ++i)
@@ -588,13 +592,7 @@ bool VulkanHook_t::_CreateImageFence()
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fenceInfo.flags = 0;
 
-    VkResult result = _vkCreateFence(
-        _VulkanDevice,
-        &fenceInfo,
-        _VulkanAllocationCallbacks,
-        &_VulkanImageFence);
-
-    _CheckVkResult(result);
+    return _vkCreateFence(_VulkanDevice, &fenceInfo, _VulkanAllocationCallbacks, &_VulkanImageFence) == VkResult::VK_SUCCESS;
 }
 
 void VulkanHook_t::_DestroyImageFence()
@@ -711,7 +709,7 @@ bool VulkanHook_t::_CreateImageDevices()
 
     if (!_CreateImageDescriptorSetLayout())
         return false;
-    
+
     if (!_CreateImageCommandPool())
         return false;
 
@@ -1402,7 +1400,6 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkCreateSwapchainKHR(VkDevice de
     {
         createRenderTargets = !inst->_OverlayFrames.empty();
         inst->_ResetRenderState(OverlayHookState::Reset);
-        inst->_DestroyRenderTargets();
     }
     inst->_SentOutOfDate = true;
     inst->_VulkanTargetFormat = pCreateInfo->imageFormat;
@@ -1426,7 +1423,7 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
     inst->_VkDestroyDevice(device, pAllocator);
 }
 
-VulkanHook_t::VulkanHook_t():
+VulkanHook_t::VulkanHook_t() :
     _Hooked(false),
     _X11Hooked(false),
     _Window(nullptr),
@@ -1439,6 +1436,7 @@ VulkanHook_t::VulkanHook_t():
     _VulkanQueueFamily(uint32_t(-1)),
     _VulkanImageCommandPool(VK_NULL_HANDLE),
     _VulkanImageCommandBuffer(VK_NULL_HANDLE),
+    _VulkanImageFence(VK_NULL_HANDLE),
     _VulkanImageSampler(VK_NULL_HANDLE),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
@@ -1583,7 +1581,7 @@ std::weak_ptr<RendererTexture_t> VulkanHook_t::AllocImageResource()
         }
     });
 
-    ptr->ImGuiTextureId = reinterpret_cast<uint64_t>(vulkanImageDescriptor.DescriptorSet);
+    ptr->ImGuiTextureId = (uint64_t)vulkanImageDescriptor.DescriptorSet;
     ptr->ImageDescriptorId = vulkanImageDescriptor;
 
     _ImageResources.emplace(ptr);
