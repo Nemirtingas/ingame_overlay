@@ -138,7 +138,16 @@ private:
     std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;
     // Render Target View heap
     ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
-    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+
+    HANDLE _ImageEvent;
+    UINT64 _ImageFenceValue;
+    ID3D12Fence* _ImageFence;
+    ID3D12CommandQueue* _ImageCommandQueue;
+    ID3D12CommandAllocator* _ImageCommandAllocator;
+    ID3D12GraphicsCommandList* _ImageCommandList;
+    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
+    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
+    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     uint32_t _ImGuiFontTextureId;
     void* _ImGuiFontAtlas;
 
@@ -155,8 +164,12 @@ private:
     void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
+    bool _CreateImageObjects();
+    void _DestroyImageObjects();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
+    void _LoadResources();
+    void _ReleaseResources();
     void _HandleScreenshot(DX12Frame_t& frame);
 
     // Hook to render functions
@@ -198,8 +211,9 @@ public:
         decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
         decltype(_ID3D12CommandQueueExecuteCommandLists) xecuteCommandListsFcn);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
 };
 
 }// namespace InGameOverlay
