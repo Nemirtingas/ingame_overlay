@@ -28,6 +28,33 @@
 
 namespace InGameOverlay {
 
+enum class RendererTextureStatus_e
+{
+    NotLoaded,
+    Loading,
+    Loaded,
+};
+
+struct RendererTexture_t
+{
+    uint64_t ImGuiTextureId = 0;
+    RendererTextureStatus_e LoadStatus = RendererTextureStatus_e::NotLoaded;
+};
+
+struct RendererTextureLoadParameter_t
+{
+    std::weak_ptr<RendererTexture_t> Resource;
+    const void* Data;
+    uint32_t Height;
+    uint32_t Width;
+};
+
+struct RendererTextureReleaseParameter_t
+{
+    std::shared_ptr<RendererTexture_t> Resource;
+    uint64_t ReleaseFrame;
+};
+
 class RendererResourceInternal_t;
 
 class RendererHookInternal_t : public RendererHook_t
@@ -35,42 +62,36 @@ class RendererHookInternal_t : public RendererHook_t
     ScreenshotCallback_t _ScreenshotCallback;
     void* _ScreenshotCallbackUserParameter;
     ScreenshotType_t _TakeScreenshotType;
-    ResourceAutoLoad_t _AutoLoad;
-    uint32_t _BatchSize;
-    std::vector<RendererResourceInternal_t*> _ResourcesToLoad;
 
 protected:
+    uint32_t _BatchSize;
+    uint64_t _CurrentFrame;
+
     RendererHookInternal_t();
     virtual ~RendererHookInternal_t();
-
-    void _LoadResources();
 
     ScreenshotType_t _ScreenshotType();
 
     void _SendScreenshot(ScreenshotCallbackParameter_t* screenshot);
 
 public:
-    void AppendResourceToLoadBatch(RendererResourceInternal_t* pResource);
-
     virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam);
 
     virtual uint32_t GetAutoLoadBatchSize();
 
     virtual void SetAutoLoadBatchSize(uint32_t batchSize);
 
-    virtual ResourceAutoLoad_t GetResourceAutoLoad() const;
-
-    virtual void SetResourceAutoLoad(ResourceAutoLoad_t autoLoad = ResourceAutoLoad_t::Batch);
-
     virtual RendererResource_t* CreateResource();
 
-    virtual RendererResource_t* CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach);
+    virtual RendererResource_t* CreateAndAttachResource(const void* image_data, uint32_t width, uint32_t height);
 
     virtual void TakeScreenshot(ScreenshotType_t type);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height) = 0;
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() = 0;
 
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource) = 0;
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) = 0;
+
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) = 0;
 };
 
 }

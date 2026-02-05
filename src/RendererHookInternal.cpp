@@ -26,26 +26,13 @@ RendererHookInternal_t::RendererHookInternal_t() :
     _ScreenshotCallback(nullptr),
     _ScreenshotCallbackUserParameter(nullptr),
     _TakeScreenshotType(ScreenshotType_t::None),
-    _AutoLoad(ResourceAutoLoad_t::Batch),
-    _BatchSize(10)
+    _BatchSize(10),
+    _CurrentFrame(0)
 {
 }
 
 RendererHookInternal_t::~RendererHookInternal_t()
 {
-}
-
-void RendererHookInternal_t::_LoadResources()
-{
-    if (_ResourcesToLoad.empty())
-        return;
-
-    auto batchSize = _ResourcesToLoad.size() > _BatchSize ? _BatchSize : _ResourcesToLoad.size();
-
-    for (int i = 0; i < batchSize; ++i)
-        _ResourcesToLoad[i]->LoadAttachedResource();
-
-    _ResourcesToLoad.erase(_ResourcesToLoad.begin(), _ResourcesToLoad.begin() + batchSize);
 }
 
 ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
@@ -86,15 +73,6 @@ void RendererHookInternal_t::_SendScreenshot(ScreenshotCallbackParameter_t* scre
     }
 }
 
-void RendererHookInternal_t::AppendResourceToLoadBatch(RendererResourceInternal_t* pResource)
-{
-    if (!pResource->CanBeLoaded())
-        return;
-
-    if (std::find(_ResourcesToLoad.begin(), _ResourcesToLoad.end(), pResource) == _ResourcesToLoad.end())
-        _ResourcesToLoad.emplace_back(pResource);
-}
-
 void RendererHookInternal_t::SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam)
 {
     _ScreenshotCallback = callback;
@@ -111,16 +89,6 @@ void RendererHookInternal_t::SetAutoLoadBatchSize(uint32_t batchSize)
     _BatchSize = batchSize;
 }
 
-ResourceAutoLoad_t RendererHookInternal_t::GetResourceAutoLoad() const
-{
-    return _AutoLoad;
-}
-
-void RendererHookInternal_t::SetResourceAutoLoad(ResourceAutoLoad_t autoLoad)
-{
-    _AutoLoad = autoLoad;
-}
-
 void RendererHookInternal_t::TakeScreenshot(ScreenshotType_t type)
 {
     _TakeScreenshotType = type;
@@ -128,29 +96,14 @@ void RendererHookInternal_t::TakeScreenshot(ScreenshotType_t type)
 
 RendererResource_t* RendererHookInternal_t::CreateResource()
 {
-    return new RendererResourceInternal_t(this, _AutoLoad);
+    return new RendererResourceInternal_t(this);
 }
 
-RendererResource_t* RendererHookInternal_t::CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach)
+RendererResource_t* RendererHookInternal_t::CreateAndAttachResource(const void* image_data, uint32_t width, uint32_t height)
 {
     auto pResource = CreateResource();
-
-    bool failed = false;
-    if (attach)
-    {
+    if (pResource != nullptr)
         pResource->AttachResource(image_data, width, height);
-        failed = !pResource->LoadAttachedResource();
-    }
-    else
-    {
-        failed = !pResource->Load(image_data, width, height);
-    }
-
-    if (failed)
-    {
-        pResource->Delete();
-        pResource = nullptr;
-    }
 
     return pResource;
 }

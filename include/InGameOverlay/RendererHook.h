@@ -197,25 +197,13 @@ public:
     virtual void SetAutoLoadBatchSize(uint32_t batchSize) = 0;
 
     /// <summary>
-    ///   Gets if the resources will be auto loaded by default. This state doesn't affect resources created before its call.
-    /// </summary>
-    /// <returns></returns>
-    virtual ResourceAutoLoad_t GetResourceAutoLoad() const = 0;
-
-    /// <summary>
-    ///   Sets if the resources will be auto loaded by default.
-    /// </summary>
-    /// <param name="autoLoad"></param>
-    virtual void SetResourceAutoLoad(ResourceAutoLoad_t autoLoad = ResourceAutoLoad_t::Batch) = 0;
-
-    /// <summary>
     ///   Creates an image resource that can be setup and used later.
     /// </summary>
     /// <returns></returns>
     virtual RendererResource_t* CreateResource() = 0;
 
     /// <summary>
-    ///   Loads an RGBA ordered buffer into GPU and returns a resource.
+    ///   Creates an image resource and attach the data to it.
     /// </summary>
     /// <param name="image_data">
     ///   The RGBA buffer.
@@ -226,11 +214,8 @@ public:
     /// <param name="height">
     ///   Your RGBA image height.
     /// </param>
-    /// <param name="attach">
-    ///   If set, the pointer, width and height will be stored in the RendererResource_t to be reloaded later if a renderer reset occurs.
-    /// </param>
     /// <returns></returns>
-    virtual RendererResource_t* CreateAndLoadResource(const void* image_data, uint32_t width, uint32_t height, bool attach) = 0;
+    virtual RendererResource_t* CreateAndAttachResource(const void* image_data, uint32_t width, uint32_t height) = 0;
 
     virtual void TakeScreenshot(ScreenshotType_t type) = 0;
 };
