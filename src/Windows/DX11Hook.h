@@ -43,7 +43,9 @@ private:
     OverlayHookState _HookState;
     ID3D11DeviceContext* _DeviceContext;
     ID3D11RenderTargetView* _RenderTargetView;
-    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
+    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
+    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -54,6 +56,8 @@ private:
     void _DestroyRenderTargets();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags);
+    void _LoadResources();
+    void _ReleaseResources();
     void _HandleScreenshot(IDXGISwapChain* pSwapChain);
 
     // Hook to render functions
@@ -90,8 +94,9 @@ public:
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
         decltype(_IDXGISwapChain1Present1) rresent1Fcn);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
 };
 
 }

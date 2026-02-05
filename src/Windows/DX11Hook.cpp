@@ -129,15 +129,52 @@ bool DX11Hook_t::IsStarted()
 
 void DX11Hook_t::_UpdateHookDeviceRefCount()
 {
-    const int BaseRefCount = 2;
     switch (_HookState)
     {
-        // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = BaseRefCount; break;
-        // 1 refs from us, 10 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample)
-        //case OverlayHookState::Reset: _HookDeviceRefCount = 15 + _ImageResources.size(); break;
-        // 1 refs from us, 12 refs from ImGui (device, vertex shader, input layout, vertex constant buffer, pixel shader, blend state, rasterizer state, depth stencil state, texture view, texture sample, vertex buffer, index buffer)
-        case OverlayHookState::Ready: _HookDeviceRefCount = BaseRefCount + 15 + _ImageResources.size();
+        case OverlayHookState::Removing: _HookDeviceRefCount =
+            + 1 // ?
+
+            // _PrepareForOverlay
+            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
+
+            // ImGui_ImplDX11_Init
+            + 1 // ImGui ID3D11Device AddRef
+            ;
+            break;
+
+        case OverlayHookState::Ready: _HookDeviceRefCount =
+            + 1 // ?
+
+            // ImGui_ImplDX11_CreateDeviceObjects
+            + 1 // ID3D11BlendState (singleton per device)
+            + 1 // ID3D11RasterizerState (singleton per device)
+            + 1 // ID3D11DepthStencilState (singleton per device)
+            + 1 // ID3D11SamplerState (singleton per device)
+
+            // _PrepareForOverlay
+            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
+
+            // _CreateRenderTargets
+            + 1 // _RenderTargetView
+
+            // ImGui_ImplDX11_Init
+            + 1 // ImGui ID3D11Device AddRef
+
+            // ImGui_ImplDX11_CreateDeviceObjects
+            + 1 // ImGui Vertex Shader
+            + 1 // ImGui Input Layout
+            + 1 // ImGui Constant Buffer
+            + 1 // ImGui Pixel Shader
+
+            // ImGui_ImplDX11_RenderDrawData
+            + 1 // ImGui Vertex Buffer
+            + 1 // ImGui Index Buffer
+            + 1 // ImGui Font Texture
+            + 1 // ImGui Font Shader View
+
+            + _ImageResourcesToRelease.size()
+            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
+            ;
     }
 }
 
@@ -158,7 +195,7 @@ bool DX11Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
         result = false;
 
     // This code works on some apps and doesn't on others,
-    // while always getting the first buffer seems to be more reliable, comment is for now.
+    // while always getting the first buffer seems to be more reliable, comment it for now.
     //ID3D11RenderTargetView* targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
     //pContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, targets, NULL);
     //bool bind_target = true;
@@ -211,6 +248,8 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
             _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
@@ -273,12 +312,14 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
         ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
+        ++_CurrentFrame;
         ImGui::NewFrame();
-    
+
         OverlayProc();
 
         _LoadResources();
-    
+        _ReleaseResources();
+
         ImGui::Render();
 
         _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
@@ -288,6 +329,96 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             _HandleScreenshot(pSwapChain);
     }
 }
+
+void DX11Hook_t::_LoadResources()
+{
+    if (_ImageResourcesToLoad.empty())
+        return;
+
+    struct ValidTexture_t
+    {
+        std::shared_ptr<RendererTexture_t> Resource;
+        const void* Data;
+        uint32_t Width;
+        uint32_t Height;
+    };
+
+    std::vector<ValidTexture_t> validResources;
+
+    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
+
+    for (size_t i = 0; i < loadParameterCount; ++i)
+    {
+        auto& param = _ImageResourcesToLoad[i];
+
+        auto r = param.Resource.lock();
+        if (!r)
+            continue;
+
+        validResources.push_back({
+            r,
+            param.Data,
+            param.Width,
+            param.Height
+        });
+    }
+
+    if (validResources.empty())
+        return;
+
+    for (auto& tex : validResources)
+    {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = tex.Width;
+        desc.Height = tex.Height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags = 0;
+
+        D3D11_SUBRESOURCE_DATA sub{};
+        sub.pSysMem = tex.Data;
+        sub.SysMemPitch = tex.Width * 4;
+
+        ID3D11Texture2D* texture = nullptr;
+        HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);
+        IM_ASSERT(SUCCEEDED(hr));
+
+        // Create texture view
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format = desc.Format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+
+        ID3D11ShaderResourceView* srv = nullptr;
+        hr = _Device->CreateShaderResourceView(texture, &srvDesc, &srv);
+        IM_ASSERT(SUCCEEDED(hr));
+        // Release Texure, the shader resource increases the reference count.
+        texture->Release();
+
+        tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(srv);
+        tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+    }
+
+    _ImageResourcesToLoad.erase(
+        _ImageResourcesToLoad.begin(),
+        _ImageResourcesToLoad.begin() + loadParameterCount);
+
+    _UpdateHookDeviceRefCount();
+}
+
+void DX11Hook_t::_ReleaseResources()
+{
+    if (_ImageResourcesToRelease.empty())
+        return;
+
+    _ImageResourcesToRelease.clear();
+    _UpdateHookDeviceRefCount();
+}
+
 
 void DX11Hook_t::_HandleScreenshot(IDXGISwapChain* pSwapChain)
 {
@@ -346,10 +477,13 @@ ULONG STDMETHODCALLTYPE DX11Hook_t::_MyID3D11DeviceRelease(ID3D11Device* _this)
     auto inst = DX11Hook_t::Inst();
     auto result = (_this->*inst->_ID3D11DeviceRelease)();
 
-    INGAMEOVERLAY_INFO("ID3D11Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    if (_this == inst->_Device)
+    {
+        INGAMEOVERLAY_INFO("ID3D11Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
-        inst->_ResetRenderState(OverlayHookState::Removing);
+        if (inst->_DeviceReleasing == 0 && result <= inst->_HookDeviceRefCount)
+            inst->_ResetRenderState(OverlayHookState::Removing);
+    }
 
     return result;
 }
@@ -489,64 +623,29 @@ void DX11Hook_t::LoadFunctions(
     _IDXGISwapChain1Present1 = present1Fcn;
 }
 
-std::weak_ptr<uint64_t> DX11Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<RendererTexture_t> DX11Hook_t::AllocImageResource()
 {
-    ID3D11ShaderResourceView** resource = new ID3D11ShaderResourceView*(nullptr);
-
-    // Create texture
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = static_cast<UINT>(width);
-    desc.Height = static_cast<UINT>(height);
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    desc.CPUAccessFlags = 0;
-
-    ID3D11Texture2D* pTexture = nullptr;
-    D3D11_SUBRESOURCE_DATA subResource;
-    subResource.pSysMem = image_data;
-    subResource.SysMemPitch = desc.Width * 4;
-    subResource.SysMemSlicePitch = 0;
-    _Device->CreateTexture2D(&desc, &subResource, &pTexture);
-
-    if (pTexture != nullptr)
+    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
     {
-        // Create texture view
-        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = desc.MipLevels;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-
-        _Device->CreateShaderResourceView(pTexture, &srvDesc, resource);
-        // Release Texture, the shader resource increases the reference count.
-        pTexture->Release();
-    }
-
-    if (*resource == nullptr)
-        return std::shared_ptr<uint64_t>();
-
-    auto ptr = std::shared_ptr<uint64_t>((uint64_t*)resource, [](uint64_t* handle)
-    {
-        if(handle != nullptr)
+        if (handle != nullptr)
         {
-            ID3D11ShaderResourceView** resource = reinterpret_cast<ID3D11ShaderResourceView**>(handle);
-            (*resource)->Release();
-            delete resource;
+            auto* resource = reinterpret_cast<ID3D11ShaderResourceView*>(handle->ImGuiTextureId);
+            SafeRelease(resource);
+            delete handle;
         }
     });
 
     _ImageResources.emplace(ptr);
 
-    _UpdateHookDeviceRefCount();
-
     return ptr;
 }
 
-void DX11Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void DX11Hook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
+{
+    _ImageResourcesToLoad.emplace_back(loadParameter);
+}
+
+void DX11Hook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -555,7 +654,11 @@ void DX11Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
         if (it != _ImageResources.end())
         {
             _ImageResources.erase(it);
-            _UpdateHookDeviceRefCount();
+            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
+            {
+                std::move(ptr),
+                _CurrentFrame
+            });
         }
     }
 }
