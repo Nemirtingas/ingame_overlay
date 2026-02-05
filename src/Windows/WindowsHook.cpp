@@ -669,7 +669,7 @@ void WindowsHook_t::_StartRawControllerHook(SimpleWindowsGamingInput::IRawGameCo
 
     if (!HookFunc(std::make_pair((void**)&_RawControllerGetCurrentReading, (void*)&WindowsHook_t::_MyRawControllerGetCurrentReading)))
     {
-        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        INGAMEOVERLAY_ERROR("Failed to hook {}", "IRawGameController::GetCurrentReading");
     }
 
     EndHook();
@@ -684,7 +684,7 @@ void WindowsHook_t::_StartGamepadHook(SimpleWindowsGamingInput::IGamepad* pGamep
 
     if (!HookFunc(std::make_pair((void**)&_GamepadGetCurrentReading, (void*)&WindowsHook_t::_MyGamepadGetCurrentReading)))
     {
-        INGAMEOVERLAY_ERROR("Failed to hook {}", entry.func_name);
+        INGAMEOVERLAY_ERROR("Failed to hook {}", "IGamepad::GetCurrentReading");
     }
 
     EndHook();
