@@ -39,7 +39,9 @@ private:
     OverlayHookState _HookState;
     Display *_Display;
     //GLXContext _Context;
-    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
+    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
+    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -47,6 +49,8 @@ private:
 
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(Display* display, GLXDrawable drawable);
+    void _LoadResources();
+    void _ReleaseResources();
     void _HandleScreenshot();
 
     // Hook to render functions
@@ -68,8 +72,9 @@ public:
     virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
 };
 
 }// namespace InGameOverlay
