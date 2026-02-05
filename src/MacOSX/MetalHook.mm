@@ -117,11 +117,13 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
         const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
         ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
+        ++_CurrentFrame;
         ImGui::NewFrame();
-        
+
         OverlayProc();
-        
+
         _LoadResources();
+        _ReleaseResources();
 
         ImGui::Render();
 
@@ -130,6 +132,16 @@ void MetalHook_t::_PrepareForOverlay(RenderPass_t& renderPass)
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot();
     }
+}
+
+void MetalHook_t::_LoadResources()
+{
+
+}
+
+void MetalHook_t::_ReleaseResources()
+{
+
 }
 
 void MetalHook_t::_HandleScreenshot()
@@ -234,19 +246,31 @@ void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithD
     _MTLRenderCommandEncoderEndEncodingMethod = RenderCommandEncoderEndEncoding;
 }
 
-std::weak_ptr<uint64_t> MetalHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<RendererTexture_t> MetalHook_t::AllocImageResource()
 {
     return std::shared_ptr<uint64_t>();
 }
 
-void MetalHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void MetalHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
+{
+    _ImageResourcesToLoad.emplace_back(loadParameter);
+}
+
+void MetalHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
     {
         auto it = _ImageResources.find(ptr);
         if (it != _ImageResources.end())
+        {
             _ImageResources.erase(it);
+            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
+            {
+                std::move(ptr),
+                _CurrentFrame
+            });
+        }
     }
 }
 
