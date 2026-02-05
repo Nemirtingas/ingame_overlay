@@ -121,16 +121,29 @@ bool DX9Hook_t::IsStarted()
 
 void DX9Hook_t::_UpdateHookDeviceRefCount()
 {
-    constexpr ULONG BaseRefCount = 2;
-
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = BaseRefCount; break;
-        // 1 ref from us, 1 ref from ImGui (device)
-        case OverlayHookState::Reset: _HookDeviceRefCount = BaseRefCount + 1; break;
-        // 1 ref from us, 4 refs from ImGui (device, vertex buffer, index buffer, font texture)
-        case OverlayHookState::Ready: _HookDeviceRefCount = BaseRefCount + 4 + _ImageResources.size();
+        case OverlayHookState::Removing: _HookDeviceRefCount =
+            1
+            ;
+            break;
+
+        case OverlayHookState::Reset: _HookDeviceRefCount =
+            + 1 // _Device->AddRef
+            + 1 // ImGui IDirect3DDevice9*
+            ;
+            break;
+
+        case OverlayHookState::Ready: _HookDeviceRefCount =
+            + 1 // _Device->AddRef
+            + 1 // ImGui IDirect3DDevice9*
+            + 1 // ImGui Vertex Buffer
+            + 1 // ImGui Index Buffer
+            + 1 // ImGui Font Texture
+            + _ImageResourcesToRelease.size()
+            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
+            ;
     }
 }
 
@@ -152,6 +165,8 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui_ImplDX9_InvalidateDeviceObjects();
             // Yes, clearing images is required when resetting or DirectX9 will return a D3DERR_INVALIDCALL error
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
             break;
 
         case OverlayHookState::Removing:
@@ -160,6 +175,8 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
             SafeRelease(_Device);
 
             _LastWindow = nullptr;
@@ -233,11 +250,13 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         const bool has_textures = (ImGui::GetIO().BackendFlags& ImGuiBackendFlags_RendererHasTextures) != 0;
         ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
+        ++_CurrentFrame;
         ImGui::NewFrame();
 
         OverlayProc();
 
         _LoadResources();
+        _ReleaseResources();
 
         ImGui::Render();
 
@@ -246,6 +265,105 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot();
     }
+}
+
+void DX9Hook_t::_LoadResources()
+{
+    HRESULT hr;
+
+    if (_ImageResourcesToLoad.empty())
+        return;
+
+    struct ValidTexture_t
+    {
+        std::shared_ptr<RendererTexture_t> Resource;
+        const void* Data;
+        uint32_t Width;
+        uint32_t Height;
+    };
+
+    std::vector<ValidTexture_t> validResources;
+
+    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
+
+    for (size_t i = 0; i < loadParameterCount; ++i)
+    {
+        auto& param = _ImageResourcesToLoad[i];
+        auto r = param.Resource.lock();
+        if (!r) continue;
+
+        validResources.push_back(ValidTexture_t{
+            r,
+            param.Data,
+            param.Width,
+            param.Height
+        });
+    }
+
+    if (!validResources.empty())
+    {
+        IDirect3DTexture9* dx9Tex;
+
+        for (size_t i = 0; i < validResources.size(); ++i)
+        {
+            auto& tex = validResources[i];
+
+            dx9Tex = nullptr;
+            _Device->CreateTexture(
+                tex.Width,
+                tex.Height,
+                1,
+                D3DUSAGE_DYNAMIC,
+                D3DFMT_A8R8G8B8,
+                D3DPOOL_DEFAULT,
+                &dx9Tex,
+                nullptr
+            );
+
+            if (dx9Tex != nullptr)
+            {
+                D3DLOCKED_RECT rect;
+                if (SUCCEEDED(dx9Tex->LockRect(0, &rect, nullptr, D3DLOCK_DISCARD)))
+                {
+                    const uint32_t* pixels = reinterpret_cast<const uint32_t*>(tex.Data);
+                    uint8_t* texture_bits = reinterpret_cast<uint8_t*>(rect.pBits);
+                    for (uint32_t i = 0; i < tex.Height; ++i)
+                    {
+                        for (uint32_t j = 0; j < tex.Width; ++j)
+                        {
+                            // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader
+                            uint32_t color = *pixels++;
+                            reinterpret_cast<uint32_t*>(texture_bits)[j] = ((color & 0xff) << 16) | (color & 0xff00) | ((color & 0xff0000) >> 16) | (color & 0xff000000);
+                        }
+                        texture_bits += rect.Pitch;
+                    }
+
+                    if (SUCCEEDED(dx9Tex->UnlockRect(0)))
+                    {
+                        tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(dx9Tex);
+                        tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+                        dx9Tex = nullptr;
+                    }
+                }
+
+                SafeRelease(dx9Tex);
+            }
+        }
+    }
+
+    _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+        _ImageResourcesToLoad.begin() + loadParameterCount);
+
+    _UpdateHookDeviceRefCount();
+}
+
+void DX9Hook_t::_ReleaseResources()
+{
+    if (_ImageResourcesToRelease.empty())
+        return;
+
+    _ImageResourcesToRelease.clear();
+    _UpdateHookDeviceRefCount();
 }
 
 void DX9Hook_t::_HandleScreenshot()
@@ -301,10 +419,13 @@ ULONG STDMETHODCALLTYPE DX9Hook_t::_MyIDirect3DDevice9Release(IDirect3DDevice9* 
     auto inst = DX9Hook_t::Inst();
     auto result = (_this->*inst->_IDirect3DDevice9Release)();
 
-    INGAMEOVERLAY_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
+    if (_this == inst->_Device)
+    {
+        INGAMEOVERLAY_INFO("IDirect3DDevice9::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
 
-    if (inst->_DeviceReleasing == 0 && _this == inst->_Device && result < inst->_HookDeviceRefCount)
-        inst->_ResetRenderState(OverlayHookState::Removing);
+        if (inst->_DeviceReleasing == 0 && result <= inst->_HookDeviceRefCount)
+            inst->_ResetRenderState(OverlayHookState::Removing);
+    }
 
     return result;
 }
@@ -468,75 +589,29 @@ void DX9Hook_t::LoadFunctions(
     _IDirect3DSwapChain9SwapChainPresent = SwapChainPresentFcn;
 }
 
-std::weak_ptr<uint64_t> DX9Hook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<RendererTexture_t> DX9Hook_t::AllocImageResource()
 {
-    IDirect3DTexture9** pTexture = new IDirect3DTexture9*(nullptr);
-
-    _Device->CreateTexture(
-        width,
-        height,
-        1,
-        D3DUSAGE_DYNAMIC,
-        D3DFMT_A8R8G8B8,
-        D3DPOOL_DEFAULT,
-        pTexture,
-        nullptr
-    );
-
-    if (*pTexture != nullptr)
-    {
-        D3DLOCKED_RECT rect;
-        if (SUCCEEDED((*pTexture)->LockRect(0, &rect, nullptr, D3DLOCK_DISCARD)))
-        {
-            const uint32_t* pixels = reinterpret_cast<const uint32_t*>(image_data);
-            uint8_t* texture_bits = reinterpret_cast<uint8_t*>(rect.pBits);
-            for (uint32_t i = 0; i < height; ++i)
-            {
-                for (uint32_t j = 0; j < width; ++j)
-                {
-                    // RGBA to ARGB Conversion, DX9 doesn't have a RGBA loader
-                    uint32_t color = *pixels++;
-                    reinterpret_cast<uint32_t*>(texture_bits)[j] = ((color & 0xff) << 16) | (color & 0xff00) | ((color & 0xff0000) >> 16) | (color & 0xff000000);
-                }
-                texture_bits += rect.Pitch;
-            }
-
-            if (FAILED((*pTexture)->UnlockRect(0)))
-            {
-                (*pTexture)->Release();
-                delete pTexture;
-                pTexture = nullptr;
-            }
-        }
-        else
-        {
-            (*pTexture)->Release();
-            delete pTexture;
-            pTexture = nullptr;
-        }
-    }
-
-    if (pTexture == nullptr)
-        return std::shared_ptr<uint64_t>();
-
-    auto ptr = std::shared_ptr<uint64_t>((uint64_t*)pTexture, [](uint64_t* handle)
+    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
     {
         if (handle != nullptr)
         {
-            IDirect3DTexture9** resource = reinterpret_cast<IDirect3DTexture9**>(handle);
-            (*resource)->Release();
-            delete resource;
+            auto* resource = reinterpret_cast<IDirect3DTexture9*>(handle->ImGuiTextureId);
+            SafeRelease(resource);
+            delete handle;
         }
     });
 
     _ImageResources.emplace(ptr);
 
-    _UpdateHookDeviceRefCount();
-
     return ptr;
 }
 
-void DX9Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void DX9Hook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
+{
+    _ImageResourcesToLoad.emplace_back(loadParameter);
+}
+
+void DX9Hook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
@@ -545,7 +620,11 @@ void DX9Hook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
         if (it != _ImageResources.end())
         {
             _ImageResources.erase(it);
-            _UpdateHookDeviceRefCount();
+            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
+            {
+                std::move(ptr),
+                _CurrentFrame
+            });
         }
     }
 }
