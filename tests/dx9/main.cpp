@@ -242,7 +242,7 @@ bool CreateDeviceD3D(HWND hWnd)
 void CleanupDeviceD3D()
 {
     if (g_pd3dSwapChain) { g_pd3dSwapChain->Release(); g_pd3dSwapChain = NULL; }
-    if (g_pD3DDevice) { g_pD3DDevice->Release(); g_pD3DDevice = NULL; }
+    if (g_currentD3DDevice) { g_currentD3DDevice->Release(); g_currentD3DDevice = NULL; }
     if (g_pD3D) { g_pD3D->Release(); g_pD3D = NULL; }
 }
 
