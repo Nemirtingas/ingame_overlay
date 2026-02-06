@@ -370,14 +370,19 @@ void DX9Hook_t::_HandleScreenshot()
 {
     bool result = false;
     IDirect3DSurface9* backBuffer = nullptr;
+
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lockedRect;
+    IDirect3DSurface9* cpuSurface = nullptr;
+
+    ScreenshotCallbackParameter_t screenshot;
+
     HRESULT hr = _Device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
     if (FAILED(hr) || backBuffer == nullptr)
         goto cleanup;
 
-    D3DSURFACE_DESC desc;
     backBuffer->GetDesc(&desc);
 
-    IDirect3DSurface9* cpuSurface = nullptr;
     hr = _Device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &cpuSurface, nullptr);
 
     if (FAILED(hr) || cpuSurface == nullptr)
@@ -387,12 +392,10 @@ void DX9Hook_t::_HandleScreenshot()
     if (FAILED(hr))
         goto cleanup;
 
-    D3DLOCKED_RECT lockedRect;
     hr = cpuSurface->LockRect(&lockedRect, nullptr, D3DLOCK_READONLY);
     if (FAILED(hr))
         goto cleanup;
 
-    ScreenshotCallbackParameter_t screenshot;
     screenshot.Width = desc.Width;
     screenshot.Height = desc.Height;
     screenshot.Pitch = lockedRect.Pitch;

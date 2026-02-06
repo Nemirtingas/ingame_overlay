@@ -660,7 +660,7 @@ void DX12Hook_t::_LoadResources()
         IM_ASSERT(SUCCEEDED(hr));
 
         void* mapped = nullptr;
-        D3D12_RANGE range{ 0, totalUploadSize };
+        D3D12_RANGE range{ 0, static_cast<SIZE_T>(totalUploadSize) };
         hr = uploadBuffer->Map(0, &range, &mapped);
         IM_ASSERT(SUCCEEDED(hr));
 
@@ -820,6 +820,9 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
     UINT numRows = 0;
     UINT64 rowSize = 0;
 
+    BYTE* pMappedMemory = nullptr;
+    ScreenshotCallbackParameter_t screenshot;
+
     _Device->GetCopyableFootprints(&desc, 0, 1, 0, &layout, &numRows, &rowSize, &totalSize);
 
     HRESULT hr = frame.BackBuffer->GetHeapProperties(&sourceHeapProperties, nullptr);
@@ -913,12 +916,10 @@ readback:
     while (pFence->GetCompletedValue() < 1)
         SwitchToThread();
 
-    BYTE* pMappedMemory = nullptr;
     hr = pStaging->Map(0, nullptr, (void**)&pMappedMemory);
     if (FAILED(hr))
         goto cleanup;
 
-    ScreenshotCallbackParameter_t screenshot;
     screenshot.Width = desc.Width;
     screenshot.Height = desc.Height;
     screenshot.Pitch = layout.Footprint.RowPitch;
