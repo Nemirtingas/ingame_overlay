@@ -7,11 +7,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <imgui.h>
-#include <backends/imgui_impl_x11.h>
-#include <backends/imgui_impl_opengl3.h>
-#include <stdio.h>
-
 #define GLAD_GL_IMPLEMENTATION
 
 #if defined(IMGUI_IMPL_OPENGL_ES2)
@@ -44,6 +39,13 @@ using namespace gl;
 
 #include <GL/gl.h>
 #include <GL/glx.h>
+
+#undef Status
+
+#include <imgui.h>
+#include <backends/imgui_impl_x11.h>
+#include <backends/imgui_impl_opengl3.h>
+#include <stdio.h>
 
 #include <string>
 

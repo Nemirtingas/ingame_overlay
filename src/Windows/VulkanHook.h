@@ -34,6 +34,14 @@ class VulkanHook_t :
 public:
     constexpr static uint32_t MaxDescriptorCountPerPool = 1024;
 
+    struct VulkanDescriptorSet_t
+    {
+        constexpr static uint32_t InvalidDescriptorPoolId = 0xffffffff;
+
+        VkDescriptorSet DescriptorSet = VK_NULL_HANDLE;
+        uint32_t DescriptorPoolId = InvalidDescriptorPoolId;
+    };
+
 private:
     static VulkanHook_t* _Instance;
 
@@ -47,14 +55,6 @@ private:
         VkSemaphore RenderCompleteSemaphore = VK_NULL_HANDLE;
         VkSemaphore ImageAcquiredSemaphore = VK_NULL_HANDLE;
         VkFence Fence = VK_NULL_HANDLE;
-    };
-
-    struct VulkanDescriptorSet_t
-    {
-        constexpr static uint32_t InvalidDescriptorPoolId = 0xffffffff;
-
-        VkDescriptorSet DescriptorSet = VK_NULL_HANDLE;
-        uint32_t DescriptorPoolId = InvalidDescriptorPoolId;
     };
 
     struct VulkanDescriptorPool_t
@@ -78,9 +78,10 @@ private:
     uint32_t _VulkanQueueFamily;
     VkCommandPool _VulkanImageCommandPool;
     VkCommandBuffer _VulkanImageCommandBuffer;
+    VkFence _VulkanImageFence;
     VkSampler _VulkanImageSampler;
     VkDescriptorSetLayout _VulkanImageDescriptorSetLayout;
-    std::vector<VulkanFrame_t> _Frames;
+    std::vector<VulkanFrame_t> _OverlayFrames;
     VkRenderPass _VulkanRenderPass;
     std::vector<VulkanDescriptorPool_t> _DescriptorsPools;
     VkFormat _VulkanTargetFormat;
@@ -88,9 +89,9 @@ private:
     VkDevice _VulkanDevice;
     VkQueue _VulkanQueue;
 
-    VulkanDescriptorSet_t _ImGuiFontDescriptor;
-
-    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
+    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
+    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -108,6 +109,8 @@ private:
     void _ResetRenderState(OverlayHookState state);
 
     void _PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPresentInfo);
+    void _LoadResources();
+    void _ReleaseResources();
     void _HandleScreenshot(VulkanFrame_t& frame);
 
     static PFN_vkVoidFunction _LoadVulkanFunction(const char* functionName, void* userData);
@@ -116,6 +119,9 @@ private:
     bool _CreateVulkanInstance();
     int32_t _GetPhysicalDeviceFirstGraphicsQueue(VkPhysicalDevice physicalDevice);
     bool _GetPhysicalDevice();
+
+    bool _CreateImageFence();
+    void _DestroyImageFence();
 
     bool _CreateImageSampler();
     void _DestroyImageSampler();
@@ -234,8 +240,9 @@ public:
         decltype(::vkCreateSwapchainKHR)* vkCreateSwapchainKHR,
         decltype(::vkDestroyDevice)* vkDestroyDevice);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
 };
 
 }// namespace InGameOverlay

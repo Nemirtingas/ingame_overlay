@@ -326,8 +326,8 @@ void shared_library_load(void* hmodule)
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         //OverlayData->Renderer = test_renderer_detector();
-        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
-        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
+        //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::Vulkan, false);
+        OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::AnyDirectX, false);
         //OverlayData->Renderer = test_filterer_renderer_detector(InGameOverlay::RendererHookType_t::OpenGL | InGameOverlay::RendererHookType_t::DirectX11 | InGameOverlay::RendererHookType_t::DirectX12, false);
         if (OverlayData->Renderer == nullptr)
             return;
@@ -358,8 +358,6 @@ void shared_library_load(void* hmodule)
                 OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
 #elif INGAMEOVERLAY_TEST_ONDEMAND_RESOURCE_LOAD
                 // Set here the AutoLoad because by default, the RendererHook uses Batch auto load. Could also use RendererHook_t::SetResourceAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse)
-                OverlayData->OverlayImage1->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
-                OverlayData->OverlayImage2->SetAutoLoad(InGameOverlay::ResourceAutoLoad_t::OnUse);
 
                 OverlayData->OverlayImage1->AttachResource(OverlayData->ThumbsUp.Image.data(), OverlayData->ThumbsUp.Width, OverlayData->ThumbsUp.Height);
                 OverlayData->OverlayImage2->AttachResource(OverlayData->ThumbsDown.Image.data(), OverlayData->ThumbsDown.Width, OverlayData->ThumbsDown.Height);
@@ -377,7 +375,7 @@ void shared_library_load(void* hmodule)
                 // This is NOT the way to switch images, is it GPU costly and inefficient.
                 // Doing someting like this will unload the image from the GPU, and then upload the other buffer onto the GPU.
                 // You should load often used images once in your GPU and then switch the ImGui's image id in the code instead.
-                // But for the autoload feature example's sack, we do it the wrong way.
+                // But for the autoload feature example's sake, we do it the wrong way.
                 if (OverlayData->ThumbUpSelected)
                 {
                     OverlayData->OverlayImage1->AttachResource(OverlayData->RightFacingFist.Image.data(), OverlayData->RightFacingFist.Width, OverlayData->RightFacingFist.Height);
@@ -500,8 +498,6 @@ void shared_library_load(void* hmodule)
 
         OverlayData->FontAtlas->AddFontDefault(&fontcfg);
 
-        OverlayData->FontAtlas->Build();
-
         OverlayData->Renderer->StartHook([]()
         {
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
@@ -527,15 +523,16 @@ void shared_library_load(void* hmodule)
 
         OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotCallbackParameter_t const* screenshot, void* userParam)
         {
-            if (OverlayData->OverlayImageScreenshot)
-            {
-                OverlayData->OverlayImageScreenshot->Delete();
-            }
+            if (OverlayData->OverlayImageScreenshot == nullptr)
+                OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateResource();
+
+            if (OverlayData->OverlayImageScreenshot == nullptr)
+                return;
 
             OverlayData->Screenshot.Width = screenshot->Width;
             OverlayData->Screenshot.Height = screenshot->Height;
             if (ConvertToRGBA8888(screenshot, OverlayData->Screenshot.Image))
-                OverlayData->OverlayImageScreenshot = OverlayData->Renderer->CreateAndLoadResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height, true);
+                OverlayData->OverlayImageScreenshot->AttachResource(OverlayData->Screenshot.Image.data(), OverlayData->Screenshot.Width, OverlayData->Screenshot.Height);
         }, nullptr);
     });
 }

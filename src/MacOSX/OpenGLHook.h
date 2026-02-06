@@ -58,7 +58,9 @@ private:
     bool _NSViewHooked;
     bool _Initialized;
     OpenGLDriver_t _OpenGLDriver;
-    std::set<std::shared_ptr<uint64_t>> _ImageResources;
+    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
+    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
+    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -66,6 +68,8 @@ private:
 
     void _ResetRenderState();
     void _PrepareForOverlay();
+    void _LoadResources();
+    void _ReleaseResources();
     void _HandleScreenshot();
 
     // Hook to render functions
@@ -90,8 +94,9 @@ public:
     virtual RendererHookType_t GetRendererHookType() const;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
-    virtual std::weak_ptr<uint64_t> CreateImageResource(const void* image_data, uint32_t width, uint32_t height);
-    virtual void ReleaseImageResource(std::weak_ptr<uint64_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
 };
 
 }// namespace InGameOverlay

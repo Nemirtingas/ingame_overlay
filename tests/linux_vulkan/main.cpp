@@ -33,6 +33,8 @@
 
 #include <string>
 
+#undef Status
+
 static std::string expandSymlink(std::string file_path)
 {
     struct stat file_stat;

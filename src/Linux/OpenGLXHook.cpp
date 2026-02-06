@@ -22,7 +22,10 @@
 #include "OpenGLXHook.h"
 #include "X11Hook.h"
 
+#undef Status
+
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <backends/imgui_impl_opengl3.h>
 
 namespace InGameOverlay {
@@ -154,12 +157,16 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot();
+        const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
 
+        ++_CurrentFrame;
         ImGui::NewFrame();
 
         OverlayProc();
 
         _LoadResources();
+        _ReleaseResources();
 
         ImGui::Render();
 
@@ -170,6 +177,71 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
     }
 
     //glXMakeCurrent(_Display, drawable, oldContext);
+}
+
+void OpenGLXHook_t::_LoadResources()
+{
+    // Save old texture id
+    GLint oldTex;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
+
+    if (_ImageResourcesToLoad.empty())
+        return;
+
+    struct ValidTexture_t
+    {
+        std::shared_ptr<RendererTexture_t> Resource;
+        const void* Data;
+        uint32_t Width;
+        uint32_t Height;
+    };
+
+    std::vector<ValidTexture_t> validResources;
+
+    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
+
+    for (size_t i = 0; i < loadParameterCount; ++i)
+    {
+        auto& param = _ImageResourcesToLoad[i];
+        auto r = param.Resource.lock();
+        if (!r) continue;
+
+        validResources.push_back(ValidTexture_t{
+            r,
+            param.Data,
+            param.Width,
+            param.Height
+        });
+    }
+
+    if (!validResources.empty())
+    {
+        for (size_t i = 0; i < validResources.size(); ++i)
+        {
+            auto& tex = validResources[i];
+
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex.Resource->ImGuiTextureId));
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            // Upload pixels into texture
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex.Width, tex.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex.Data);
+
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, oldTex);
+
+    _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+        _ImageResourcesToLoad.begin() + loadParameterCount);
+}
+
+void OpenGLXHook_t::_ReleaseResources()
+{
+    _ImageResourcesToRelease.clear();
 }
 
 void OpenGLXHook_t::_HandleScreenshot()
@@ -268,53 +340,49 @@ void OpenGLXHook_t::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
     _GLXSwapBuffers = pfnglXSwapBuffers;
 }
 
-std::weak_ptr<uint64_t> OpenGLXHook_t::CreateImageResource(const void* image_data, uint32_t width, uint32_t height)
+std::weak_ptr<RendererTexture_t> OpenGLXHook_t::AllocImageResource()
 {
-    GLuint* texture = new GLuint(0);
-    glGenTextures(1, texture);
+    GLuint texture = 0;
+    glGenTextures(1, &texture);
     if (glGetError() != GL_NO_ERROR)
-    {
-        delete texture;
-        return std::shared_ptr<uint64_t>(nullptr);
-    }
-    
-    // Save old texture id
-    GLint oldTex;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
+        return std::weak_ptr<RendererTexture_t>{};
 
-    glBindTexture(GL_TEXTURE_2D, *texture);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // Upload pixels into texture
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
-
-    glBindTexture(GL_TEXTURE_2D, oldTex);
-
-    auto ptr = std::shared_ptr<uint64_t>((uint64_t*)texture, [](uint64_t* handle)
+    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
     {
         if (handle != nullptr)
         {
-            GLuint* texture = (GLuint*)handle;
-            glDeleteTextures(1, texture);
-            delete texture;
+            auto resource = static_cast<GLuint>(handle->ImGuiTextureId);
+            glDeleteTextures(1, &resource);
+            delete handle;
         }
     });
+    ptr->ImGuiTextureId = static_cast<uint64_t>(texture);
 
     _ImageResources.emplace(ptr);
+
     return ptr;
 }
 
-void OpenGLXHook_t::ReleaseImageResource(std::weak_ptr<uint64_t> resource)
+void OpenGLXHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
+{
+    _ImageResourcesToLoad.emplace_back(loadParameter);
+}
+
+void OpenGLXHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
 {
     auto ptr = resource.lock();
     if (ptr)
     {
         auto it = _ImageResources.find(ptr);
         if (it != _ImageResources.end())
+        {
             _ImageResources.erase(it);
+            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
+            {
+                std::move(ptr),
+                _CurrentFrame
+            });
+        }
     }
 }
 

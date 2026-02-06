@@ -21,13 +21,6 @@
 
 namespace InGameOverlay {
 
-enum class ResourceAutoLoad_t : uint8_t
-{
-    None = 0,
-    Batch = 1,
-    OnUse = 2,
-};
-
 /// <summary>
 /// A renderer resource. It will be tied to the RendererHook that created it. Don't use it if you recycle the renderer hook.
 /// </summary>
@@ -47,32 +40,10 @@ public:
     /// <returns>Is loaded or not</returns>
     virtual bool IsLoaded() const = 0;
     /// <summary>
-    /// Returns if the resource will be loaded on demand in a frame.
-    /// </summary>
-    /// <returns>Will it be loaded automatically if needed</returns>
-    virtual ResourceAutoLoad_t AutoLoad() const = 0;
-    /// <summary>
-    /// Returns if the resource will be loaded on demand in a frame.
-    /// </summary>
-    virtual void SetAutoLoad(ResourceAutoLoad_t autoLoad) = 0;
-    /// <summary>
     /// Returns if the resource has an image attached to it so it can be auto loaded.
     /// </summary>
     /// <returns>Can be loaded</returns>
-    virtual bool CanBeLoaded() const = 0;
-    /// <summary>
-    /// Explicitly load the resource. (If not already loaded or if you changed its attachement)
-    /// </summary>
-    /// <returns>Is the resource ready on the GPU.</returns>
-    virtual bool LoadAttachedResource() = 0;
-    /// <summary>
-    /// Explicitly load the resource and don't store the data internally. The resource will not be able to reload itself on renderer reset.
-    /// </summary>
-    /// <param name="data"></param>
-    /// <param name="width"></param>
-    /// <param name="height"></param>
-    /// <returns></returns>
-    virtual bool Load(const void* data, uint32_t width, uint32_t height) = 0;
+    virtual bool HasAttachedResource() const = 0;
     /// <summary>
     /// Gets the resource id usable by ImGui::Image(). It will also trigger the autoload if set.
     /// If autoload is in batch mode, the loading can be deferred by a few frames. (at least 1)

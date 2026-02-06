@@ -869,7 +869,7 @@ public:
 
 private:
     std::timed_mutex _DetectorMutex;
-    std::mutex _RendererMutex;
+    std::recursive_mutex _RendererMutex;
 
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
@@ -1031,7 +1031,7 @@ private:
         HRESULT res;
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
         res = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
@@ -1049,7 +1049,7 @@ private:
         HRESULT res;
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDXGISwapChain::Present1");
         res = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
@@ -1064,7 +1064,7 @@ private:
     static HRESULT STDMETHODCALLTYPE _MyDX9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DDevice9::Present");
         auto res = (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
@@ -1089,7 +1089,7 @@ private:
     static HRESULT STDMETHODCALLTYPE _MyDX9PresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DDevice9Ex::PresentEx");
         auto res = (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
@@ -1114,7 +1114,7 @@ private:
     {
         auto inst = Inst();
         // Some implementations redirect to DX9 swapchain.
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DSwapChain9::Present");
         auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
@@ -1149,7 +1149,7 @@ private:
     static BOOL WINAPI _MyWGLSwapBuffers(HDC hDC)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("wglSwapBuffers");
         auto res = inst->_WGLSwapBuffers(hDC);
@@ -1167,7 +1167,7 @@ private:
     static VkResult VKAPI_CALL _MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::try_to_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("vkQueuePresentKHR");
         auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
@@ -1517,7 +1517,7 @@ public:
                         if (libraryHandle != nullptr)
                         {
                             INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
-                            std::lock_guard<std::mutex> lk(_RendererMutex);
+                            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
                             INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
                             (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
@@ -1529,7 +1529,7 @@ public:
                 if (!_DetectionStarted)
                 {
                     INGAMEOVERLAY_DEBUG("Detection started 1");
-                    std::lock_guard<std::mutex> lck(_RendererMutex);
+                    std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
                     INGAMEOVERLAY_DEBUG("Detection started 2");
                     _DetectionStarted = true;
                 }

@@ -27,35 +27,31 @@ namespace InGameOverlay {
 
 class RendererHookInternal_t;
 
+struct ResourceState_t
+{
+    std::weak_ptr<RendererTexture_t> RendererResource;
+    uint32_t Width = 0;
+    uint32_t Height = 0;
+
+    inline void Reset()
+    {
+        RendererResource.reset();
+        Width = 0;
+        Height = 0;
+    }
+};
+
 class RendererResourceInternal_t : public RendererResource_t
 {
-    struct ResourceState_t
-    {
-        std::weak_ptr<uint64_t> RendererResource;
-        uint32_t Width = 0;
-        uint32_t Height = 0;
-
-        inline void Reset()
-        {
-            RendererResource.reset();
-            Width = 0;
-            Height = 0;
-        }
-    };
-
 protected:
     RendererHookInternal_t* _RendererHook;
-
-    bool _DoBatchLoad();
-    bool _DoAutoLoad();
 
 public:
     ResourceState_t _OldRendererResource;
     ResourceState_t _RendererResource;
-    ResourceAutoLoad_t _AutoLoad;
     const void* _Data;
 
-    RendererResourceInternal_t(RendererHookInternal_t* rendererHook, ResourceAutoLoad_t autoLoad) noexcept;
+    RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept;
 
     RendererResourceInternal_t(RendererResourceInternal_t &&) noexcept = default;
     RendererResourceInternal_t& operator=(RendererResourceInternal_t &&) noexcept = default;
@@ -69,15 +65,7 @@ public:
 
     virtual bool IsLoaded() const;
 
-    virtual ResourceAutoLoad_t AutoLoad() const;
-
-    virtual void SetAutoLoad(ResourceAutoLoad_t autoLoad);
-
-    virtual bool CanBeLoaded() const;
-
-    virtual bool LoadAttachedResource();
-
-    virtual bool Load(const void* data, uint32_t width, uint32_t height);
+    virtual bool HasAttachedResource() const;
 
     virtual uint64_t GetResourceId();
 
