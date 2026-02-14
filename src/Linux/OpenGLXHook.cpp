@@ -184,12 +184,12 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
 void OpenGLXHook_t::_LoadResources()
 {
+    if (_ImageResourcesToLoad.empty())
+        return;
+
     // Save old texture id
     GLint oldTex;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
-
-    if (_ImageResourcesToLoad.empty())
-        return;
 
     struct ValidTexture_t
     {
