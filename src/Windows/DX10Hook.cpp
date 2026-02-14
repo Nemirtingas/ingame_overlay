@@ -272,8 +272,11 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot(pSwapChain);
 
-        const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+        if (_ImGuiFontAtlas != nullptr)
+        {
+            const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+        }
 
         ++_CurrentFrame;
         ImGui::NewFrame();

@@ -138,8 +138,11 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot();
 
-        const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-        ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+        if (_ImGuiFontAtlas != nullptr)
+        {
+            const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+        }
 
         ++_CurrentFrame;
         ImGui::NewFrame();
