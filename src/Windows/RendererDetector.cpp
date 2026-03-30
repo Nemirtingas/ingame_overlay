@@ -1152,14 +1152,17 @@ private:
         std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("wglSwapBuffers");
+
+		// On Windows with NVidia, there is a deadlock in WinAPI if you call wglGetProcAddress AFTER a wglSwapBuffers call,
+        // so we need to load glad before calling the original wglSwapBuffers.
+        auto openglCandidate = (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1));
+
         auto res = inst->_WGLSwapBuffers(hDC);
         if (!inst->_DetectionStarted || inst->_DetectionDone)
             return res;
 
-        if (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1))
-        {
+        if (openglCandidate)
             inst->_HookDetected(inst->_OpenGLHook);
-        }
 
         return res;
     }
