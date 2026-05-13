@@ -22,6 +22,7 @@
 #endif
 
 #include <cassert>
+#include <mutex>
 
 #include <InGameOverlay/RendererDetector.h>
 
@@ -29,7 +30,6 @@
 #include <System/String.hpp>
 #include <System/System.h>
 #include <System/Library.h>
-#include <System/ScopedLock.hpp>
 #include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
@@ -411,7 +411,7 @@ public:
                 
             bool cancel = false;
             {
-                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
 
                 if (!_DetectionCancelled)
                 {
@@ -491,7 +491,7 @@ public:
 
             _DetectionStarted = false;
             {
-                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
 
                 ExitDetection();
 
@@ -513,7 +513,7 @@ public:
                 return;
         }
         {
-            auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+            std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
             _DetectionCancelled = true;
         }
         _StopDetectionConditionVariable.notify_all();
