@@ -18,6 +18,7 @@
  */
 
 #include <cassert>
+#include <mutex>
 
 #include <InGameOverlay/RendererDetector.h>
 #include "../VulkanHelpers.h"
@@ -26,7 +27,6 @@
 #include <System/String.hpp>
 #include <System/System.h>
 #include <System/Library.h>
-#include <System/ScopedLock.hpp>
 #include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
@@ -151,7 +151,7 @@ static std::string GetSystemDirectory()
 {
     std::wstring tmp(4096, L'\0');
     tmp.resize(GetSystemDirectoryW(&tmp[0], static_cast<UINT>(tmp.size())));
-    auto systemDirectory = System::Encoding::WCharToUtf8(tmp);
+    auto systemDirectory = System::Encoding::UTF8::WCharToUtf8(tmp);
 
     System::String::ToLower(systemDirectory);
     return systemDirectory;
@@ -1442,7 +1442,7 @@ public:
 
             bool cancel = false;
             {
-                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
 
                 if (!_DetectionCancelled)
                 {
@@ -1543,7 +1543,7 @@ public:
 
             _DetectionStarted = false;
             {
-                auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
                 
                 _ExitDetection();
 
@@ -1565,7 +1565,7 @@ public:
                 return;
         }
         {
-            auto lk = System::ScopeLock(_RendererMutex, _StopDetectionMutex);
+            std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
             _DetectionCancelled = true;
         }
         _StopDetectionConditionVariable.notify_all();
