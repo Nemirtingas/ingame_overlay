@@ -760,7 +760,7 @@ WindowsHook_t::WindowsHook_t() :
     _Initialized(false),
     _GameHwnd(nullptr),
     _SavedCursorPos{},
-    _SavedClipCursor{},
+    _SavedClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
     _DefaultClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
