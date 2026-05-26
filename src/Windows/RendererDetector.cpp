@@ -869,11 +869,11 @@ public:
 
 private:
     std::timed_mutex _DetectorMutex;
-    std::recursive_mutex _RendererMutex;
+    std::mutex _RendererMutex;
 
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
-
+    
     bool _DetectionStarted;
     bool _DetectionDone;
     uint32_t _DetectionCount;
@@ -953,41 +953,51 @@ private:
         _DetectionDone = true;
     }
 
-    void _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
+    int _DeduceDXVersionFromSwapChain(IDXGISwapChain* pSwapChain)
     {
-        IUnknown* pDevice = nullptr;
+        struct SafeCOM
+        {
+            IUnknown* pDevice = nullptr;
+
+            inline void Release()
+            {
+                if (pDevice != nullptr)
+                {
+                    pDevice->Release();
+                    pDevice = nullptr;
+                }
+            }
+
+            inline ~SafeCOM() { Release(); }
+        };
+
+        SafeCOM safeDevice;
 
         if (_DX12Hooked)
         {
-            pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D12Device**>(&pDevice)));
-        }
-        if (pDevice != nullptr)
-        {
-            // DXVK doesn't support (yet) DX12, vkd3d is used instead.
-            INGAMEOVERLAY_DEBUG("Detected DX12");
-            _HookDetected(_DX12Hook);
-        }
-        else
-        {
-            if (_DX11Hooked)
+            pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D12Device**>(&safeDevice.pDevice)));
+            if (safeDevice.pDevice != nullptr)
             {
-                pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&pDevice)));
-                if (pDevice != nullptr && _DX10Hooked)
-                {
-                    // It seems that when you are using a DX10 device, sometimes, the swapchain has a DX11 device.
-                    ID3D10Device* pD10Device = nullptr;
-                    pSwapChain->GetDevice(IID_PPV_ARGS(&pD10Device));
-                    if (pD10Device != nullptr)
-                    {
-                        pDevice->Release();
-                        pD10Device->Release();
-                        pDevice = nullptr;
-                    }
-                }
+                // DXVK doesn't support (yet) DX12, vkd3d is used instead.
+                INGAMEOVERLAY_DEBUG("Detected DX12");
+                return 12;
             }
-            if (pDevice != nullptr)
+        }
+
+        if (_DX11Hooked)
+        {
+            pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D11Device**>(&safeDevice.pDevice)));
+            if (safeDevice.pDevice != nullptr && _DX10Hooked)
             {
-                if (DXGIDeviceIsDXVK(pDevice))
+                // It seems that when you are using a DX10 device, sometimes, the swapchain has a DX11 device.
+                SafeCOM safeD10Device;
+                pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D10Device**>((&safeD10Device.pDevice))));
+                if (safeD10Device.pDevice != nullptr)
+                    safeDevice.Release();
+            }
+            if (safeDevice.pDevice != nullptr)
+            {
+                if (DXGIDeviceIsDXVK(safeDevice.pDevice))
                 {
                     _DX11Hook->SetDXVK();
                     INGAMEOVERLAY_DEBUG("Detected DX11 (DXVK)");
@@ -996,33 +1006,29 @@ private:
                 {
                     INGAMEOVERLAY_DEBUG("Detected DX11");
                 }
-                _HookDetected(_DX11Hook);
-            }
-            else
-            {
-                if (_DX10Hooked)
-                {
-                    pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D10Device**>(&pDevice)));
-                }
-                if (pDevice != nullptr)
-                {
-                    if (DXGIDeviceIsDXVK(pDevice))
-                    {
-                        _DX10Hook->SetDXVK();
-                        INGAMEOVERLAY_DEBUG("Detected DX10 (DXVK)");
-                    }
-                    else
-                    {
-                        INGAMEOVERLAY_DEBUG("Detected DX10");
-                    }
-                    _HookDetected(_DX10Hook);
-                }
+                return 11;
             }
         }
-        if (pDevice != nullptr)
+
+        if (_DX10Hooked)
         {
-            pDevice->Release();
+            pSwapChain->GetDevice(IID_PPV_ARGS(reinterpret_cast<ID3D10Device**>(&safeDevice.pDevice)));
+            if (safeDevice.pDevice != nullptr)
+            {
+                if (DXGIDeviceIsDXVK(safeDevice.pDevice))
+                {
+                    _DX10Hook->SetDXVK();
+                    INGAMEOVERLAY_DEBUG("Detected DX10 (DXVK)");
+                }
+                else
+                {
+                    INGAMEOVERLAY_DEBUG("Detected DX10");
+                }
+                return 10;
+            }
         }
+        
+        return 0;
     }
 
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags)
@@ -1031,14 +1037,33 @@ private:
         HRESULT res;
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
+        lk.unlock();
         res = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
-
-        inst->_DeduceDXVersionFromSwapChain(_this);
+        
+        // Call detection logic without holding the lock to avoid deadlocks
+        // when it triggers other hooked functions
+        auto dxVersion = inst->_DeduceDXVersionFromSwapChain(_this);
+        if (dxVersion != 0)
+        {
+            lk.lock();
+            // Re-check detection state after re-acquiring lock to ensure objects still exist
+            if (inst->_DetectionStarted && !inst->_DetectionDone)
+            {
+                switch (dxVersion)
+                {
+                    case 10: if (inst->_DX10Hook != nullptr) inst->_HookDetected(inst->_DX10Hook); break;
+                    case 11: if (inst->_DX11Hook != nullptr) inst->_HookDetected(inst->_DX11Hook); break;
+                    case 12: if (inst->_DX12Hook != nullptr) inst->_HookDetected(inst->_DX12Hook); break;
+                }
+            }
+        }
 
         return res;
     }
@@ -1049,14 +1074,33 @@ private:
         HRESULT res;
         // It appears that (NVidia at least) calls IDXGISwapChain when calling OpenGL or Vulkan SwapBuffers.
         // So only lock when OpenGL or Vulkan hasn't already locked the mutex.
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDXGISwapChain::Present1");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
+        lk.unlock();
         res = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
-
-        inst->_DeduceDXVersionFromSwapChain(_this);
+        
+        // Call detection logic without holding the lock to avoid deadlocks
+        // when it triggers other hooked functions
+        auto dxVersion = inst->_DeduceDXVersionFromSwapChain(_this);
+        if (dxVersion != 0)
+        {
+            lk.lock();
+            // Re-check detection state after re-acquiring lock to ensure objects still exist
+            if (inst->_DetectionStarted && !inst->_DetectionDone)
+            {
+                switch (dxVersion)
+                {
+                    case 10: if (inst->_DX10Hook != nullptr) inst->_HookDetected(inst->_DX10Hook); break;
+                    case 11: if (inst->_DX11Hook != nullptr) inst->_HookDetected(inst->_DX11Hook); break;
+                    case 12: if (inst->_DX12Hook != nullptr) inst->_HookDetected(inst->_DX12Hook); break;
+                }
+            }
+        }
 
         return res;
     }
@@ -1064,13 +1108,18 @@ private:
     static HRESULT STDMETHODCALLTYPE _MyDX9Present(IDirect3DDevice9* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion)
     {
         auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DDevice9::Present");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
+        lk.unlock();
         auto res = (_this->*inst->_IDirect3DDevice9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
 
+        // Call detection logic without holding the lock to avoid deadlocks
+        // when it triggers other hooked functions
         if (DX9DeviceIsDXVK(_this))
         {
             inst->_DX9Hook->SetDXVK();
@@ -1081,7 +1130,10 @@ private:
             INGAMEOVERLAY_DEBUG("Detected DX9");
         }
 
-        inst->_HookDetected(inst->_DX9Hook);
+        lk.lock();
+        // Re-check detection state after re-acquiring lock to ensure objects still exist
+        if (inst->_DetectionStarted && !inst->_DetectionDone && inst->_DX9Hook != nullptr)
+            inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
@@ -1089,13 +1141,18 @@ private:
     static HRESULT STDMETHODCALLTYPE _MyDX9PresentEx(IDirect3DDevice9Ex* _this, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion, DWORD dwFlags)
     {
         auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DDevice9Ex::PresentEx");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
+        lk.unlock();
         auto res = (_this->*inst->_IDirect3DDevice9ExPresentEx)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
 
+        // Call detection logic without holding the lock to avoid deadlocks
+        // when it triggers other hooked functions
         if (DX9DeviceIsDXVK(_this))
         {
             inst->_DX9Hook->SetDXVK();
@@ -1105,7 +1162,11 @@ private:
         {
             INGAMEOVERLAY_DEBUG("Detected DX9");
         }
-        inst->_HookDetected(inst->_DX9Hook);
+        
+        lk.lock();
+        // Re-check detection state after re-acquiring lock to ensure objects still exist
+        if (inst->_DetectionStarted && !inst->_DetectionDone && inst->_DX9Hook != nullptr)
+            inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
@@ -1114,13 +1175,18 @@ private:
     {
         auto inst = Inst();
         // Some implementations redirect to DX9 swapchain.
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("IDirect3DSwapChain9::Present");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
+        lk.unlock();
         auto res = (_this->*inst->_IDirect3DSwapChain9Present)(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
 
+        // Call detection logic without holding the lock to avoid deadlocks
+        // when it triggers other hooked functions
         IDirect3DDevice9 *pDevice;
         if (SUCCEEDED(_this->GetDevice(&pDevice)))
         {
@@ -1141,7 +1207,10 @@ private:
             INGAMEOVERLAY_DEBUG("Detected DX9");
         }
         
-        inst->_HookDetected(inst->_DX9Hook);
+        lk.lock();
+        // Re-check detection state after re-acquiring lock to ensure objects still exist
+        if (inst->_DetectionStarted && !inst->_DetectionDone && inst->_DX9Hook != nullptr)
+            inst->_HookDetected(inst->_DX9Hook);
 
         return res;
     }
@@ -1149,19 +1218,24 @@ private:
     static BOOL WINAPI _MyWGLSwapBuffers(HDC hDC)
     {
         auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("wglSwapBuffers");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_DetectionDone;
 
-		// On Windows with NVidia, there is a deadlock in WinAPI if you call wglGetProcAddress AFTER a wglSwapBuffers call,
+        lk.unlock();
+        // On Windows with NVidia, there is a deadlock in WinAPI if you call wglGetProcAddress AFTER a wglSwapBuffers call,
         // so we need to load glad before calling the original wglSwapBuffers.
+        // Call this without holding the lock to avoid deadlocks if it triggers other hooked functions.
         auto openglCandidate = (gladLoaderLoadGL() >= GLAD_MAKE_VERSION(3, 1));
-
         auto res = inst->_WGLSwapBuffers(hDC);
-        if (!inst->_DetectionStarted || inst->_DetectionDone)
+        
+        if (!shouldDetect || !openglCandidate)
             return res;
 
-        if (openglCandidate)
+        lk.lock();
+        // Re-check detection state after re-acquiring lock to ensure objects still exist
+        if (inst->_DetectionStarted && !inst->_DetectionDone && inst->_OpenGLHook != nullptr)
             inst->_HookDetected(inst->_OpenGLHook);
 
         return res;
@@ -1170,15 +1244,21 @@ private:
     static VkResult VKAPI_CALL _MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
+        std::unique_lock<std::mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("vkQueuePresentKHR");
+        bool shouldDetect = inst->_DetectionStarted && !inst->_VulkanHooked && !inst->_DetectionDone;
+        lk.unlock();
         auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
-        if (!inst->_DetectionStarted || !inst->_VulkanHooked || inst->_DetectionDone)
+        
+        if (!shouldDetect)
             return res;
 
         INGAMEOVERLAY_DEBUG("Detected Vulkan");
-        inst->_HookDetected(inst->_VulkanHook);
+        lk.lock();
+        // Re-check detection state after re-acquiring lock to ensure objects still exist
+        if (inst->_DetectionStarted && !inst->_VulkanHooked && !inst->_DetectionDone && inst->_VulkanHook != nullptr)
+            inst->_HookDetected(inst->_VulkanHook);
 
         return res;
     }
@@ -1397,7 +1477,6 @@ private:
     {
         DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
 
-        _DetectionDone = true;
         _DetectionHooks.UnhookAll();
 
         _DXGIHooked    = false;
@@ -1520,7 +1599,7 @@ public:
                         if (libraryHandle != nullptr)
                         {
                             INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
-                            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+                            std::lock_guard<std::mutex> lk(_RendererMutex);
                             INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
                             (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                         }
@@ -1532,7 +1611,7 @@ public:
                 if (!_DetectionStarted)
                 {
                     INGAMEOVERLAY_DEBUG("Detection started 1");
-                    std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+                    std::lock_guard<std::mutex> lk(_RendererMutex);
                     INGAMEOVERLAY_DEBUG("Detection started 2");
                     _DetectionStarted = true;
                 }
@@ -1542,6 +1621,9 @@ public:
             } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
 
             _DetectionStarted = false;
+            // Signal all threads that detection is done before cleanup
+            // This prevents race conditions where hooked functions try to use objects we're about to delete
+            _DetectionDone = true;
             {
                 std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
                 
