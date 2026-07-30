@@ -19,6 +19,8 @@
 
 #include <cassert>
 #include <mutex>
+#include <string>
+#include <string_view>
 
 #include <InGameOverlay/RendererDetector.h>
 #include "../VulkanHelpers.h"
@@ -296,10 +298,10 @@ static bool DXGIDeviceIsDXVK(IUnknown* pDevice)
     return true;
 }
 
-static DirectX9Driver_t GetDX9Driver(std::string const& directX9LibraryPath, HWND windowHandle)
+static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath, HWND windowHandle)
 {
     DirectX9Driver_t driver{};
-    HMODULE hD3D9 = (HMODULE)System::Library::GetLibraryHandle(directX9LibraryPath.c_str());
+    HMODULE hD3D9 = (HMODULE)System::Library::GetLibraryHandle(directX9LibraryPath.data());
     if (hD3D9 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to setup DX9", directX9LibraryPath);
@@ -375,11 +377,11 @@ static DirectX9Driver_t GetDX9Driver(std::string const& directX9LibraryPath, HWN
     return driver;
 }
 
-static DirectX10Driver_t GetDX10Driver(std::string const& directX10LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX10Driver_t driver{};
 
-    HMODULE hD3D10 = (HMODULE)System::Library::GetLibraryHandle(directX10LibraryPath.c_str());
+    HMODULE hD3D10 = (HMODULE)System::Library::GetLibraryHandle(directX10LibraryPath.data());
     if (hD3D10 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX10", directX10LibraryPath);
@@ -479,11 +481,11 @@ static DirectX10Driver_t GetDX10Driver(std::string const& directX10LibraryPath, 
     return driver;
 }
 
-static DirectX11Driver_t GetDX11Driver(std::string const& directX11LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX11Driver_t driver{};
 
-    HMODULE hD3D11 = (HMODULE)System::Library::GetLibraryHandle(directX11LibraryPath.c_str());
+    HMODULE hD3D11 = (HMODULE)System::Library::GetLibraryHandle(directX11LibraryPath.data());
     if (hD3D11 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX11", directX11LibraryPath);
@@ -582,11 +584,11 @@ static DirectX11Driver_t GetDX11Driver(std::string const& directX11LibraryPath, 
     return driver;
 }
 
-static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX12Driver_t driver{};
 
-    HMODULE hD3D12 = (HMODULE)System::Library::GetLibraryHandle(directX12LibraryPath.c_str());
+    HMODULE hD3D12 = (HMODULE)System::Library::GetLibraryHandle(directX12LibraryPath.data());
     if (hD3D12 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX12", directX12LibraryPath);
@@ -687,14 +689,14 @@ static DirectX12Driver_t GetDX12Driver(std::string const& directX12LibraryPath, 
     return driver;
 }
 
-static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
+static OpenGLDriver_t GetOpenGLDriver(std::string_view const& libraryPath)
 {
     OpenGLDriver_t driver{};
 
-    HMODULE hOpenGL = (HMODULE)System::Library::GetLibraryHandle(openGLLibraryPath.c_str());
+    HMODULE hOpenGL = (HMODULE)System::Library::GetLibraryHandle(libraryPath.data());
     if (hOpenGL == nullptr)
     {
-        INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", openGLLibraryPath);
+        INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
         return driver;
     }
 
@@ -703,11 +705,11 @@ static OpenGLDriver_t GetOpenGLDriver(std::string const& openGLLibraryPath)
     return driver;
 }
 
-static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
+static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
 {
     VulkanDriver_t driver{};
 
-    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.c_str());
+    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.data());
     if (hVulkan == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
@@ -840,6 +842,79 @@ static VulkanDriver_t GetVulkanDriver(std::string const& vulkanLibraryPath)
     return driver;
 }
 
+static DX9Hook_t* GetDX9RendererHook(DirectX9Driver_t const& driver)
+{
+    if (driver.pfnPresent == nullptr)
+        return nullptr;
+
+    auto rendererHook = DX9Hook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnReset, driver.pfnPresentEx, driver.pfnResetEx, driver.pfnSwapChainPresent);
+    return rendererHook;
+}
+
+static DX10Hook_t* GetDX10RendererHook(DirectX10Driver_t const& driver)
+{
+    if (driver.pfnPresent == nullptr)
+        return nullptr;
+
+    auto rendererHook = DX10Hook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
+    return rendererHook;
+}
+
+static DX11Hook_t* GetDX11RendererHook(DirectX11Driver_t const& driver)
+{
+    if (driver.pfnPresent == nullptr)
+        return nullptr;
+
+    auto rendererHook = DX11Hook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
+    return rendererHook;
+}
+
+static DX12Hook_t* GetDX12RendererHook(DirectX12Driver_t const& driver)
+{
+    if (driver.pfnPresent == nullptr)
+        return nullptr;
+
+    auto rendererHook = DX12Hook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
+    return rendererHook;
+}
+
+static OpenGLHook_t* GetOpenGLRendererHook(OpenGLDriver_t const& driver)
+{
+    if (driver.wglSwapBuffers == nullptr)
+        return nullptr;
+
+    auto rendererHook = OpenGLHook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(driver.wglSwapBuffers);
+    return rendererHook;
+}
+
+static VulkanHook_t* GetVulkanRendererHook(VulkanDriver_t const& driver)
+{
+    if (driver.vkQueuePresentKHR == nullptr)
+        return nullptr;
+
+    auto rendererHook = VulkanHook_t::Inst();
+    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->LoadFunctions(
+        driver.vkLoader,
+        driver.vkAcquireNextImageKHR,
+        driver.vkAcquireNextImage2KHR,
+        driver.vkQueuePresentKHR,
+        driver.vkCreateSwapchainKHR,
+        driver.vkDestroyDevice);
+
+    return rendererHook;
+}
+
 class RendererDetector_t
 {
     static RendererDetector_t* _Instance;
@@ -868,7 +943,6 @@ public:
     }
 
 private:
-    std::timed_mutex _DetectorMutex;
     std::recursive_mutex _RendererMutex;
 
     BaseHook_t _DetectionHooks;
@@ -876,10 +950,22 @@ private:
 
     bool _DetectionStarted;
     bool _DetectionDone;
-    uint32_t _DetectionCount;
-    bool _DetectionCancelled;
-    std::condition_variable _StopDetectionConditionVariable;
-    std::mutex _StopDetectionMutex;
+
+    struct DetectionDetails_t
+    {
+        RendererHookType_t RendererType;
+        std::string DllName;
+        void (RendererDetector_t::* DetectionProcedure)(std::string_view const&, bool);
+    };
+
+    std::array<DetectionDetails_t, 6> RendererLibraries{
+        DetectionDetails_t{ RendererHookType_t::OpenGL   , OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
+        DetectionDetails_t{ RendererHookType_t::Vulkan   , VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan },
+        DetectionDetails_t{ RendererHookType_t::DirectX12, DX12_DLL_NAME  , &RendererDetector_t::_HookDX12   },
+        DetectionDetails_t{ RendererHookType_t::DirectX11, DX11_DLL_NAME  , &RendererDetector_t::_HookDX11   },
+        DetectionDetails_t{ RendererHookType_t::DirectX10, DX10_DLL_NAME  , &RendererDetector_t::_HookDX10   },
+        DetectionDetails_t{ RendererHookType_t::DirectX9 , DX9_DLL_NAME   , &RendererDetector_t::_HookDX9    },
+    };
 
     decltype(&IDXGISwapChain::Present)       _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain1::Present1)     _IDXGISwapChain1Present1;
@@ -914,8 +1000,6 @@ private:
         _RendererHook(nullptr),
         _DetectionStarted(false),
         _DetectionDone(false),
-        _DetectionCount(0),
-        _DetectionCancelled(false),
         _IDXGISwapChainPresent(nullptr),
         _IDXGISwapChain1Present1(nullptr),
         _IDirect3DDevice9Present(nullptr),
@@ -1234,21 +1318,18 @@ private:
             _DetectionHooks.EndHook();
         }
     }
-    void _HookDX9(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookDX9(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX9Hooked)
         {
-            auto driver = GetDX9Driver(libraryPath, _DummyWindowHandle);
-            if (driver.pfnPresent != nullptr)
+            auto driver = GetDX9Driver(libraryPath.data(), _DummyWindowHandle);
+            _DX9Hook = GetDX9RendererHook(driver);
+            if (_DX9Hook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked D3D9::Present to detect DX Version");
                 _DX9Hooked = true;
 
                 _HookDX9Present(driver.pfnPresent, driver.pfnPresentEx, driver.pfnSwapChainPresent);
-
-                _DX9Hook = DX9Hook_t::Inst();
-                _DX9Hook->LibraryName = driver.LibraryPath;
-                _DX9Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnReset, driver.pfnPresentEx, driver.pfnResetEx, driver.pfnSwapChainPresent);
             }
             else
             {
@@ -1257,21 +1338,18 @@ private:
         }
     }
 
-    void _HookDX10(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookDX10(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX10Hooked)
         {
-            auto driver = GetDX10Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
-            if (driver.pfnPresent != nullptr)
+            auto driver = GetDX10Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            _DX10Hook = GetDX10RendererHook(driver);
+            if (_DX10Hook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
                 _DX10Hooked = true;
 
                 _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
-
-                _DX10Hook = DX10Hook_t::Inst();
-                _DX10Hook->LibraryName = driver.LibraryPath;
-                _DX10Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
             }
             else
             {
@@ -1280,21 +1358,18 @@ private:
         }
     }
 
-    void _HookDX11(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookDX11(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX11Hooked)
         {
-            auto driver = GetDX11Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
-            if (driver.pfnPresent != nullptr)
+            auto driver = GetDX11Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            _DX11Hook = GetDX11RendererHook(driver);
+            if (_DX11Hook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
                 _DX11Hooked = true;
 
                 _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
-
-                _DX11Hook = DX11Hook_t::Inst();
-                _DX11Hook->LibraryName = driver.LibraryPath;
-                _DX11Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
             }
             else
             {
@@ -1303,21 +1378,18 @@ private:
         }
     }
 
-    void _HookDX12(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookDX12(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX12Hooked)
         {
-            auto driver = GetDX12Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
-            if (driver.pfnPresent != nullptr)
+            auto driver = GetDX12Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            _DX12Hook = GetDX12RendererHook(driver);
+            if (_DX12Hook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked IDXGISwapChain::Present to detect DX Version");
                 _DX12Hooked = true;
 
                 _HookDXGI(driver.pfnPresent, driver.pfnPresent1);
-
-                _DX12Hook = DX12Hook_t::Inst();
-                _DX12Hook->LibraryName = driver.LibraryPath;
-                _DX12Hook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
             }
             else
             {
@@ -1326,21 +1398,18 @@ private:
         }
     }
 
-    void _HookOpenGL(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookOpenGL(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLHooked)
         {
             auto driver = GetOpenGLDriver(libraryPath);
-            if (driver.wglSwapBuffers != nullptr)
+            _OpenGLHook = GetOpenGLRendererHook(driver);
+            if (_OpenGLHook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked wglSwapBuffers to detect OpenGL");
                 _OpenGLHooked = true;
 
                 _WGLSwapBuffers = driver.wglSwapBuffers;
-
-                _OpenGLHook = OpenGLHook_t::Inst();
-                _OpenGLHook->LibraryName = driver.LibraryPath;
-                _OpenGLHook->LoadFunctions(_WGLSwapBuffers);
 
                 _DetectionHooks.BeginHook();
                 TRY_HOOK_FUNCTION(_WGLSwapBuffers, &RendererDetector_t::_MyWGLSwapBuffers);
@@ -1353,28 +1422,18 @@ private:
         }
     }
 
-    void _HookVulkan(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookVulkan(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_VulkanHooked)
         {
-            auto driver = GetVulkanDriver(libraryPath);
-            if (driver.vkQueuePresentKHR != nullptr)
+            auto driver = GetVulkanDriver(libraryPath.data());
+            _VulkanHook = GetVulkanRendererHook(driver);
+            if (_VulkanHook != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked vkQueuePresentKHR to detect Vulkan");
                 _VulkanHooked = true;
 
                 _VkQueuePresentKHR = driver.vkQueuePresentKHR;
-
-                _VulkanHook = VulkanHook_t::Inst();
-                _VulkanHook->LibraryName = driver.LibraryPath;
-                _VulkanHook->LoadFunctions(
-                    driver.vkLoader,
-                    driver.vkAcquireNextImageKHR,
-                    driver.vkAcquireNextImage2KHR,
-                    driver.vkQueuePresentKHR,
-                    driver.vkCreateSwapchainKHR,
-                    driver.vkDestroyDevice);
-                _VulkanHooked = true;
 
                 _DetectionHooks.BeginHook();
                 TRY_HOOK_FUNCTION(_VkQueuePresentKHR, &RendererDetector_t::_MyvkQueuePresentKHR);
@@ -1418,161 +1477,89 @@ private:
     }
 
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+    bool DetectRenderer(bool restart, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
     {
-        std::lock_guard<std::mutex> lk(_StopDetectionMutex);
+        auto wantsContinue = false;
 
-        if (_DetectionCount == 0)
-        {// If we have no detections in progress, restart detection.
-            _DetectionCancelled = false;
+        {
+            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+
+            if (_DetectionDone)
+            {
+                if (_RendererHook != nullptr || !restart)
+                {
+                    _ExitDetection();
+                    return wantsContinue;
+                }
+
+                _DetectionStarted = false;
+                _DetectionDone = false;
+            }
+
+            wantsContinue = true;
+
+            if (!_EnterDetection())
+                return wantsContinue;
         }
 
-        ++_DetectionCount;
+        INGAMEOVERLAY_TRACE("Started renderer detection.");
 
-        return std::async(std::launch::async, [this, timeout, rendererToDetect, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
+        std::string name;
+
+        for (auto const& library : RendererLibraries)
         {
-            std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
-            constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
-        
-            if (!detection_lock.try_lock_for(timeout))
-            {
-                --_DetectionCount;
-                return nullptr;
-            }
+            if ((rendererToDetect & library.RendererType) != library.RendererType)
+                continue;
 
-            bool cancel = false;
+            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
+            if (!libraryPath.empty())
             {
-                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-
-                if (!_DetectionCancelled)
+                void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                if (libraryHandle != nullptr)
                 {
-                    if (_DetectionDone)
-                    {
-                        if (_RendererHook == nullptr)
-                        {// Renderer detection was run but we didn't find it, restart the detection
-                            _DetectionDone = false;
-                        }
-                        else
-                        {// Renderer already detected, cancel detection and return the renderer.
-                            cancel = true;
-                        }
-                    }
-
-                    if (!_EnterDetection())
-                        cancel = true;
-                }
-                else
-                {// Detection was cancelled, cancel this detection
-                    cancel = true;
-                }
-            }
-
-            if (cancel)
-            {
-                --_DetectionCount;
-                _StopDetectionConditionVariable.notify_all();
-                return _RendererHook;
-            }
-
-            INGAMEOVERLAY_TRACE("Started renderer detection.");
-
-            struct DetectionDetails_t
-            {
-                std::string DllName;
-                void (RendererDetector_t::*DetectionProcedure)(std::string const&, bool);
-            };
-
-            std::vector<DetectionDetails_t> libraries;
-            if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
-                libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL });
-
-            if ((rendererToDetect & RendererHookType_t::Vulkan) == RendererHookType_t::Vulkan)
-                libraries.emplace_back(DetectionDetails_t{ VULKAN_DLL_NAME, &RendererDetector_t::_HookVulkan });
-
-            if ((rendererToDetect & RendererHookType_t::DirectX12) == RendererHookType_t::DirectX12)
-                libraries.emplace_back(DetectionDetails_t{ DX12_DLL_NAME, &RendererDetector_t::_HookDX12 });
-
-            if ((rendererToDetect & RendererHookType_t::DirectX11) == RendererHookType_t::DirectX11)
-                libraries.emplace_back(DetectionDetails_t{ DX11_DLL_NAME, &RendererDetector_t::_HookDX11 });
-
-            if ((rendererToDetect & RendererHookType_t::DirectX10) == RendererHookType_t::DirectX10)
-                libraries.emplace_back(DetectionDetails_t{ DX10_DLL_NAME, &RendererDetector_t::_HookDX10 });
-
-            if ((rendererToDetect & RendererHookType_t::DirectX9) == RendererHookType_t::DirectX9)
-                libraries.emplace_back(DetectionDetails_t{ DX9_DLL_NAME, &RendererDetector_t::_HookDX9 });
-
-            std::string name;
-
-            MSG windowMessage;
-            auto startTime = std::chrono::steady_clock::now();
-            do
-            {
-                std::unique_lock<std::mutex> lck(_StopDetectionMutex);
-                if (_DetectionCancelled || _DetectionDone)
-                    break;
-
-                for (auto const& library : libraries)
-                {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
-                    if (!libraryPath.empty())
-                    {
-                        void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
-                        if (libraryHandle != nullptr)
-                        {
-                            INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
-                            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
-                            INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
-                            (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
-                        }
-                    }
-                }
-
-                INGAMEOVERLAY_DEBUG("Detection started");
-                _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
-                if (!_DetectionStarted)
-                {
-                    INGAMEOVERLAY_DEBUG("Detection started 1");
+                    INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
                     std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
-                    INGAMEOVERLAY_DEBUG("Detection started 2");
-                    _DetectionStarted = true;
+                    INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
+                    if (_DetectionDone)
+                        break;
+
+                    (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                 }
-
-                // Needed to process our dummy window message, because some applications send it message and they need to be answered else it hangs the sender.
-                while (PeekMessageW(&windowMessage, _DummyWindowHandle, 0, 0, PM_REMOVE) != FALSE);
-            } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
-
-            _DetectionStarted = false;
-            {
-                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-                
-                _ExitDetection();
-
-                --_DetectionCount;
             }
-            _StopDetectionConditionVariable.notify_all();
+        }
+        INGAMEOVERLAY_TRACE("Exited renderer detection.");
 
-            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
+        // Needed to process our dummy window message, because some applications send it message and they need to be answered else it hangs the sender.
+        MSG windowMessage{};
+        while (PeekMessageW(&windowMessage, _DummyWindowHandle, 0, 0, PM_REMOVE) != FALSE);
 
-            return _RendererHook;
-        });
+        {
+            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+            _DetectionStarted = true;
+
+            if (_DetectionDone)
+            {
+                wantsContinue = false;
+                _ExitDetection();
+            }
+        }
+
+        return wantsContinue;
     }
 
     void StopDetection()
     {
-        {
-            std::lock_guard<std::mutex> lk(_StopDetectionMutex);
-            if (_DetectionCount == 0)
-                return;
-        }
-        {
-            std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-            _DetectionCancelled = true;
-        }
-        _StopDetectionConditionVariable.notify_all();
-        {
-            std::unique_lock<std::mutex> lk(_StopDetectionMutex);
-            _StopDetectionConditionVariable.wait(lk, [&]() { return _DetectionCount == 0; });
-        }
+        std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+        _DetectionDone = true;
+    }
+
+    RendererHook_t* GetDetectedRenderer()
+    {
+        std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+        if (!_DetectionDone)
+            return nullptr;
+
+        return _RendererHook;
     }
 };
 
@@ -1605,21 +1592,129 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+bool DetectRenderer(bool restart, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout, rendererToDetect, preferSystemLibraries);
+    return RendererDetector_t::Inst()->DetectRenderer(restart, rendererToDetect, preferSystemLibraries);
 }
 
 void StopRendererDetection()
 {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
     RendererDetector_t::Inst()->StopDetection();
+}
+
+RendererHook_t* GetDetectedRenderer()
+{
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+    return RendererDetector_t::Inst()->GetDetectedRenderer();
+}
+
+RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+{
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+    RendererHook_t* rendererHook = nullptr;
+
+    switch (rendererToDetect)
+    {
+        case RendererHookType_t::DirectX9:
+        case RendererHookType_t::DirectX10:
+        case RendererHookType_t::DirectX11:
+        case RendererHookType_t::DirectX12:
+        {
+            HWND dummyWindow{};
+            ATOM dummyAtom{};
+            auto dummyWindowName = CreateDummyHWND(&dummyWindow, &dummyAtom);
+            MSG windowMessage;
+
+            switch (rendererToDetect)
+            {
+                case RendererHookType_t::DirectX9:
+                {
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX9_DLL_NAME) : DX9_DLL_NAME;
+                    if (!libraryPath.empty())
+                    {
+                        rendererHook = GetDX9RendererHook(GetDX9Driver(libraryPath, dummyWindow));
+                    }
+                }
+                break;
+
+                case RendererHookType_t::DirectX10:
+                {
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX10_DLL_NAME) : DX10_DLL_NAME;
+                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    if (!libraryPath.empty())
+                    {
+                        rendererHook = GetDX10RendererHook(GetDX10Driver(libraryPath, dxgiLibraryPath, dummyWindow));
+                    }
+                }
+                break;
+
+                case RendererHookType_t::DirectX11:
+                {
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX11_DLL_NAME) : DX11_DLL_NAME;
+                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    if (!libraryPath.empty())
+                    {
+                        rendererHook = GetDX11RendererHook(GetDX11Driver(libraryPath, dxgiLibraryPath, dummyWindow));
+                    }
+                }
+                break;
+
+                case RendererHookType_t::DirectX12:
+                {
+                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX12_DLL_NAME) : DX12_DLL_NAME;
+                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    if (!libraryPath.empty())
+                    {
+                        rendererHook = GetDX12RendererHook(GetDX12Driver(libraryPath, dxgiLibraryPath, dummyWindow));
+                    }
+                }
+                break;
+            }
+
+            while (PeekMessageW(&windowMessage, dummyWindow, 0, 0, PM_REMOVE) != FALSE);
+            DestroyDummyHWND(dummyWindow, dummyWindowName.data());
+        }
+        break;
+
+        case RendererHookType_t::OpenGL:
+        {
+            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), OPENGL_DLL_NAME) : OPENGL_DLL_NAME;
+            if (!libraryPath.empty())
+            {
+                rendererHook = GetOpenGLRendererHook(GetOpenGLDriver(libraryPath));
+            }
+        }
+        break;
+
+        case RendererHookType_t::Vulkan:
+        {
+            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), VULKAN_DLL_NAME) : VULKAN_DLL_NAME;
+            if (!libraryPath.empty())
+            {
+                rendererHook = GetVulkanRendererHook(GetVulkanDriver(libraryPath));
+            }
+        }
+        break;
+    }
+
+    return rendererHook;
 }
 
 void FreeDetector()
 {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
     delete RendererDetector_t::Inst();
 }
 
