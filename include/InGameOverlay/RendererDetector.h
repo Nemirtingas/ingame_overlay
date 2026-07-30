@@ -19,10 +19,6 @@
 
 #pragma once
 
-#include <future>
-#include <chrono>
-#include <memory>
-
 #include "RendererHook.h"
 
 namespace InGameOverlay {
@@ -30,19 +26,32 @@ namespace InGameOverlay {
 /// <summary>
 /// Starts a detector to automatically find the renderer used by the application.
 /// </summary>
-/// <param name="timeout">The time before the future will timeout if no renderer has been found.</param>
+/// <param name="restart">If the renderer has not been found but StopRendererDetection has been called, it will scan the renderers again.</param>
 /// <param name="rendererToDetect">Set this to any combined RendererHookType_t value to filter the renderers you want to detect.</param>
 /// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
-/// <returns>A future nullptr or the renderer.</returns>
-std::future<RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout = std::chrono::milliseconds{ -1 }, RendererHookType_t rendererToDetect = RendererHookType_t::Any, bool preferSystemLibraries = true);
+/// <returns>True: detection done, False: detection can be called again</returns>
+bool DetectRenderer(bool restart = false, RendererHookType_t rendererToDetect = RendererHookType_t::Any, bool preferSystemLibraries = true);
 
 /// <summary>
-/// Stops the detector, the future will return as soon as possible.
+/// Stops the detector, DetectRenderer will always return False
 /// </summary>
 void StopRendererDetection();
 
 /// <summary>
-/// Free the detector allocated by DetectRenderer to you to restart detection, else, the same result will always return.
+/// Gets the detected renderer.
+/// </summary>
+/// <returns>The renderer hook if detection found it.</returns>
+RendererHook_t* GetDetectedRenderer();
+
+/// <summary>
+/// Gets a specific renderer, no detection will be made.
+/// </summary>
+/// <param name="rendererToDetect">The type of renderer you want, a multiple renderer value will always return nullptr.</param>
+/// <returns>The renderer hook.</returns>
+RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSystemLibraries = true);
+
+/// <summary>
+/// Free the detector allocated by DetectRenderer allowing a new detection.
 /// </summary>
 void FreeDetector();
 
