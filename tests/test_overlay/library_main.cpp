@@ -1,6 +1,8 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <chrono>
+#include <iostream>
 
 #include <imgui.h>
 #include <InGameOverlay/RendererDetector.h>
@@ -20,34 +22,34 @@ static InGameOverlay::ToggleKey OverlayToggleKeys[] = { InGameOverlay::ToggleKey
 
 static OverlayData_t* OverlayData;
 
-InGameOverlay::RendererHook_t* test_renderer_detector()
+InGameOverlay::RendererHook_t* test_renderer_detector(bool autoDetection = true, InGameOverlay::RendererHookType_t rendererFilter = InGameOverlay::RendererHookType_t::Any)
 {
     InGameOverlay::RendererHook_t* rendererHook = nullptr;
-    // Try to detect Renderer for an infinite amount of time.
-    auto future = InGameOverlay::DetectRenderer();
-    InGameOverlay::StopRendererDetection();
-    // Try to detect Renderer for at most 4 seconds.
-    auto future2 = InGameOverlay::DetectRenderer(4s);
-    auto future3 = InGameOverlay::DetectRenderer(4s);
-    auto future4 = InGameOverlay::DetectRenderer(4s);
 
-    //InGameOverlay::StopRendererDetection();
-    std::thread([]() { std::this_thread::sleep_for(20ms); InGameOverlay::DetectRenderer(); }).detach();
-    InGameOverlay::FreeDetector();
-
-    future.wait();
-    if (future.valid())
+    if (autoDetection)
     {
-        rendererHook = future.get();
-        if (rendererHook == nullptr)
+        // Try to detect Renderer for an infinite amount of time.
+        auto continueDetection = InGameOverlay::DetectRenderer();
+        InGameOverlay::StopRendererDetection();
+        // InGameOverlay::FreeDetector();
+
+        // Choose your expiration time
+        auto expirationTime = std::chrono::steady_clock::now() + 8s;
+
+        while (std::chrono::steady_clock::now() < expirationTime && InGameOverlay::DetectRenderer(true, rendererFilter))
         {
-            future = InGameOverlay::DetectRenderer(4s);
-            future.wait();
-            if (future.valid())
-                rendererHook = future.get();
+            // Run the detection code (.dll and functions hooking) at your pace
+            std::this_thread::sleep_for(20ms);
         }
 
+        rendererHook = InGameOverlay::GetDetectedRenderer();
+
+        // You can keep the detector for future usage.
         InGameOverlay::FreeDetector();
+    }
+    else
+    {
+        rendererHook = InGameOverlay::GetRenderer(rendererFilter, true);
     }
 
     return rendererHook;
@@ -56,13 +58,11 @@ InGameOverlay::RendererHook_t* test_renderer_detector()
 void shared_library_load(void* hmodule)
 {
     OverlayData = new OverlayData_t();
-    // hmodule is this library HMODULE on Windows   (like if you did call LoadLibrary)
-    // hmodule is this library void* on Linux/MacOS (like if you did call dlopen)
+    // hmodule is this library HMODULE on Windows   (like if you called LoadLibrary)
+    // hmodule is this library void* on Linux/MacOS (like if you called dlopen)
 
     OverlayData->Worker = std::thread([]()
     {
-        std::this_thread::sleep_for(5s);
-
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
 
         OverlayData->Renderer = test_renderer_detector();
