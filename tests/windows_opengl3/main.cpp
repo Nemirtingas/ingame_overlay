@@ -1,8 +1,12 @@
+// Dear ImGui: standalone example application for Windows API + OpenGL
 
-/* An example of the minimal Win32 & OpenGL program.  It only works in
-   16 bit color modes or higher (since it doesn't create a
-   palette). */
+// Learn about Dear ImGui:
+// - FAQ                  https://dearimgui.com/faq
+// - Getting Started      https://dearimgui.com/getting-started
+// - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
+// - Introduction, links and more at the top of imgui.cpp
 
+// This is provided for completeness, however it is strongly recommended you use OpenGL with SDL or GLFW.
 
 #include <windows.h>            /* must include this before GL/gl.h */
 
@@ -12,150 +16,96 @@
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <GL/gl.h>
+#include <tchar.h>
+#include <stdio.h>
 
 static const char* ingame_overlay_test_library = "overlay_example.dll";
 
-   // Forward declare message handler from imgui_impl_win32.cpp
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+// Data stored per platform window
+struct WGL_WindowData { HDC hDC; };
 
-// Win32 message handler
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    static PAINTSTRUCT ps;
+// Data
+static HGLRC            g_hRC;          // Rendering context
+static WGL_WindowData   g_MainWindow;
+static int              g_Width;
+static int              g_Height;
 
-    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-        return true;
+// Forward declarations of helper functions
+bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data);
+void CleanupDeviceWGL(HWND hWnd, WGL_WindowData* data);
+void ResetDeviceWGL();
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    switch (msg)
-    {
-        case WM_SIZE:
-            glViewport(0, 0, LOWORD(lParam), HIWORD(lParam));
-            PostMessage(hWnd, WM_PAINT, 0, 0);
-            return 0;
-        case WM_SYSCOMMAND:
-            if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
-                return 0;
-            break;
-        case WM_DESTROY:
-            ::PostQuitMessage(0);
-            return 0;
-    }
-    return ::DefWindowProc(hWnd, msg, wParam, lParam);
-}
-
-HWND
-CreateOpenGLWindow(char* title, int x, int y, int width, int height,
-    BYTE type, DWORD flags)
-{
-    int         pf;
-    HDC         hDC;
-    HWND        hWnd;
-    WNDCLASS    wc;
-    PIXELFORMATDESCRIPTOR pfd;
-    static HINSTANCE hInstance = 0;
-
-    /* only register the window class once - use hInstance as a flag. */
-    if (!hInstance) {
-        hInstance = GetModuleHandle(NULL);
-        wc.style = CS_OWNDC;
-        wc.lpfnWndProc = (WNDPROC)WndProc;
-        wc.cbClsExtra = 0;
-        wc.cbWndExtra = 0;
-        wc.hInstance = hInstance;
-        wc.hIcon = LoadIcon(NULL, IDI_WINLOGO);
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = NULL;
-        wc.lpszMenuName = NULL;
-        wc.lpszClassName = "OpenGL";
-
-        if (!RegisterClass(&wc)) {
-            MessageBox(NULL, "RegisterClass() failed:  "
-                "Cannot register window class.", "Error", MB_OK);
-            return NULL;
-        }
-    }
-
-    hWnd = CreateWindow("OpenGL", title, WS_OVERLAPPEDWINDOW |
-        WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
-        x, y, width, height, NULL, NULL, hInstance, NULL);
-
-    if (hWnd == NULL) {
-        MessageBox(NULL, "CreateWindow() failed:  Cannot create a window.",
-            "Error", MB_OK);
-        return NULL;
-    }
-
-    hDC = GetDC(hWnd);
-
-    /* there is no guarantee that the contents of the stack that become
-       the pfd are zeroed, therefore _make sure_ to clear these bits. */
-    memset(&pfd, 0, sizeof(pfd));
-    pfd.nSize = sizeof(pfd);
-    pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | flags;
-    pfd.iPixelType = type;
-    pfd.cColorBits = 32;
-
-    pf = ChoosePixelFormat(hDC, &pfd);
-    if (pf == 0) {
-        MessageBox(NULL, "ChoosePixelFormat() failed:  "
-            "Cannot find a suitable pixel format.", "Error", MB_OK);
-        return 0;
-    }
-
-    if (SetPixelFormat(hDC, pf, &pfd) == FALSE) {
-        MessageBox(NULL, "SetPixelFormat() failed:  "
-            "Cannot set format specified.", "Error", MB_OK);
-        return 0;
-    }
-
-    DescribePixelFormat(hDC, pf, sizeof(PIXELFORMATDESCRIPTOR), &pfd);
-
-    ReleaseDC(hWnd, hDC);
-
-    return hWnd;
-}
-
-int main(int argc, char* argv[])
+// Main code
+int main(int argc, char** argv)
 {
     if (argc > 1)
         ingame_overlay_test_library = argv[1];
 
-    HDC hDC;             /* device context */
-    HGLRC hRC;           /* opengl context */
-    HWND  hWnd;          /* window */
+    // Make process DPI aware and obtain main monitor scale
+    ImGui_ImplWin32_EnableDpiAwareness();
+    float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
 
-    hWnd = CreateOpenGLWindow("minimal", 100, 100, 1280, 800, PFD_TYPE_RGBA, 0);
-    if (hWnd == NULL)
-        exit(1);
+    // Create application window
+    WNDCLASSEXW wc = { sizeof(wc), CS_OWNDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, L"ImGui Example", nullptr };
+    ::RegisterClassExW(&wc);
+    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Dear ImGui Win32+OpenGL3 Example", WS_OVERLAPPEDWINDOW, 100, 100, (int)(1280 * main_scale), (int)(800 * main_scale), nullptr, nullptr, wc.hInstance, nullptr);
 
-    hDC = GetDC(hWnd);
-    hRC = wglCreateContext(hDC);
-    wglMakeCurrent(hDC, hRC);
-
-    if (gladLoaderLoadGL() == 0)
+    // Initialize OpenGL
+    if (!CreateDeviceWGL(hwnd, &g_MainWindow))
     {
-        return -1;
+        CleanupDeviceWGL(hwnd, &g_MainWindow);
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return 1;
     }
+    wglMakeCurrent(g_MainWindow.hDC, g_hRC);
 
     // Show the window
-    ::ShowWindow(hWnd, SW_SHOWDEFAULT);
-    ::UpdateWindow(hWnd);
+    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
+    ::UpdateWindow(hwnd);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;   // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;    // Enable Gamepad Controls
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
     //ImGui::StyleColorsClassic();
 
+    // Setup scaling
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+    style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
+
     // Setup Platform/Renderer backends
-    ImGui_ImplWin32_Init(hWnd);
+    ImGui_ImplWin32_InitForOpenGL(hwnd);
     ImGui_ImplOpenGL3_Init();
+
+    // Load Fonts
+    // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
+    //   This selection is based on (style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi) reaching a small threshold.
+    // - You can load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
+    // - If a file cannot be loaded, AddFont functions will return a nullptr. Please handle those errors in your code (e.g. use an assertion, display an error and quit).
+    // - Read 'docs/FONTS.md' for more instructions and details.
+    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use FreeType for higher quality font rendering.
+    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
+    //style.FontSizeBase = 20.0f;
+    //io.Fonts->AddFontDefaultVector();
+    //io.Fonts->AddFontDefaultBitmap();
+    //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
+    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
+    //IM_ASSERT(font != nullptr);
 
     // You might want to inject it in the target game.
     HMODULE overlay_hook = LoadLibraryA(ingame_overlay_test_library);
@@ -170,12 +120,9 @@ int main(int argc, char* argv[])
     while (!done)
     {
         // Poll and handle messages (inputs, window resize, etc.)
-        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application.
-        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application.
-        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+        // See the WndProc() function below for our to dispatch events to the Win32 backend.
         MSG msg;
-        while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
+        while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
             ::TranslateMessage(&msg);
             ::DispatchMessage(&msg);
@@ -184,6 +131,11 @@ int main(int argc, char* argv[])
         }
         if (done)
             break;
+        if (::IsIconic(hwnd))
+        {
+            ::Sleep(10);
+            continue;
+        }
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -194,7 +146,7 @@ int main(int argc, char* argv[])
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
+        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
         {
             static float f = 0.0f;
             static int counter = 0;
@@ -213,7 +165,7 @@ int main(int argc, char* argv[])
             ImGui::SameLine();
             ImGui::Text("counter = %d", counter);
 
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
 
@@ -228,23 +180,141 @@ int main(int argc, char* argv[])
         }
 
         // Rendering
-        ImGui::EndFrame();
-
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        SwapBuffers(hDC);
-        glFlush();
-        //glFinish();
-        
+        glViewport(0, 0, g_Width, g_Height);
         glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
         glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // Present
+        ::SwapBuffers(g_MainWindow.hDC);
     }
 
-    wglMakeCurrent(NULL, NULL);
-    ReleaseDC(hWnd, hDC);
-    wglDeleteContext(hRC);
-    DestroyWindow(hWnd);
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
+    CleanupDeviceWGL(hwnd, &g_MainWindow);
+    wglDeleteContext(g_hRC);
+    ::DestroyWindow(hwnd);
+    ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
 
     return 0;
+}
+
+// Helper functions
+bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data)
+{
+    HDC hDc = ::GetDC(hWnd);
+    PIXELFORMATDESCRIPTOR pfd = { 0 };
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+
+    const int pf = ::ChoosePixelFormat(hDc, &pfd);
+    if (pf == 0)
+        return false;
+    if (::SetPixelFormat(hDc, pf, &pfd) == FALSE)
+        return false;
+    ::ReleaseDC(hWnd, hDc);
+
+    data->hDC = ::GetDC(hWnd);
+    if (g_hRC)
+        return true;
+
+    // Create legacy context
+    HGLRC tempRC = wglCreateContext(data->hDC);
+    if (!tempRC) { ::ReleaseDC(hWnd, data->hDC); return false; }
+    if (!wglMakeCurrent(data->hDC, tempRC))
+    {
+        wglDeleteContext(tempRC);
+        ::ReleaseDC(hWnd, data->hDC);
+        return false;
+    }
+
+    if (gladLoaderLoadGL() == 0)
+    {
+        return -1;
+    }
+
+    // Get context version
+    GLint major = 0, minor = 0;
+    glGetIntegerv(0x821B, &major); // GL_MAJOR_VERSION
+    glGetIntegerv(0x821C, &minor); // GL_MINOR_VERSION
+    const char* gl_version_str = (const char*)glGetString(GL_VERSION);
+    if (major == 0 && minor == 0)
+        sscanf_s(gl_version_str, "%d.%d", &major, &minor); // Query GL_VERSION in desktop GL 2.x, the string will start with "<major>.<minor>"
+    const GLuint gl_version = (GLuint)(major * 100 + minor * 10);
+
+    // Keep temporary context: already OpenGL 3.0+.
+    g_hRC = tempRC;
+    if (gl_version >= 300)
+        return true;
+
+    typedef HGLRC(WINAPI* PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC, HGLRC, const int*);
+    const PFNWGLCREATECONTEXTATTRIBSARBPROC wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
+
+    // GL 3.0
+    const int attribs[] =
+    {
+        0x2091, 3,      // WGL_CONTEXT_MAJOR_VERSION_ARB
+        0x2092, 0,      // WGL_CONTEXT_MINOR_VERSION_ARB
+        0x9126, 0x0001, // WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB
+        0
+    };
+    HGLRC newRC = nullptr;
+    if (wglCreateContextAttribsARB)
+        newRC = wglCreateContextAttribsARB(data->hDC, 0, attribs);
+
+    // If we managed to create 3.0+ context: use that one and destroy the temporary OpenGL 2.x compatibility context.
+    if (newRC)
+    {
+        wglMakeCurrent(nullptr, nullptr);
+        wglDeleteContext(tempRC);
+        g_hRC = newRC;
+        wglMakeCurrent(data->hDC, g_hRC);
+    }
+
+    return true;
+}
+
+void CleanupDeviceWGL(HWND hWnd, WGL_WindowData* data)
+{
+    wglMakeCurrent(nullptr, nullptr);
+    ::ReleaseDC(hWnd, data->hDC);
+}
+
+// Forward declare message handler from imgui_impl_win32.cpp
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+// Win32 message handler
+// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
+// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
+// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
+// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
+        return true;
+
+    switch (msg)
+    {
+    case WM_SIZE:
+        if (wParam != SIZE_MINIMIZED)
+        {
+            g_Width = LOWORD(lParam);
+            g_Height = HIWORD(lParam);
+        }
+        return 0;
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
+            return 0;
+        break;
+    case WM_DESTROY:
+        ::PostQuitMessage(0);
+        return 0;
+    }
+    return ::DefWindowProcW(hWnd, msg, wParam, lParam);
 }
