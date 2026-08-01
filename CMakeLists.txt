@@ -233,6 +233,7 @@ target_link_libraries(ingame_overlay
 target_compile_options(ingame_overlay
   PRIVATE
   $<$<BOOL:${MSVC}>:/MP>
+  $<$<BOOL:${MSVC}>:/utf-8>
 )
 
 target_include_directories(ingame_overlay
