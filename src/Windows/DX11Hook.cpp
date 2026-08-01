@@ -150,6 +150,7 @@ void DX11Hook_t::_UpdateHookDeviceRefCount()
             + 1 // ID3D11RasterizerState (singleton per device)
             + 1 // ID3D11DepthStencilState (singleton per device)
             + 1 // ID3D11SamplerState (singleton per device)
+            + 1 // ID3D11SamplerState (singleton per device)
 
             // _PrepareForOverlay
             + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
