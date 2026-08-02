@@ -110,6 +110,61 @@ static std::string getExecutablePath()
     return exec_path;
 }
 
+static void DumpMethods(Class cls)
+{
+    for (Class current = cls;
+         current != Nil;
+         current = class_getSuperclass(current))
+    {
+        NSLog(@"=== METHODS %s ===", class_getName(current));
+
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(current, &count);
+
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            Method method = methods[i];
+
+            SEL selector = method_getName(method);
+            IMP imp = method_getImplementation(method);
+            const char *types = method_getTypeEncoding(method);
+
+            NSLog(@"  -[%s %s] IMP=%p types=%s",
+                  class_getName(current),
+                  sel_getName(selector),
+                  imp,
+                  types);
+        }
+
+        free(methods);
+    }
+}
+
+static void DumpIvars(Class cls)
+{
+    for (Class current = cls;
+         current != Nil;
+         current = class_getSuperclass(current))
+    {
+        NSLog(@"=== IVARS %s ===", class_getName(current));
+
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(current, &count);
+
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            Ivar ivar = ivars[i];
+
+            NSLog(@"  %s : %s (offset=%td)",
+                  ivar_getName(ivar),
+                  ivar_getTypeEncoding(ivar),
+                  ivar_getOffset(ivar));
+        }
+
+        free(ivars);
+    }
+}
+
 static void DumpBaseObjectChain(id object)
 {
     if (object == nil)
@@ -270,7 +325,7 @@ static void DumpBaseObjectChain(id object)
         [commandBuffer commit];
         return;
     }
-
+    
     // Start the Dear ImGui frame
     ImGui_ImplMetal_NewFrame(renderPassDescriptor);
 #if TARGET_OS_OSX
@@ -329,8 +384,8 @@ static void DumpBaseObjectChain(id object)
     [renderEncoder pushDebugGroup:@"Dear ImGui rendering"];
     ImGui_ImplMetal_RenderDrawData(draw_data, commandBuffer, renderEncoder);
 
-    DumpBaseObjectChain(commandBuffer);
-    DumpBaseObjectChain(renderEncoder);
+    //DumpBaseObjectChain(commandBuffer);
+    //DumpBaseObjectChain(renderEncoder);
     
     [renderEncoder popDebugGroup];
     [renderEncoder endEncoding];
