@@ -46,14 +46,14 @@ private:
             MTLRenderPassDescriptor* descriptor,
             id<MTLCommandBuffer> commandBuffer)
             : Descriptor([descriptor retain]),
-            CommandBuffer([commandBuffer retain])
+              CommandBuffer([commandBuffer retain])
         {
         }
 
         ~RenderPass_t()
         {
-            [Descriptor release] ;
-            [CommandBuffer release] ;
+            [Descriptor release];
+            [CommandBuffer release];
 
             Descriptor = nil;
             CommandBuffer = nil;
@@ -64,7 +64,7 @@ private:
 
         RenderPass_t(RenderPass_t&& other) noexcept
             : Descriptor(other.Descriptor),
-            CommandBuffer(other.CommandBuffer)
+                CommandBuffer(other.CommandBuffer)
         {
             other.Descriptor = nil;
             other.CommandBuffer = nil;
@@ -74,8 +74,8 @@ private:
         {
             if (this != &other)
             {
-                [Descriptor release] ;
-                [CommandBuffer release] ;
+                [Descriptor release];
+                [CommandBuffer release];
 
                 Descriptor = other.Descriptor;
                 CommandBuffer = other.CommandBuffer;
@@ -104,16 +104,16 @@ private:
     MetalHook_t();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(id<MTLCommandBuffer> commandBuffer, MTLRenderPassDescriptor* renderPassDescriptor, id <MTLRenderCommandEncoder>);
+    void _PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> texture, id<MTLCommandBuffer> commandBuffer);
     void _LoadResources();
     void _ReleaseResources();
-    void _HandleScreenshot();
+    void _HandleScreenshot(id<MTLCommandBuffer> commandBuffer, id<MTLDrawable> drawable);
 
     // Hook to render functions
     Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;
     Method _MTLCommandBufferPresentDrawableMethod;
 
-    id<MTLRenderCommandEncoder>(*_MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
+    id<MTLRenderCommandEncoder> (*_MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     void (*_MTLCommandBufferPresentDrawable)(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable);
 
 public:

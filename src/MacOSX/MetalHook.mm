@@ -28,6 +28,39 @@ namespace InGameOverlay {
 
 MetalHook_t* MetalHook_t::_Instance = nullptr;
 
+static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(MTLPixelFormat format)
+{
+    switch (format)
+    {
+        // 8-bit
+        case MTLPixelFormatRGBA8Unorm:
+        case MTLPixelFormatRGBA8Unorm_sRGB:
+            return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+
+        case MTLPixelFormatBGRA8Unorm:
+        case MTLPixelFormatBGRA8Unorm_sRGB:
+            return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
+
+        // 10-bit
+        case MTLPixelFormatRGB10A2Unorm:
+            return InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2;
+
+        // 16-bit
+        case MTLPixelFormatRGBA16Unorm:
+            return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM;
+
+        case MTLPixelFormatRGBA16Float:
+            return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
+
+        // 32-bit float
+        case MTLPixelFormatRGBA32Float:
+            return InGameOverlay::ScreenshotDataFormat_t::R32G32B32A32_FLOAT;
+
+        default:
+            return InGameOverlay::ScreenshotDataFormat_t::Unknown;
+    }
+}
+
 bool MetalHook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -93,7 +126,7 @@ void MetalHook_t::_ResetRenderState()
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
-void MetalHook_t::_PrepareForOverlay(id<MTLCommandBuffer> commandBuffer, MTLRenderPassDescriptor* renderPassDescriptor, id<MTLRenderCommandEncoder> renderEncoder)
+void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> texture, id<MTLCommandBuffer> commandBuffer)
 {
     if (!_Initialized)
     {
@@ -108,11 +141,17 @@ void MetalHook_t::_PrepareForOverlay(id<MTLCommandBuffer> commandBuffer, MTLRend
         OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
     
-    if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(renderPassDescriptor))
+    MTLRenderPassDescriptor* overlayDescriptor = [[MTLRenderPassDescriptor alloc] init];
+    
+    overlayDescriptor.colorAttachments[0].texture = texture;
+    overlayDescriptor.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    overlayDescriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
+    
+    if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(overlayDescriptor))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot();
+            _HandleScreenshot(commandBuffer, drawable);
 
         if (_ImGuiFontAtlas != nullptr)
         {
@@ -130,24 +169,138 @@ void MetalHook_t::_PrepareForOverlay(id<MTLCommandBuffer> commandBuffer, MTLRend
 
         ImGui::Render();
 
+        id<MTLRenderCommandEncoder> renderEncoder = _MTLCommandBufferRenderCommandEncoderWithDescriptor(commandBuffer, @selector(renderCommandEncoderWithDescriptor:), overlayDescriptor);
+        
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
 
+        [renderEncoder endEncoding];
+        
         if (screenshotType == ScreenshotType_t::AfterOverlay)
-            _HandleScreenshot();
+            _HandleScreenshot(commandBuffer, drawable);
     }
+    
+    [overlayDescriptor release];
 }
 
 void MetalHook_t::_LoadResources()
 {
+    if (_ImageResourcesToLoad.empty())
+        return;
 
+    struct ValidTexture_t
+    {
+        std::shared_ptr<RendererTexture_t> Resource;
+        const void* Data;
+        uint32_t Width;
+        uint32_t Height;
+    };
+
+    std::vector<ValidTexture_t> validResources;
+
+    const auto loadParameterCount =
+        std::min(_ImageResourcesToLoad.size(),
+                 static_cast<size_t>(_BatchSize));
+
+    for (size_t i = 0; i < loadParameterCount; ++i)
+    {
+        auto& param = _ImageResourcesToLoad[i];
+
+        auto resource = param.Resource.lock();
+
+        if (!resource)
+            continue;
+
+        resource->LoadStatus =
+            RendererTextureStatus_e::Loading;
+
+        validResources.push_back({
+            std::move(resource),
+            param.Data,
+            param.Width,
+            param.Height
+        });
+    }
+
+    if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(
+            _ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
+
+        return;
+    }
+
+    for (auto& tex : validResources)
+    {
+        MTLTextureDescriptor* descriptor =
+            [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                width:tex.Width
+                height:tex.Height
+                mipmapped:NO];
+
+        descriptor.usage = MTLTextureUsageShaderRead;
+
+        id<MTLTexture> texture =
+            [_MetalDevice newTextureWithDescriptor:descriptor];
+
+        if (texture == nil)
+        {
+            tex.Resource->LoadStatus =
+                RendererTextureStatus_e::NotLoaded;
+
+            continue;
+        }
+
+        MTLRegion region =
+            MTLRegionMake2D(
+                0,
+                0,
+                tex.Width,
+                tex.Height);
+
+        [texture replaceRegion:region
+                   mipmapLevel:0
+                     withBytes:tex.Data
+                   bytesPerRow:tex.Width * 4];
+
+        tex.Resource->ImGuiTextureId =
+            static_cast<uint64_t>(
+                reinterpret_cast<uintptr_t>(texture));
+
+        tex.Resource->LoadStatus =
+            RendererTextureStatus_e::Loaded;
+    }
+
+    _ImageResourcesToLoad.erase(
+        _ImageResourcesToLoad.begin(),
+        _ImageResourcesToLoad.begin() + loadParameterCount);
 }
 
 void MetalHook_t::_ReleaseResources()
 {
+    if (_ImageResourcesToRelease.empty())
+        return;
 
+    constexpr uint64_t FramesInFlight = 3;
+
+    auto it = _ImageResourcesToRelease.begin();
+
+    while (it != _ImageResourcesToRelease.end())
+    {
+        if (_CurrentFrame >=
+            it->ReleaseFrame + FramesInFlight)
+        {
+            it = _ImageResourcesToRelease.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
 }
 
-void MetalHook_t::_HandleScreenshot()
+void MetalHook_t::_HandleScreenshot(id<MTLCommandBuffer> commandBuffer, id<MTLDrawable> drawable)
 {
     _SendScreenshot(nullptr);
 }
@@ -188,31 +341,7 @@ void MetalHook_t::MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, S
             if (renderPass.Descriptor.colorAttachments[0].texture == nil)
                 continue;
             
-            MTLRenderPassDescriptor* overlayDescriptor =
-            [MTLRenderPassDescriptor renderPassDescriptor];
-            
-            overlayDescriptor.colorAttachments[0].texture =
-            renderPass.Descriptor.colorAttachments[0].texture;
-            //[(id<CAMetalDrawable>)drawable texture];
-            
-            overlayDescriptor.colorAttachments[0].loadAction =
-            MTLLoadActionLoad;
-            
-            overlayDescriptor.colorAttachments[0].storeAction =
-            MTLStoreActionStore;
-            
-            id<MTLRenderCommandEncoder> renderEncoder =
-            inst->_MTLCommandBufferRenderCommandEncoderWithDescriptor(
-                                                                      self,
-                                                                      @selector(renderCommandEncoderWithDescriptor:),
-                                                                      overlayDescriptor);
-            
-            inst->_PrepareForOverlay(
-                                     self,
-                                     overlayDescriptor,
-                                     renderEncoder);
-            
-            [renderEncoder endEncoding];
+            inst->_PrepareForOverlay(drawable, renderPass.Descriptor.colorAttachments[0].texture, self);
             
             break;
         }
@@ -291,7 +420,29 @@ void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithD
 
 std::weak_ptr<RendererTexture_t> MetalHook_t::AllocImageResource()
 {
-    return std::shared_ptr<RendererTexture_t>();
+    auto ptr = std::shared_ptr<RendererTexture_t>(
+        new RendererTexture_t(),
+        [](RendererTexture_t* handle)
+        {
+            if (handle != nullptr)
+            {
+                if (handle->ImGuiTextureId != 0)
+                {
+                    id<MTLTexture> texture =
+                        (id<MTLTexture>)(uintptr_t)handle->ImGuiTextureId;
+
+                    [texture release];
+
+                    handle->ImGuiTextureId = 0;
+                }
+
+                delete handle;
+            }
+        });
+
+    _ImageResources.emplace(ptr);
+
+    return ptr;
 }
 
 void MetalHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
