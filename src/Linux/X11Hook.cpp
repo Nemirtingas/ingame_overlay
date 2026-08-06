@@ -124,6 +124,18 @@ static uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
     return 0;
 }
 
+static bool XlibBuildNativeKeyCombination(InGameOverlay::ToggleKey toggleKeys[], int toggleKeysCount, std::vector<uint32_t>& nativeKeyCombination)
+{
+    for (int i = 0; i < toggleKeysCount; ++i)
+    {
+        uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
+        if (k != 0 && std::find(nativeKeyCombination.begin(), nativeKeyCombination.end(), k) == nativeKeyCombination.end())
+            nativeKeyCombination.emplace_back(k);
+    }
+
+    return true;
+}
+
 static bool XCBBuildNativeKeyCombination(
     xcb_connection_t* xcbConnection,
     InGameOverlay::ToggleKey toggleKeys[],
@@ -203,8 +215,8 @@ static bool XCBBuildNativeKeyCombination(
             {
                 if (keysyms[index + column] == keySym)
                 {
-                    nativeKeyCombination.emplace_back(
-                        static_cast<uint32_t>(keycode));
+                    if (keycode != 0 && std::find(nativeKeyCombination.begin(), nativeKeyCombination.end(), static_cast<uint32_t>(keycode)) == nativeKeyCombination.end())
+                        nativeKeyCombination.emplace_back(static_cast<uint32_t>(keycode));
 
                     INGAMEOVERLAY_DEBUG(
                         "Toggle key {} -> KeySym {} -> KeyCode {}",
@@ -638,7 +650,10 @@ bool X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
     switch (_X11HookMode)
     {
         case X11HookMode_t::HookXlib:
+        {
+            XlibBuildNativeKeyCombination(_OverlayToggleKeys.data(), _OverlayToggleKeys.size(), _NativeKeyCombination);
             return _XlibSetInitialWindowSize(display, wnd);
+        }
 
         case X11HookMode_t::HookXCB:
         {
