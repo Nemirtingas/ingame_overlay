@@ -21,6 +21,8 @@
 
 #undef Status
 
+#include <xcb/xinput.h>
+
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
 #include <backends/imgui_impl_xcb.h>
@@ -444,6 +446,7 @@ void X11Hook_t::_XCBResetRenderState(OverlayHookState state)
 
     _PressedKeycodes.clear();
     _GameWnd = XCB_WINDOW_NONE;
+    _XCBXInputOpcode = 0;
 
     HideAppInputs(false);
     HideOverlayInputs(true);
@@ -457,12 +460,10 @@ bool X11Hook_t::_XCBSetInitialWindowSize(xcb_connection_t* xcbConnection, xcb_wi
     if (xcbConnection == nullptr || wnd == XCB_WINDOW_NONE)
         return false;
 
-    xcb_get_geometry_cookie_t cookie =
-        xcb_get_geometry(xcbConnection, wnd);
+    auto cookie = xcb_get_geometry(xcbConnection, wnd);
 
     xcb_generic_error_t* error = nullptr;
-    xcb_get_geometry_reply_t* reply =
-        xcb_get_geometry_reply(xcbConnection, cookie, &error);
+    auto* reply = xcb_get_geometry_reply(xcbConnection, cookie, &error);
 
     if (reply == nullptr)
     {
@@ -472,8 +473,7 @@ bool X11Hook_t::_XCBSetInitialWindowSize(xcb_connection_t* xcbConnection, xcb_wi
         return false;
     }
 
-    ImGui::GetIO().DisplaySize =
-        ImVec2((float)reply->width, (float)reply->height);
+    ImGui::GetIO().DisplaySize = ImVec2((float)reply->width, (float)reply->height);
 
     free(reply);
 
@@ -493,8 +493,15 @@ bool X11Hook_t::_XCBPrepareForOverlay(xcb_connection_t* xcbConnection, xcb_windo
 
     if (!_Initialized)
     {
-        if (!ImGui_ImplXCB_Init((void*)xcbConnection, (unsigned int)wnd))
+        if (!ImGui_ImplXCB_Init((void*)xcbConnection, (unsigned int)wnd, (void*)_XCBQueryPointerReply))
             return false;
+
+        auto inputExt = xcb_get_extension_data(xcbConnection, &xcb_input_id);
+
+        if (inputExt && inputExt->present)
+        {
+            _XCBXInputOpcode = inputExt->major_opcode;
+        }
 
         _GameWnd = wnd;
         _Initialized = true;
@@ -544,8 +551,6 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
             return false;
         }
 
-        _OverlayToggleKeys.assign(toggleKeys, toggleKeys + toggleKeysCount);
-
         void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
         if (hX11 == nullptr)
         {
@@ -585,15 +590,13 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
             if (!_XlibStartHook())
                 return false;
         }
+        else
+        {
+            _XlibLoadHook();
+        }
 
         _KeyCombinationCallback = std::move(keyCombinationCallback);
-        
-        for (int i = 0; i < toggleKeysCount; ++i)
-        {
-            uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
-            if (k != 0 && std::find(_NativeKeyCombination.begin(), _NativeKeyCombination.end(), k) == _NativeKeyCombination.end())
-                _NativeKeyCombination.emplace_back(k);
-        }
+        _OverlayToggleKeys.assign(toggleKeys, toggleKeys + toggleKeysCount);
     }
     return true;
 }
@@ -651,14 +654,16 @@ bool X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
             return _XCBSetInitialWindowSize(xcbConnection, (xcb_window_t)wnd);
         }
 
-        default                     : break;
+        default: break;
     }
 
     return false;
 }
 
-bool X11Hook_t::PrepareForOverlay(Display* display, Window wnd)
+bool X11Hook_t::PrepareForOverlay(void* display_, uint32_t wnd)
 {
+    auto* display = (Display*)display_;
+
     if(!_Hooked)
         return false;
 
@@ -685,17 +690,17 @@ std::vector<X11Hook_t::X11WindowEnumerationResult_t> X11Hook_t::FindApplicationX
         None
     };
 
-    EnumX11Windows([](Display* display, Window window, void* userParameter) -> int
+    EnumX11Windows([](std::shared_ptr<Display> display, Window window, void* userParameter) -> int
     {
         auto params = reinterpret_cast<decltype(windowParams)*>(userParameter);
         if (params->pidAtom == None)
-            params->pidAtom = XInternAtom(display, "_NET_WM_PID", True);
+            params->pidAtom = XInternAtom(display.get(), "_NET_WM_PID", True);
 
         if (params->pidAtom == None)
             return 0;
 
         XTextProperty data;
-        int status = XGetTextProperty(display, window, &data, params->pidAtom);
+        int status = XGetTextProperty(display.get(), window, &data, params->pidAtom);
         if (!status || data.nitems <= 0)
             return 1;
 
@@ -707,6 +712,8 @@ std::vector<X11Hook_t::X11WindowEnumerationResult_t> X11Hook_t::FindApplicationX
             case 8 : processId = data.value[0]; break;
             default: return 1;
         }
+
+        INGAMEOVERLAY_TRACE("Display: {}, Window: {}", (void*)display.get(), (uint32_t)window);
 
         if (processId == params->pid)
             params->windows.emplace_back(display, window);
@@ -738,7 +745,26 @@ static bool XlibIgnoreEvent(XEvent &event)
     return false;
 }
 
-static bool XCBIgnoreEvent(const xcb_generic_event_t* event)
+static bool XCBIgnoreExtensionEvent(const xcb_generic_event_t* event, uint8_t xinputOpcode)
+{
+    auto* ge = reinterpret_cast<const xcb_ge_generic_event_t*>(event);
+
+    if (xinputOpcode != 0 && ge->extension == xinputOpcode)
+    {
+        switch (ge->event_type)
+        {
+            case XCB_INPUT_MOTION:
+            case XCB_INPUT_RAW_MOTION:
+            case XCB_INPUT_BUTTON_PRESS:
+            case XCB_INPUT_BUTTON_RELEASE:
+                return true;
+        }
+    }
+
+    return false;
+}
+
+static bool XCBIgnoreEvent(const xcb_generic_event_t* event, uint8_t xinputOpcode)
 {
     const uint8_t type = event->response_type & 0x7f;
 
@@ -754,6 +780,9 @@ static bool XCBIgnoreEvent(const xcb_generic_event_t* event)
 
         case XCB_SELECTION_REQUEST:
             return true;
+
+        case XCB_GE_GENERIC:
+            return XCBIgnoreExtensionEvent(event, xinputOpcode);
 
         default: break;
     }
@@ -903,7 +932,7 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
             _XCBLastKeyReleaseTime = keyEvent->time;
 
             return {
-                _ApplicationInputsHidden && XCBIgnoreEvent(event), // consume
+                _ApplicationInputsHidden && XCBIgnoreEvent(event, _XCBXInputOpcode), // consume
                 true, // needsNextEvent
             };
         }
@@ -938,7 +967,43 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
     }
     else
     {
-        INGAMEOVERLAY_DEBUG("Motion");
+        switch (type)
+        {
+            case XCB_KEY_PRESS: INGAMEOVERLAY_TRACE("XCB_KEY_PRESS"); break;
+            case XCB_KEY_RELEASE: INGAMEOVERLAY_TRACE("XCB_KEY_RELEASE"); break;
+            case XCB_BUTTON_PRESS: INGAMEOVERLAY_TRACE("XCB_BUTTON_PRESS"); break;
+            case XCB_BUTTON_RELEASE: INGAMEOVERLAY_TRACE("XCB_BUTTON_RELEASE"); break;
+            case XCB_MOTION_NOTIFY: INGAMEOVERLAY_TRACE("XCB_MOTION_NOTIFY"); break;
+            case XCB_ENTER_NOTIFY: INGAMEOVERLAY_TRACE("XCB_ENTER_NOTIFY"); break;
+            case XCB_LEAVE_NOTIFY: INGAMEOVERLAY_TRACE("XCB_LEAVE_NOTIFY"); break;
+            case XCB_FOCUS_IN: INGAMEOVERLAY_TRACE("XCB_FOCUS_IN"); break;
+            case XCB_FOCUS_OUT: INGAMEOVERLAY_TRACE("XCB_FOCUS_OUT"); break;
+            case XCB_KEYMAP_NOTIFY: INGAMEOVERLAY_TRACE("XCB_KEYMAP_NOTIFY"); break;
+            case XCB_EXPOSE: INGAMEOVERLAY_TRACE("XCB_EXPOSE"); break;
+            case XCB_GRAPHICS_EXPOSURE: INGAMEOVERLAY_TRACE("XCB_GRAPHICS_EXPOSURE"); break;
+            case XCB_NO_EXPOSURE: INGAMEOVERLAY_TRACE("XCB_NO_EXPOSURE"); break;
+            case XCB_VISIBILITY_NOTIFY: INGAMEOVERLAY_TRACE("XCB_VISIBILITY_NOTIFY"); break;
+            case XCB_CREATE_NOTIFY: INGAMEOVERLAY_TRACE("XCB_CREATE_NOTIFY"); break;
+            case XCB_DESTROY_NOTIFY: INGAMEOVERLAY_TRACE("XCB_DESTROY_NOTIFY"); break;
+            case XCB_UNMAP_NOTIFY: INGAMEOVERLAY_TRACE("XCB_UNMAP_NOTIFY"); break;
+            case XCB_MAP_NOTIFY: INGAMEOVERLAY_TRACE("XCB_MAP_NOTIFY"); break;
+            case XCB_MAP_REQUEST: INGAMEOVERLAY_TRACE("XCB_MAP_REQUEST"); break;
+            case XCB_REPARENT_NOTIFY: INGAMEOVERLAY_TRACE("XCB_REPARENT_NOTIFY"); break;
+            case XCB_CONFIGURE_NOTIFY: INGAMEOVERLAY_TRACE("XCB_CONFIGURE_NOTIFY"); break;
+            case XCB_CONFIGURE_REQUEST: INGAMEOVERLAY_TRACE("XCB_CONFIGURE_REQUEST"); break;
+            case XCB_GRAVITY_NOTIFY: INGAMEOVERLAY_TRACE("XCB_GRAVITY_NOTIFY"); break;
+            case XCB_RESIZE_REQUEST: INGAMEOVERLAY_TRACE("XCB_RESIZE_REQUEST"); break;
+            case XCB_CIRCULATE_NOTIFY: INGAMEOVERLAY_TRACE("XCB_CIRCULATE_NOTIFY"); break;
+            case XCB_CIRCULATE_REQUEST: INGAMEOVERLAY_TRACE("XCB_CIRCULATE_REQUEST"); break;
+            case XCB_PROPERTY_NOTIFY: INGAMEOVERLAY_TRACE("XCB_PROPERTY_NOTIFY"); break;
+            case XCB_SELECTION_CLEAR: INGAMEOVERLAY_TRACE("XCB_SELECTION_CLEAR"); break;
+            case XCB_SELECTION_REQUEST: INGAMEOVERLAY_TRACE("XCB_SELECTION_REQUEST"); break;
+            case XCB_SELECTION_NOTIFY: INGAMEOVERLAY_TRACE("XCB_SELECTION_NOTIFY"); break;
+            case XCB_COLORMAP_NOTIFY: INGAMEOVERLAY_TRACE("XCB_COLORMAP_NOTIFY"); break;
+            case XCB_CLIENT_MESSAGE: INGAMEOVERLAY_TRACE("XCB_CLIENT_MESSAGE"); break;
+            case XCB_MAPPING_NOTIFY: INGAMEOVERLAY_TRACE("XCB_MAPPING_NOTIFY"); break;
+            case XCB_GE_GENERIC: INGAMEOVERLAY_TRACE("XCB_GE_GENERIC"); break;
+        }
     }
 
     if (type == XCB_KEY_PRESS ||
@@ -978,7 +1043,7 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
     }
 
     return {
-        hide_app_inputs && XCBIgnoreEvent(event), // consume
+        hide_app_inputs && XCBIgnoreEvent(event, _XCBXInputOpcode), // consume
         false, // needsNextEvent
     };
 }
@@ -1163,8 +1228,6 @@ xcb_query_pointer_reply_t* X11Hook_t::MyXCBQueryPointerReply(xcb_connection_t* c
 {
     X11Hook_t* inst = X11Hook_t::Inst();
 
-    INGAMEOVERLAY_DEBUG("Query Pointer");
-
     auto* reply = inst->_XCBQueryPointerReply(
         connection,
         cookie,
@@ -1177,8 +1240,6 @@ xcb_query_pointer_reply_t* X11Hook_t::MyXCBQueryPointerReply(xcb_connection_t* c
     {
         if (!inst->_HasSavedCursor)
         {
-            INGAMEOVERLAY_DEBUG("Query Pointer AA");
-
             inst->_HasSavedCursor = true;
             inst->_SavedRoot = reply->root;
             inst->_SavedChild = reply->child;
@@ -1190,8 +1251,6 @@ xcb_query_pointer_reply_t* X11Hook_t::MyXCBQueryPointerReply(xcb_connection_t* c
         }
         else
         {
-            INGAMEOVERLAY_DEBUG("Query Pointer BB");
-
             reply->root = inst->_SavedRoot;
             reply->child = inst->_SavedChild;
             reply->root_x = inst->_SavedCursorRX;
@@ -1217,6 +1276,7 @@ X11Hook_t::X11Hook_t()
     , _SavedChild(0)
     , _XGetXCBConnection(nullptr)
     , _XCBLastKeyReleaseTime(0)
+    , _XCBXInputOpcode(0)
     , _KeyCombinationPushed(false)
     , _ApplicationInputsHidden(false)
     , _OverlayInputsHidden(true)

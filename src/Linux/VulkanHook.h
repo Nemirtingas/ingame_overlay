@@ -68,7 +68,7 @@ private:
     bool _X11Hooked;
     bool _SentOutOfDate;
     void* _Display;
-    void* _Window;
+    uint32_t _Window;
     OverlayHookState _HookState;
 
     std::function<void* (const char*)> _VulkanLoader;

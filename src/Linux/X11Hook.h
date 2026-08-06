@@ -76,6 +76,7 @@ private:
     xcb_connection_t* (*_XGetXCBConnection)(Display* display);
     XCBPendingEvent_t _XCBPendingEvent;
     uint32_t _XCBLastKeyReleaseTime;
+    uint8_t _XCBXInputOpcode;
 
     xcb_connection_t* _GetXCBConnection(Display* display);
     bool _IsKeyCombinationPressed() const;
@@ -131,7 +132,7 @@ public:
         { }
 
         Display* DisplayHandle;
-        Window WindowHandle;
+        uint32_t WindowHandle;
     };
 
     std::string LibraryName;
@@ -140,7 +141,7 @@ public:
 
     void ResetRenderState(OverlayHookState state);
     bool SetInitialWindowSize(Display* display, Window wnd);
-    bool PrepareForOverlay(Display* display, Window wnd);
+    bool PrepareForOverlay(void* display, uint32_t wnd);
     std::vector<X11WindowEnumerationResult_t> FindApplicationX11Window(int32_t processId);
 
     bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);

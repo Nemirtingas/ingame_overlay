@@ -1432,7 +1432,7 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 VulkanHook_t::VulkanHook_t() :
     _Hooked(false),
     _X11Hooked(false),
-    _Window(nullptr),
+    _Window(0),
     _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
     _VulkanLoader(nullptr),
