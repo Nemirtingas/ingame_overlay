@@ -404,7 +404,7 @@ bool X11Hook_t::_XCBLoadHook()
     for (auto& entry : hook_array)
     {
         *entry.func_ptr = System::Library::GetSymbol(hXCB, entry.func_name);
-        if (entry.func_ptr == nullptr)
+        if (entry.func_ptr == nullptr && entry.mandatory)
         {
             INGAMEOVERLAY_ERROR("Failed to load XCB: Event function {} missing.", entry.func_name);
             return false;
