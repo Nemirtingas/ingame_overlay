@@ -23,6 +23,8 @@
 
 #include <filesystem>
 
+#include "SafeXlibDisplay.h"
+
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
@@ -131,12 +133,12 @@ public:
     struct X11WindowEnumerationResult_t
     {
         inline X11WindowEnumerationResult_t() = default;
-        inline X11WindowEnumerationResult_t(Display* display, Window window)
+        inline X11WindowEnumerationResult_t(std::shared_ptr<SafeXlibDisplay_t> display, Window window)
             : DisplayHandle(display)
             , WindowHandle(window)
         { }
 
-        Display* DisplayHandle;
+        std::shared_ptr<SafeXlibDisplay_t> DisplayHandle;
         uint32_t WindowHandle;
     };
 
