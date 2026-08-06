@@ -104,6 +104,8 @@ elseif(UNIX)
     deps/ImGui/backends/imgui_impl_opengl3.cpp
     deps/ImGui/backends/imgui_impl_x11.h
     deps/ImGui/backends/imgui_impl_x11.cpp
+    deps/ImGui/backends/imgui_impl_xcb.h
+    deps/ImGui/backends/imgui_impl_xcb.cpp
   )
 
 else()
@@ -229,6 +231,9 @@ target_link_libraries(ingame_overlay
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:X11>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb-keysyms>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb-xkb>
 )
 
 target_compile_options(ingame_overlay

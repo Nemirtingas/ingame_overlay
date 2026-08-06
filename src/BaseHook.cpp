@@ -19,7 +19,6 @@
 
 #include "BaseHook.h"
 
-#include <algorithm>
 #include <mini_detour/mini_detour.h>
 
 BaseHook_t::BaseHook_t()

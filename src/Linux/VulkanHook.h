@@ -67,6 +67,7 @@ private:
     bool _Hooked;
     bool _X11Hooked;
     bool _SentOutOfDate;
+    void* _Display;
     void* _Window;
     OverlayHookState _HookState;
 
