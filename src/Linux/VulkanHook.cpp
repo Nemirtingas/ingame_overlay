@@ -816,13 +816,13 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (windows.empty())
             return;
 
-        _Display = (void*)windows[0].DisplayHandle;
-        _Window = (void*)windows[0].WindowHandle;
+        _Display = windows[0].DisplayHandle;
+        _Window = windows[0].WindowHandle;
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!X11Hook_t::Inst()->SetInitialWindowSize((Display*)_Display, (Window)_Window))
+        if (!X11Hook_t::Inst()->SetInitialWindowSize(static_cast<Display*>(_Display->DisplayHandle), (Window)_Window))
             return;
 
         if (_VulkanQueue == nullptr)
@@ -891,7 +891,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Display*)_Display, (Window)_Window))
+        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay(_Display.get(), _Window))
             return;
         
         auto screenshotType = _ScreenshotType();

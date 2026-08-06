@@ -23,6 +23,8 @@
 
 #include "../InternalIncludes.h"
 
+#include "SafeXlibDisplay.h"
+
 #include <vulkan/vulkan.h>
 
 namespace InGameOverlay {
@@ -67,7 +69,7 @@ private:
     bool _Hooked;
     bool _X11Hooked;
     bool _SentOutOfDate;
-    void* _Display;
+    std::shared_ptr<SafeXlibDisplay_t> _Display;
     uint32_t _Window;
     OverlayHookState _HookState;
 
