@@ -80,7 +80,11 @@ private:
     uint32_t _XCBLastKeyReleaseTime;
     uint8_t _XCBXInputOpcode;
 
+    decltype(xcb_query_extension)* _XCBQueryExtension;
+    decltype(xcb_query_extension_reply)* _XCBQueryExtensionReply;
+
     xcb_connection_t* _GetXCBConnection(Display* display);
+    void _XCBQueryXInputExtension(xcb_connection_t* xcbConnection);
     bool _IsKeyCombinationPressed() const;
 
     // In (bool): Is toggle wanted

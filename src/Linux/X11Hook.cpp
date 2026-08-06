@@ -393,9 +393,12 @@ bool X11Hook_t::_XCBLoadHook()
     struct {
         void** func_ptr;
         const char* func_name;
+        bool mandatory;
     } hook_array[] = {
-        { (void**)&_XCBPollForEvent     , "xcb_poll_for_event" },
-        { (void**)&_XCBQueryPointerReply, "xcb_query_pointer_reply" },
+        { (void**)&_XCBPollForEvent       , "xcb_poll_for_event"       , true  },
+        { (void**)&_XCBQueryPointerReply  , "xcb_query_pointer_reply"  , false },
+        { (void**)&_XCBQueryExtension     , "xcb_query_extension"      , false },
+        { (void**)&_XCBQueryExtensionReply, "xcb_query_extension_reply", false },
     };
 
     for (auto& entry : hook_array)
@@ -431,9 +434,12 @@ bool X11Hook_t::_XCBStartHook()
     
     for (auto& entry : hook_array)
     {
-        if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+        if (*entry.func_ptr)
         {
-            INGAMEOVERLAY_INFO("Failed to hook {}", entry.func_name);
+            if (!HookFunc(std::make_pair(entry.func_ptr, entry.hook_ptr)))
+            {
+                INGAMEOVERLAY_INFO("Failed to hook {}", entry.func_name);
+            }
         }
     }
     
@@ -504,12 +510,7 @@ bool X11Hook_t::_XCBPrepareForOverlay(xcb_connection_t* xcbConnection, xcb_windo
         if (!ImGui_ImplXCB_Init((void*)xcbConnection, (unsigned int)wnd, (void*)_XCBQueryPointerReply))
             return false;
 
-        auto inputExt = xcb_get_extension_data(xcbConnection, &xcb_input_id);
-
-        if (inputExt && inputExt->present)
-        {
-            _XCBXInputOpcode = inputExt->major_opcode;
-        }
+        _XCBQueryXInputExtension(xcbConnection);
 
         _GameWnd = wnd;
         _Initialized = true;
@@ -530,6 +531,44 @@ xcb_connection_t* X11Hook_t::_GetXCBConnection(Display* display)
         return _XGetXCBConnection(display);
 
     return nullptr;
+}
+
+void X11Hook_t::_XCBQueryXInputExtension(xcb_connection_t* xcbConnection)
+{
+    if (_XCBQueryExtension == nullptr || _XCBQueryExtensionReply == nullptr)
+        return;
+
+    const char* name = "XInputExtension";
+
+    auto cookie = _XCBQueryExtension(
+        xcbConnection,
+        strlen(name),
+        name
+    );
+
+    auto* reply = _XCBQueryExtensionReply(
+        xcbConnection,
+        cookie,
+        nullptr
+    );
+
+    if (reply && reply->present)
+    {
+        uint8_t majorOpcode = reply->major_opcode;
+        uint8_t firstEvent = reply->first_event;
+        uint8_t firstError = reply->first_error;
+
+        INGAMEOVERLAY_DEBUG(
+            "XInputExtension present: opcode={} event={} error={}",
+            majorOpcode,
+            firstEvent,
+            firstError
+        );
+
+        _XCBXInputOpcode = reply->major_opcode;
+    }
+
+    free(reply);
 }
 
 bool X11Hook_t::_IsKeyCombinationPressed() const
@@ -1288,6 +1327,8 @@ X11Hook_t::X11Hook_t()
     , _XGetXCBConnection(nullptr)
     , _XCBLastKeyReleaseTime(0)
     , _XCBXInputOpcode(0)
+    , _XCBQueryExtension(nullptr)
+    , _XCBQueryExtensionReply(nullptr)
     , _KeyCombinationPushed(false)
     , _ApplicationInputsHidden(false)
     , _OverlayInputsHidden(true)
