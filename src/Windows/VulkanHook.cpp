@@ -843,11 +843,12 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         init_info.Queue = _VulkanQueue;
         init_info.MinImageCount = _OverlayFrames.size();
         init_info.ImageCount = _OverlayFrames.size();
-        init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         init_info.Allocator = _VulkanAllocationCallbacks;
         init_info.UseDynamicRendering = false;
-        init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
-        init_info.RenderPass = _VulkanRenderPass;
+        init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE;
+
+        init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        init_info.PipelineInfoMain.RenderPass = _VulkanRenderPass;
 
         ImGui_ImplVulkan_Init(&init_info);
 
@@ -1381,6 +1382,7 @@ VKAPI_ATTR VkResult VKAPI_CALL VulkanHook_t::_MyVkQueuePresentKHR(VkQueue queue,
     if (!inst->_SentOutOfDate)
     {
         inst->_SentOutOfDate = true;
+        inst->_VkQueuePresentKHR(queue, pPresentInfo);
         return VkResult::VK_SUBOPTIMAL_KHR;
     }
 

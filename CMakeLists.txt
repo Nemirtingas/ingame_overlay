@@ -225,6 +225,7 @@ target_link_libraries(ingame_overlay
   $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog_header_only>
 
   $<$<BOOL:${WIN32}>:opengl32>
+  $<$<BOOL:${WIN32}>:dxgi>
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:X11>
@@ -233,6 +234,7 @@ target_link_libraries(ingame_overlay
 target_compile_options(ingame_overlay
   PRIVATE
   $<$<BOOL:${MSVC}>:/MP>
+  $<$<BOOL:${MSVC}>:/utf-8>
 )
 
 target_include_directories(ingame_overlay

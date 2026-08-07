@@ -137,6 +137,7 @@ void DX10Hook_t::_UpdateHookDeviceRefCount()
             + 1 // ID3D10RasterizerState (singleton per device)
             + 1 // ID3D10DepthStencilState (singleton per device)
             + 1 // ID3D10SamplerState (singleton per device)
+            + 1 // ID3D10SamplerState (singleton per device)
 
             // _PrepareForOverlay
             + 1 // ID3D10Device pSwapChain->GetDevice

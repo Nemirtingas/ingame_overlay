@@ -256,7 +256,8 @@ void DX12Hook_t::_UpdateHookDeviceRefCount()
         //   (VertexBuffer + IndexBuffer) * FrameCount
         case OverlayHookState::Ready: _HookDeviceRefCount =
             + 6 // 6 From swapchain
-            + 1 // ID3D12RootSignature (singleton per device)
+            + 1 // ID3D12RootSignature (linear) (singleton per device)
+            + 1 // ID3D12RootSignature (neared) (singleton per device)
             + 2 // 2 From lazy initialization of DX12, the device gets 2 refs randomly in ImGui_ImplDX12_CreateDeviceObjects 
             + 1 // _Device->AddRef
             + 1 // RenderTargetViewDescriptorHeap
@@ -268,8 +269,8 @@ void DX12Hook_t::_UpdateHookDeviceRefCount()
             + _ShaderResourceViewHeapDescriptors.size()
             + _ImageResourcesToRelease.size()
             + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
-            + 1 // ImGui PipelineState
-            + 1 // ImGui FontTexture
+            + 1 // ID3D12PipelineState (linear)
+            + 1 // ID3D12PipelineState (nearest)
             + (_OverlayFrames.size() * 2) // ImGui VertexBuffer + IndexBuffer
             ;
             break;
