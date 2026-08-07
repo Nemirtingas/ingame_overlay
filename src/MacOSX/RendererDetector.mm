@@ -23,6 +23,8 @@
 
 #include <cassert>
 #include <mutex>
+#include <string>
+#include <string_view>
 
 #include <InGameOverlay/RendererDetector.h>
 
@@ -70,9 +72,7 @@ public:
     
     ~RendererDetector_t()
     {
-        StopDetection();
-        
-        delete _OpenGLHook;
+        _ExitDetection();
         
         _Instance = nullptr;
     }
@@ -97,27 +97,37 @@ private:
         IntelDriver = 0,
         NVidiaDriver = 1,
         M1Driver = 2,
-        DriverCount = 3,
     };
 
-    std::timed_mutex _DetectorMutex;
-    std::mutex _RendererMutex;
+    std::recursive_mutex _RendererMutex;
     
     BaseHook_t _DetectionHooks;
     RendererHook_t* _RendererHook;
     
     bool _DetectionStarted;
     bool _DetectionDone;
-    uint32_t _DetectionCount;
-    bool _DetectionCancelled;
-    std::condition_variable _StopDetectionConditionVariable;
-    std::mutex _StopDetectionMutex;
     
+    struct DetectionDetails_t
+    {
+        RendererHookType_t RendererType;
+        std::string DllName;
+        void (RendererDetector_t::* DetectionProcedure)(std::string_view const&, bool);
+    };
+
+    std::array<DetectionDetails_t, 2> RendererLibraries{
+        DetectionDetails_t{ RendererHookType_t::OpenGL, OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL },
+        DetectionDetails_t{ RendererHookType_t::Metal , METAL_DLL_NAME , &RendererDetector_t::_HookMetal  },
+    };
+
     Method _NSOpenGLContextFlushBufferMethod;
     CGLError (*_NSOpenGLContextFlushBuffer)(id self);
     decltype(::CGLFlushDrawable)* _CGLFlushDrawable;
 
-    MetalDriverHook_t _MetalDriversHooks[DriverCount];
+    std::array<MetalDriverHook_t, 3> _MetalDriversHooks = {
+        MetalDriverHook_t{ "MTLIGAccelCommandBuffer"   , "MTLIGAccelRenderCommandEncoder"    , (IMP)&_MyIGAccelCommandBufferCommit      , nullptr, nil, nil, nil }, // IGAccel => Intel Graphics Acceleration
+        MetalDriverHook_t{ "NVMTLCommandBuffer"        , "NVMTLRenderCommandEncoder_PASCAL_B", (IMP)&_MyNVMTLCommandBufferCommit        , nullptr, nil, nil, nil }, // NVMTL => NVidia WebDriver
+        MetalDriverHook_t{ "AGXG13XFamilyCommandBuffer", "AGXG13XFamilyRenderContext"        , (IMP)&_MyAGXG13XFamilyCommandBufferCommit, nullptr, nil, nil, nil }, // AGXG13XFamily => Mac M1 ??
+    };
     
     bool _OpenGLHooked;
     bool _MetalHooked;
@@ -129,8 +139,6 @@ private:
         _RendererHook(nullptr),
         _DetectionStarted(false),
         _DetectionDone(false),
-        _DetectionCount(0),
-        _DetectionCancelled(false),
         _NSOpenGLContextFlushBufferMethod(nullptr),
         _NSOpenGLContextFlushBuffer(nullptr),
         _CGLFlushDrawable(nullptr),
@@ -139,32 +147,6 @@ private:
         _OpenGLHook(nullptr),
         _MetalHook(nullptr)
     {
-        // IGAccel => Intel Graphics Acceleration
-        _MetalDriversHooks[IntelDriver].CommandBufferClass = "MTLIGAccelCommandBuffer";
-        _MetalDriversHooks[IntelDriver].RenderCommandEncoderClass = "MTLIGAccelRenderCommandEncoder";
-        _MetalDriversHooks[IntelDriver].HookCommandBufferCommit = (IMP)&_MyIGAccelCommandBufferCommit;
-        _MetalDriversHooks[IntelDriver].CommandBufferCommit = nullptr;
-        _MetalDriversHooks[IntelDriver].CommandBufferCommitMethod = nil;
-        _MetalDriversHooks[IntelDriver].CommandBufferRenderCommandWithDescriptorMethod = nil;
-        _MetalDriversHooks[IntelDriver].RenderCommandEncoderEndEncodingMethod = nil;
-
-        // NVMTL => NVidia WebDriver
-        _MetalDriversHooks[NVidiaDriver].CommandBufferClass = "NVMTLCommandBuffer";
-        _MetalDriversHooks[NVidiaDriver].RenderCommandEncoderClass = "NVMTLRenderCommandEncoder_PASCAL_B";
-        _MetalDriversHooks[NVidiaDriver].HookCommandBufferCommit = (IMP)&_MyNVMTLCommandBufferCommit;
-        _MetalDriversHooks[NVidiaDriver].CommandBufferCommit = nullptr;
-        _MetalDriversHooks[NVidiaDriver].CommandBufferCommitMethod = nil;
-        _MetalDriversHooks[NVidiaDriver].CommandBufferRenderCommandWithDescriptorMethod = nil;
-        _MetalDriversHooks[NVidiaDriver].RenderCommandEncoderEndEncodingMethod = nil;
-
-        // AGXG13XFamily => Mac M1 ??
-        _MetalDriversHooks[M1Driver].CommandBufferClass = "AGXG13XFamilyCommandBuffer";
-        _MetalDriversHooks[M1Driver].RenderCommandEncoderClass = "AGXG13XFamilyRenderContext";
-        _MetalDriversHooks[M1Driver].HookCommandBufferCommit = (IMP)&_MyAGXG13XFamilyCommandBufferCommit;
-        _MetalDriversHooks[M1Driver].CommandBufferCommit = nullptr;
-        _MetalDriversHooks[M1Driver].CommandBufferCommitMethod = nil;
-        _MetalDriversHooks[M1Driver].CommandBufferRenderCommandWithDescriptorMethod = nil;
-        _MetalDriversHooks[M1Driver].RenderCommandEncoderEndEncodingMethod = nil;
     }
     
     void _FoundOpenGLRenderer(bool useObjectiveCMethod)
@@ -185,12 +167,11 @@ private:
 
     static CGLError _MyCGLFlushDrawable(CGLContextObj glDrawable)
     {
+        INGAMEOVERLAY_WARN("Called CGLFlushDrawable hook");
         auto inst = Inst();
-        std::unique_lock<std::mutex> lk(inst->_RendererMutex, std::defer_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         // If the app uses the C function, hook it, else prefer the ObjectiveC method.
-        lk.try_lock();
-
         CGLError res = inst->_CGLFlushDrawable(glDrawable);
         inst->_FoundOpenGLRenderer(false);
 
@@ -199,8 +180,9 @@ private:
 
     static CGLError _MyNSOpenGLContextFlushBuffer(id self)
     {
+        INGAMEOVERLAY_WARN("Called NSOpenGLContextFlushBuffer hook");
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         CGLError res = inst->_NSOpenGLContextFlushBuffer(self);
         inst->_FoundOpenGLRenderer(true);
@@ -210,7 +192,7 @@ private:
     
     void _FoundMetalRenderer(int driver, id self, SEL sel)
     {
-        MetalDriverHook_t& driverHook = _MetalDriversHooks[driver];
+        auto& driverHook = _MetalDriversHooks[driver];
         driverHook.CommandBufferCommit(self, sel);
 
         if (!_DetectionStarted || _DetectionDone)
@@ -225,21 +207,21 @@ private:
     static void _MyIGAccelCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
         inst->_FoundMetalRenderer(IntelDriver, self, sel);
     }
 
     static void _MyNVMTLCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
         inst->_FoundMetalRenderer(NVidiaDriver, self, sel);
     }
     
     static void _MyAGXG13XFamilyCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
-        std::lock_guard<std::mutex> lk(inst->_RendererMutex);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
         inst->_FoundMetalRenderer(M1Driver, self, sel);
     }
     
@@ -252,12 +234,12 @@ private:
         _DetectionHooks.EndHook();
     }
     
-    void _HookOpenGL(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookOpenGL(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLHooked)
         {
             System::Library::Library libOpenGL;
-            if (!libOpenGL.OpenLibrary(libraryPath, false))
+            if (!libOpenGL.OpenLibrary(libraryPath.data(), false))
             {
                 INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
                 return;
@@ -293,12 +275,12 @@ private:
         }
     }
     
-    void _HookMetal(std::string const& libraryPath, bool preferSystemLibraries)
+    void _HookMetal(std::string_view const& libraryPath, bool preferSystemLibraries)
     {
         if (!_MetalHooked)
         {
             System::Library::Library libMetal;
-            if (!libMetal.OpenLibrary(libraryPath, false))
+            if (!libMetal.OpenLibrary(libraryPath.data(), false))
             {
                 INGAMEOVERLAY_WARN("Failed to load {} to detect Metal", libraryPath);
                 return;
@@ -370,12 +352,12 @@ private:
         }
     }
     
-    bool EnterDetection()
+    bool _EnterDetection()
     {
         return true;
     }
     
-    void ExitDetection()
+    void _ExitDetection()
     {
         _StopHooks();
         
@@ -387,140 +369,85 @@ private:
     }
     
 public:
-    std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+    bool DetectRenderer(bool restart, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
     {
-        std::lock_guard<std::mutex> lk(_StopDetectionMutex);
+        auto wantsContinue = false;
 
-        if (_DetectionCount == 0)
-        {// If we have no detections in progress, restart detection.
-            _DetectionCancelled = false;
+        {
+            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+
+            if (_DetectionDone)
+            {
+                if (_RendererHook != nullptr || !restart)
+                {
+                    _ExitDetection();
+                    return wantsContinue;
+                }
+
+                _DetectionStarted = false;
+                _DetectionDone = false;
+            }
+
+            wantsContinue = true;
+
+            if (!_EnterDetection())
+                return wantsContinue;
         }
 
-        ++_DetectionCount;
+        INGAMEOVERLAY_TRACE("Started renderer detection.");
 
-        return std::async(std::launch::async, [this, timeout, rendererToDetect, preferSystemLibraries]() -> InGameOverlay::RendererHook_t*
+        std::string name;
+
+        for (auto const& library : RendererLibraries)
         {
-            std::unique_lock<std::timed_mutex> detection_lock(_DetectorMutex, std::defer_lock);
-            constexpr std::chrono::milliseconds infiniteTimeout{ -1 };
+            if ((rendererToDetect & library.RendererType) != library.RendererType)
+                continue;
 
-            if (!detection_lock.try_lock_for(timeout))
+            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : library.DllName;
+            if (!libraryPath.empty())
             {
-                --_DetectionCount;
-                return nullptr;
-            }
-                
-            bool cancel = false;
-            {
-                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-
-                if (!_DetectionCancelled)
+                void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                if (libraryHandle != nullptr)
                 {
+                    INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
+                    std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+                    INGAMEOVERLAY_DEBUG("Got renderer mutex for {}...", libraryPath);
                     if (_DetectionDone)
-                    {
-                        if (_RendererHook == nullptr)
-                        {// Renderer detection was run but we didn't find it, restart the detection
-                            _DetectionDone = false;
-                        }
-                        else
-                        {// Renderer already detected, cancel detection and return the renderer.
-                            cancel = true;
-                        }
-                    }
+                        break;
 
-                    if (!EnterDetection())
-                        cancel = true;
-                }
-                else
-                {// Detection was cancelled, cancel this detection
-                    cancel = true;
+                    (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
                 }
             }
+        }
+        INGAMEOVERLAY_TRACE("Exited renderer detection.");
 
-            if (cancel)
+        {
+            std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+            _DetectionStarted = true;
+
+            if (_DetectionDone)
             {
-                --_DetectionCount;
-                _StopDetectionConditionVariable.notify_all();
-                return _RendererHook;
+                wantsContinue = false;
+                _ExitDetection();
             }
+        }
 
-            INGAMEOVERLAY_TRACE("Started renderer detection.");
-
-            struct DetectionDetails_t
-            {
-                std::string DllName;
-                void (RendererDetector_t::*DetectionProcedure)(std::string const&, bool);
-            };
-
-            std::vector<DetectionDetails_t> libraries;
-            if ((rendererToDetect & RendererHookType_t::OpenGL) == RendererHookType_t::OpenGL)
-                libraries.emplace_back(DetectionDetails_t{ OPENGL_DLL_NAME, &RendererDetector_t::_HookOpenGL });
-
-            if ((rendererToDetect & RendererHookType_t::Metal) == RendererHookType_t::Metal)
-                libraries.emplace_back(DetectionDetails_t{ METAL_DLL_NAME, &RendererDetector_t::_HookMetal });
-
-            std::string name;
-
-            auto startTime = std::chrono::steady_clock::now();
-            do
-            {
-                std::unique_lock<std::mutex> lck(_StopDetectionMutex);
-                if (_DetectionCancelled || _DetectionDone)
-                    break;
-
-                for (auto const& library : libraries)
-                {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : library.DllName;
-                    if (!libraryPath.empty())
-                    {
-                        void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
-                        if (libraryHandle != nullptr)
-                        {
-                            std::lock_guard<std::mutex> lk(_RendererMutex);
-                            (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
-                        }
-                    }
-                }
-
-                _StopDetectionConditionVariable.wait_for(lck, std::chrono::milliseconds{ 100 });
-                if (!_DetectionStarted)
-                {
-                    std::lock_guard<std::mutex> lck(_RendererMutex);
-                    _DetectionStarted = true;
-                }
-            } while (timeout == infiniteTimeout || (std::chrono::steady_clock::now() - startTime) <= timeout);
-
-            _DetectionStarted = false;
-            {
-                std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-
-                ExitDetection();
-
-                --_DetectionCount;
-            }
-            _StopDetectionConditionVariable.notify_all();
-
-            INGAMEOVERLAY_TRACE("Renderer detection done {}.", (void*)_RendererHook);
-
-            return _RendererHook;
-        });
+        return wantsContinue;
     }
     
     void StopDetection()
     {
-        {
-            std::lock_guard<std::mutex> lk(_StopDetectionMutex);
-            if (_DetectionCount == 0)
-                return;
-        }
-        {
-            std::scoped_lock lk(_RendererMutex, _StopDetectionMutex);
-            _DetectionCancelled = true;
-        }
-        _StopDetectionConditionVariable.notify_all();
-        {
-            std::unique_lock<std::mutex> lk(_StopDetectionMutex);
-            _StopDetectionConditionVariable.wait(lk, [&]() { return _DetectionCount == 0; });
-        }
+        std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+        _DetectionDone = true;
+    }
+
+    RendererHook_t* GetDetectedRenderer()
+    {
+        std::lock_guard<std::recursive_mutex> lk(_RendererMutex);
+        if (!_DetectionDone)
+            return nullptr;
+
+        return _RendererHook;
     }
 };
 
@@ -549,21 +476,51 @@ static inline void SetupSpdLog()
 
 #endif
 
-std::future<InGameOverlay::RendererHook_t*> DetectRenderer(std::chrono::milliseconds timeout, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+bool DetectRenderer(bool restart, RendererHookType_t rendererToDetect, bool preferSystemLibraries)
 {
 #ifdef INGAMEOVERLAY_USE_SPDLOG
     SetupSpdLog();
 #endif
-    return RendererDetector_t::Inst()->DetectRenderer(timeout, rendererToDetect, preferSystemLibraries);
+    return RendererDetector_t::Inst()->DetectRenderer(restart, rendererToDetect, preferSystemLibraries);
 }
     
 void StopRendererDetection()
 {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
     RendererDetector_t::Inst()->StopDetection();
 }
-    
+
+RendererHook_t* GetDetectedRenderer()
+{
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+    return RendererDetector_t::Inst()->GetDetectedRenderer();
+}
+
+RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSystemLibraries)
+{
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
+    RendererHook_t* rendererHook = nullptr;
+
+    switch (rendererToDetect)
+    {
+        case RendererHookType_t::OpenGL: break;
+        case RendererHookType_t::Metal: break;
+    }
+
+    return rendererHook;
+}
+
 void FreeDetector()
 {
+#ifdef INGAMEOVERLAY_USE_SPDLOG
+    SetupSpdLog();
+#endif
     delete RendererDetector_t::Inst();
 }
 
