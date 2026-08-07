@@ -6,7 +6,7 @@
  * and/or modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 3 of the License, or (at your option) any later version.
- * 
+ *
  * The ingame overlay project is distributed in the hope that it will be
  * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -24,8 +24,8 @@
 #include "../InternalIncludes.h"
 
 #include <Metal/Metal.h>
+#include <Metal/MTLDrawable.h>
 #include <MetalKit/MetalKit.h>
-
 #include <objc/runtime.h>
 
 namespace InGameOverlay {
@@ -41,9 +41,53 @@ private:
     {
         MTLRenderPassDescriptor* Descriptor;
         id<MTLCommandBuffer> CommandBuffer;
-        id<MTLRenderCommandEncoder> Encoder;
+
+        RenderPass_t(
+            MTLRenderPassDescriptor* descriptor,
+            id<MTLCommandBuffer> commandBuffer)
+            : Descriptor([descriptor retain]),
+              CommandBuffer([commandBuffer retain])
+        {
+        }
+
+        ~RenderPass_t()
+        {
+            [Descriptor release];
+            [CommandBuffer release];
+
+            Descriptor = nil;
+            CommandBuffer = nil;
+        }
+
+        RenderPass_t(const RenderPass_t&) = delete;
+        RenderPass_t& operator=(const RenderPass_t&) = delete;
+
+        RenderPass_t(RenderPass_t&& other) noexcept
+            : Descriptor(other.Descriptor),
+                CommandBuffer(other.CommandBuffer)
+        {
+            other.Descriptor = nil;
+            other.CommandBuffer = nil;
+        }
+
+        RenderPass_t& operator=(RenderPass_t&& other) noexcept
+        {
+            if (this != &other)
+            {
+                [Descriptor release];
+                [CommandBuffer release];
+
+                Descriptor = other.Descriptor;
+                CommandBuffer = other.CommandBuffer;
+
+                other.Descriptor = nil;
+                other.CommandBuffer = nil;
+            }
+
+            return *this;
+        }
     };
-    
+
     // Variables
     bool _Hooked;
     bool _NSViewHooked;
@@ -53,30 +97,30 @@ private:
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     id<MTLDevice> _MetalDevice;
     std::vector<RenderPass_t> _RenderPass;
-    
+
     void* _ImGuiFontAtlas;
 
     // Functions
     MetalHook_t();
 
     void _ResetRenderState();
-    void _PrepareForOverlay(RenderPass_t& renderPass);
+    void _PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> texture, id<MTLCommandBuffer> commandBuffer);
     void _LoadResources();
     void _ReleaseResources();
-    void _HandleScreenshot();
+    void _HandleScreenshot(id<MTLCommandBuffer> commandBuffer, id<MTLDrawable> drawable);
 
     // Hook to render functions
     Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;
-    Method _MTLRenderCommandEncoderEndEncodingMethod;
+    Method _MTLCommandBufferPresentDrawableMethod;
 
     id<MTLRenderCommandEncoder> (*_MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    void (*_MTLRenderCommandEncoderEndEncoding)(id<MTLRenderCommandEncoder> self, SEL sel);
+    void (*_MTLCommandBufferPresentDrawable)(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable);
 
 public:
     std::string LibraryName;
 
     static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
-    static void MyMTLCommandEncoderEndEncoding(id<MTLRenderCommandEncoder> self, SEL sel);
+    static void MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable);
 
     virtual ~MetalHook_t();
 
@@ -87,7 +131,7 @@ public:
     static MetalHook_t* Inst();
     virtual const char* GetLibraryName() const;
     virtual RendererHookType_t GetRendererHookType() const;
-    void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method RenderCommandEncoderEndEncoding);
+    void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method MTLCommandBufferPresentDrawable);
 
     virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
     virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);

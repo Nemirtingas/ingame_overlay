@@ -8,14 +8,25 @@
 
 #import <Foundation/Foundation.h>
 
+#if TARGET_OS_OSX
 #import <Cocoa/Cocoa.h>
+#else
+#import <UIKit/UIKit.h>
+#endif
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 
-#include "imgui.h"
+#include <imgui.h>
 #include <backends/imgui_impl_metal.h>
+#if TARGET_OS_OSX
 #include "../common/imgui_impl_osx.h"
+@interface AppViewController : NSViewController<NSWindowDelegate>
+@end
+#else
+@interface AppViewController : UIViewController
+@end
+#endif
 
 #include <sys/sysctl.h>
 #include <mach-o/dyld_images.h>
@@ -23,10 +34,9 @@
 
 #include <string>
 
-static const char* ingame_overlay_test_library = "liboverlay_example.dylib";
+#include <objc/runtime.h>
 
-@interface AppViewController : NSViewController<NSWindowDelegate>
-@end
+static const char* ingame_overlay_test_library = "liboverlay_example.dylib";
 
 @interface AppViewController () <MTKViewDelegate>
 @property (nonatomic, readonly) MTKView *mtkView;
@@ -100,6 +110,117 @@ static std::string getExecutablePath()
     return exec_path;
 }
 
+static void DumpMethods(Class cls)
+{
+    for (Class current = cls;
+         current != Nil;
+         current = class_getSuperclass(current))
+    {
+        NSLog(@"=== METHODS %s ===", class_getName(current));
+
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(current, &count);
+
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            Method method = methods[i];
+
+            SEL selector = method_getName(method);
+            IMP imp = method_getImplementation(method);
+            const char *types = method_getTypeEncoding(method);
+
+            NSLog(@"  -[%s %s] IMP=%p types=%s",
+                  class_getName(current),
+                  sel_getName(selector),
+                  imp,
+                  types);
+        }
+
+        free(methods);
+    }
+}
+
+static void DumpIvars(Class cls)
+{
+    for (Class current = cls;
+         current != Nil;
+         current = class_getSuperclass(current))
+    {
+        NSLog(@"=== IVARS %s ===", class_getName(current));
+
+        unsigned int count = 0;
+        Ivar *ivars = class_copyIvarList(current, &count);
+
+        for (unsigned int i = 0; i < count; ++i)
+        {
+            Ivar ivar = ivars[i];
+
+            NSLog(@"  %s : %s (offset=%td)",
+                  ivar_getName(ivar),
+                  ivar_getTypeEncoding(ivar),
+                  ivar_getOffset(ivar));
+        }
+
+        free(ivars);
+    }
+}
+
+static void DumpBaseObjectChain(id object)
+{
+    if (object == nil)
+    {
+        NSLog(@"<nil>");
+        return;
+    }
+
+    id current = object;
+    NSUInteger depth = 0;
+
+    while (current != nil)
+    {
+        Class cls = object_getClass(current);
+
+        NSLog(@"[%lu] object=%p class=%s",
+              (unsigned long)depth,
+              current,
+              class_getName(cls));
+
+        Ivar baseObjectIvar = class_getInstanceVariable(cls, "_baseObject");
+
+        if (baseObjectIvar == NULL)
+        {
+            NSLog(@"[%lu] no _baseObject", (unsigned long)depth);
+            break;
+        }
+
+        id next = object_getIvar(current, baseObjectIvar);
+
+        if (next == nil)
+        {
+            NSLog(@"[%lu] _baseObject = nil",
+                  (unsigned long)depth);
+            break;
+        }
+
+        if (next == current)
+        {
+            NSLog(@"[%lu] _baseObject points to itself",
+                  (unsigned long)depth);
+            break;
+        }
+
+        current = next;
+        ++depth;
+
+        // Sécurité contre une chaîne anormalement longue.
+        if (depth > 64)
+        {
+            NSLog(@"_baseObject chain too long");
+            break;
+        }
+    }
+}
+
 //-----------------------------------------------------------------------------------
 // AppViewController
 //-----------------------------------------------------------------------------------
@@ -118,7 +239,7 @@ static std::string getExecutablePath()
         NSLog(@"Metal is not supported");
         abort();
     }
-
+    
     // Setup Dear ImGui context
     // FIXME: This example doesn't have proper cleanup...
     IMGUI_CHECKVERSION();
@@ -135,21 +256,28 @@ static std::string getExecutablePath()
     ImGui_ImplMetal_Init(_device);
 
     // Load Fonts
-    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
-    // - If the file cannot be loaded, the function will return a nullptr. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
-    // - The fonts will be rasterized at a given size (w/ oversampling) and stored into a texture when calling ImFontAtlas::Build()/GetTexDataAsXXXX(), which ImGui_ImplXXXX_NewFrame below will call.
-    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use Freetype for higher quality font rendering.
+    // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
+    //   This selection is based on (style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi) reaching a small threshold.
+    // - You can load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
+    // - If a file cannot be loaded, AddFont functions will return a nullptr. Please handle those errors in your code (e.g. use an assertion, display an error and quit).
     // - Read 'docs/FONTS.md' for more instructions and details.
+    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use FreeType for higher quality font rendering.
     // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf", 18.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
-    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, nullptr, io.Fonts->GetGlyphRangesJapanese());
+    //style.FontSizeBase = 20.0f;
+    //io.Fonts->AddFontDefaultVector();
+    //io.Fonts->AddFontDefaultBitmap();
+    //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
+    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
 
+    std::string exec_path = getExecutablePath();
+    exec_path = exec_path.substr(0, exec_path.rfind("/") + 1) + ingame_overlay_test_library;
+    void* overlay_hook = dlopen(exec_path.c_str(), RTLD_NOW);
+    printf("Loading %s: %p\n", exec_path.c_str(), overlay_hook);
+    
     return self;
 }
 
@@ -160,7 +288,7 @@ static std::string getExecutablePath()
 
 -(void)loadView
 {
-    self.view = [[MTKView alloc] initWithFrame:CGRectMake(0, 0, 1200, 720)];
+    self.view = [[MTKView alloc] initWithFrame:CGRectMake(0, 0, 1200, 800)];
 }
 
 -(void)viewDidLoad
@@ -170,8 +298,10 @@ static std::string getExecutablePath()
     self.mtkView.device = self.device;
     self.mtkView.delegate = self;
 
+#if TARGET_OS_OSX
     ImGui_ImplOSX_Init(self.view);
     [NSApp activateIgnoringOtherApps:YES];
+#endif
 }
 
 -(void)drawInMTKView:(MTKView*)view
@@ -180,7 +310,11 @@ static std::string getExecutablePath()
     io.DisplaySize.x = view.bounds.size.width;
     io.DisplaySize.y = view.bounds.size.height;
 
+#if TARGET_OS_OSX
     CGFloat framebufferScale = view.window.screen.backingScaleFactor ?: NSScreen.mainScreen.backingScaleFactor;
+#else
+    CGFloat framebufferScale = view.window.screen.scale ?: UIScreen.mainScreen.scale;
+#endif
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
@@ -189,12 +323,14 @@ static std::string getExecutablePath()
     if (renderPassDescriptor == nil)
     {
         [commandBuffer commit];
-		return;
+        return;
     }
-
+    
     // Start the Dear ImGui frame
     ImGui_ImplMetal_NewFrame(renderPassDescriptor);
+#if TARGET_OS_OSX
     ImGui_ImplOSX_NewFrame(view);
+#endif
     ImGui::NewFrame();
 
     // Our state (make them static = more or less global) as a convenience to keep the example terse.
@@ -247,10 +383,14 @@ static std::string getExecutablePath()
     id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
     [renderEncoder pushDebugGroup:@"Dear ImGui rendering"];
     ImGui_ImplMetal_RenderDrawData(draw_data, commandBuffer, renderEncoder);
+
+    //DumpBaseObjectChain(commandBuffer);
+    //DumpBaseObjectChain(renderEncoder);
+    
     [renderEncoder popDebugGroup];
     [renderEncoder endEncoding];
 
-	// Present
+    // Present
     [commandBuffer presentDrawable:view.currentDrawable];
     [commandBuffer commit];
 }
@@ -315,10 +455,18 @@ static std::string getExecutablePath()
 // Application main() function
 //-----------------------------------------------------------------------------------
 
-int main(int argc, const char * argv[])
+int main(int, const char**)
 {
-    if (argc > 1)
-        ingame_overlay_test_library = argv[1];
+    @autoreleasepool
+    {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
 
-    return NSApplicationMain(argc, argv);
+        AppDelegate *appDelegate = [[AppDelegate alloc] init];   // creates window
+        [NSApp setDelegate:appDelegate];
+
+        [NSApp activateIgnoringOtherApps:YES];
+        [NSApp run];
+    }
+    return 0;
 }

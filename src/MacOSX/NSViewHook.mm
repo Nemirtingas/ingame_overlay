@@ -164,6 +164,10 @@ bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, Togg
         _EventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask : mask handler : ^ NSEvent * (NSEvent * event)
         {
             auto* inst = NSViewHook_t::Inst();
+            
+            if (!inst->_Initialized)
+                return event;
+                
             NSView* view = [[event window]contentView];
             bool hide_app_inputs = inst->ApplicationInputsHidden;
             bool hide_overlay_inputs = inst->OverlayInputsHidden;

@@ -89,7 +89,7 @@ private:
         void (*CommandBufferCommit)(id, SEL);
         Method CommandBufferCommitMethod;
         Method CommandBufferRenderCommandWithDescriptorMethod;
-        Method RenderCommandEncoderEndEncodingMethod;
+        Method CommandBufferPresentDrawableMethod;
     };
 
     enum
@@ -198,7 +198,7 @@ private:
         if (!_DetectionStarted || _DetectionDone)
             return;
 
-        _MetalHook->LoadFunctions(driverHook.CommandBufferRenderCommandWithDescriptorMethod, driverHook.RenderCommandEncoderEndEncodingMethod);
+        _MetalHook->LoadFunctions(driverHook.CommandBufferRenderCommandWithDescriptorMethod, driverHook.CommandBufferPresentDrawableMethod);
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(_MetalHook);
         _MetalHook = nullptr;
         _StopHooks();
@@ -294,21 +294,23 @@ private:
             {
                 metalClass = objc_getClass(driverHook.CommandBufferClass);
                 driverHook.CommandBufferCommitMethod = class_getInstanceMethod(metalClass, @selector(commit));
-                if (driverHook.CommandBufferCommitMethod != nil)
-                {
-                    driverHook.CommandBufferRenderCommandWithDescriptorMethod = class_getInstanceMethod(metalClass, @selector(renderCommandEncoderWithDescriptor:));
-                    if (driverHook.CommandBufferRenderCommandWithDescriptorMethod != nil)
-                    {
-                        metalClass = objc_getClass(driverHook.RenderCommandEncoderClass);
-                        driverHook.RenderCommandEncoderEndEncodingMethod = class_getInstanceMethod(metalClass, @selector(endEncoding));
-                        if (driverHook.RenderCommandEncoderEndEncodingMethod != nil)
-                        {
-                            driverHook.CommandBufferCommit = (decltype(MetalDriverHook_t::CommandBufferCommit))method_setImplementation(driverHook.CommandBufferCommitMethod, driverHook.HookCommandBufferCommit);
-                            if (driverHook.CommandBufferCommit != nil)
-                                ++hooked_count;
-                        }
-                    }
-                }
+                if (driverHook.CommandBufferCommitMethod == nil)
+                    continue;
+                
+                driverHook.CommandBufferRenderCommandWithDescriptorMethod = class_getInstanceMethod(metalClass, @selector(renderCommandEncoderWithDescriptor:));
+                if (driverHook.CommandBufferRenderCommandWithDescriptorMethod == nil)
+                    continue;
+            
+                driverHook.CommandBufferPresentDrawableMethod = class_getInstanceMethod(metalClass, @selector(presentDrawable:));
+                if (driverHook.CommandBufferPresentDrawableMethod == nil)
+                    continue;
+                
+                metalClass = objc_getClass(driverHook.RenderCommandEncoderClass);
+                driverHook.CommandBufferCommit = (decltype(MetalDriverHook_t::CommandBufferCommit))method_setImplementation(driverHook.CommandBufferCommitMethod, driverHook.HookCommandBufferCommit);
+                if (driverHook.CommandBufferCommit == nil)
+                    continue;
+                
+                ++hooked_count;
             }
 
             if(hooked_count > 0)
