@@ -213,6 +213,9 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
     if (!_Initialized)
     {
         _GameHwnd = hWnd;
+        if (hWnd == nullptr)
+            return false;
+
         ImGui_ImplWin32_Init(_GameHwnd, &WindowsHook_t::_ImGuiGetKeyState);
 
         _Initialized = true;
