@@ -88,6 +88,7 @@ elseif(UNIX)
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
     src/Linux/VulkanHook.cpp
+    src/Linux/SafeXlibDisplay.cpp
   )
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
@@ -95,6 +96,7 @@ elseif(UNIX)
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
     src/Linux/VulkanHook.h
+    src/Linux/SafeXlibDisplay.h
   )
 
   set(IMGUI_SOURCES
@@ -104,6 +106,8 @@ elseif(UNIX)
     deps/ImGui/backends/imgui_impl_opengl3.cpp
     deps/ImGui/backends/imgui_impl_x11.h
     deps/ImGui/backends/imgui_impl_x11.cpp
+    deps/ImGui/backends/imgui_impl_xcb.h
+    deps/ImGui/backends/imgui_impl_xcb.cpp
   )
 
 else()
@@ -229,6 +233,8 @@ target_link_libraries(ingame_overlay
   $<$<BOOL:${UNIX}>:dl>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:GL>
   $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:X11>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb>
+  $<$<AND:$<BOOL:${UNIX}>,$<NOT:$<BOOL:${APPLE}>>>:xcb-keysyms>
 )
 
 target_compile_options(ingame_overlay

@@ -371,7 +371,7 @@ int main(int argc, char* argv[])
 
     // Setup Platform/Renderer backends
     ImGui_ImplOpenGL3_Init();
-    ImGui_ImplX11_Init(display, (void*)win);
+    ImGui_ImplX11_Init(display, (unsigned int)win);
 
     // Load Fonts
     // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.

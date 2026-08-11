@@ -816,12 +816,13 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (windows.empty())
             return;
 
-        _Window = (void*)windows[0];
+        _Display = windows[0].DisplayHandle;
+        _Window = windows[0].WindowHandle;
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!X11Hook_t::Inst()->SetInitialWindowSize((Window)_Window))
+        if (!X11Hook_t::Inst()->SetInitialWindowSize(static_cast<Display*>(_Display->DisplayHandle), (Window)_Window))
             return;
 
         if (_VulkanQueue == nullptr)
@@ -890,7 +891,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Window)_Window))
+        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay(_Display.get(), _Window))
             return;
         
         auto screenshotType = _ScreenshotType();
@@ -1431,7 +1432,7 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
 VulkanHook_t::VulkanHook_t() :
     _Hooked(false),
     _X11Hooked(false),
-    _Window(nullptr),
+    _Window(0),
     _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
     _VulkanLoader(nullptr),
