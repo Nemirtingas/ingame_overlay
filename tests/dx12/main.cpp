@@ -11,6 +11,7 @@
 #include "../common/imgui_impl_dx12.h"
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <dcomp.h>
 #include <tchar.h>
 
 #ifdef _DEBUG
@@ -97,8 +98,12 @@ static HANDLE                       g_hSwapChainWaitableObject = nullptr;
 static ID3D12Resource*              g_mainRenderTargetResource[APP_NUM_BACK_BUFFERS] = {};
 static D3D12_CPU_DESCRIPTOR_HANDLE  g_mainRenderTargetDescriptor[APP_NUM_BACK_BUFFERS] = {};
 
+static DWORD g_swapChainFlags = 0;
+
+constexpr bool UseComposition = true;
+
 // Forward declarations of helper functions
-bool CreateDeviceD3D(HWND hWnd);
+bool CreateDeviceD3D(bool useComposition, HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
@@ -118,7 +123,7 @@ int main(int, char**)
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Dear ImGui DirectX12 Example", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, nullptr, nullptr, wc.hInstance, nullptr);
 
     // Initialize Direct3D
-    if (!CreateDeviceD3D(hwnd))
+    if (!CreateDeviceD3D(UseComposition, hwnd))
     {
         CleanupDeviceD3D();
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
@@ -307,8 +312,10 @@ int main(int, char**)
 
 // Helper functions
 
-bool CreateDeviceD3D(HWND hWnd)
+bool CreateSwapChainForHWND(IDXGIFactory4* dxgiFactory, IDXGISwapChain1** swapChain1, HWND hWnd)
 {
+    g_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+
     // Setup swap chain
     DXGI_SWAP_CHAIN_DESC1 sd;
     {
@@ -317,7 +324,7 @@ bool CreateDeviceD3D(HWND hWnd)
         sd.Width = 0;
         sd.Height = 0;
         sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        sd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+        sd.Flags = g_swapChainFlags;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         sd.SampleDesc.Count = 1;
         sd.SampleDesc.Quality = 0;
@@ -327,6 +334,36 @@ bool CreateDeviceD3D(HWND hWnd)
         sd.Stereo = FALSE;
     }
 
+    return dxgiFactory->CreateSwapChainForHwnd(g_pd3dCommandQueue, hWnd, &sd, nullptr, nullptr, swapChain1) == S_OK;
+}
+
+bool CreateSwapChainForComposition(IDXGIFactory4* dxgiFactory, IDXGISwapChain1** swapChain1)
+{
+    g_swapChainFlags = 0;
+
+    // Setup swap chain
+    DXGI_SWAP_CHAIN_DESC1 sd;
+    {
+        ZeroMemory(&sd, sizeof(sd));
+        sd.Width = 1920;
+        sd.Height = 1080;
+        sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.Stereo = FALSE;
+        sd.SampleDesc.Count = 1;
+        sd.SampleDesc.Quality = 0;
+        sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        sd.BufferCount = 2;
+        sd.Scaling = DXGI_SCALING_STRETCH;
+        sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+        sd.Flags = g_swapChainFlags;
+    }
+
+    return dxgiFactory->CreateSwapChainForComposition(g_pd3dCommandQueue, &sd, nullptr, swapChain1) == S_OK;
+}
+
+bool CreateDeviceD3D(bool useComposition, HWND hWnd)
+{
     // [DEBUG] Enable debug interface
 #ifdef DX12_ENABLE_DEBUG_LAYER
     ID3D12Debug* pdx12Debug = nullptr;
@@ -410,8 +447,92 @@ bool CreateDeviceD3D(HWND hWnd)
         IDXGISwapChain1* swapChain1 = nullptr;
         if (CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory)) != S_OK)
             return false;
-        if (dxgiFactory->CreateSwapChainForHwnd(g_pd3dCommandQueue, hWnd, &sd, nullptr, nullptr, &swapChain1) != S_OK)
-            return false;
+
+        if (!useComposition)
+        {
+            if (!CreateSwapChainForHWND(dxgiFactory, &swapChain1, hWnd))
+                return false;
+        }
+        else
+        {
+            if (!CreateSwapChainForComposition(dxgiFactory, &swapChain1))
+                return false;
+
+            IDXGIDevice* dxgiDevice = NULL;
+
+            IDCompositionDesktopDevice* dcompDevice = NULL;
+
+            HRESULT hr = DCompositionCreateDevice3(
+                nullptr,
+                __uuidof(IDCompositionDesktopDevice),
+                (void**)&dcompDevice);
+
+            if (FAILED(hr))
+            {
+                swapChain1->Release();
+                return false;
+            }
+
+            IDCompositionTarget* dcompTarget = NULL;
+
+            hr = dcompDevice->CreateTargetForHwnd(
+                hWnd,
+                TRUE,
+                &dcompTarget);
+
+            if (FAILED(hr))
+            {
+                dcompDevice->Release();
+                swapChain1->Release();
+                return false;
+            }
+
+            IDCompositionVisual2* dcompVisual = NULL;
+
+            hr = dcompDevice->CreateVisual(&dcompVisual);
+
+            if (FAILED(hr))
+            {
+                dcompTarget->Release();
+                dcompDevice->Release();
+                swapChain1->Release();
+                return false;
+            }
+
+            hr = dcompVisual->SetContent(swapChain1);
+
+            if (FAILED(hr))
+            {
+                dcompVisual->Release();
+                dcompTarget->Release();
+                dcompDevice->Release();
+                swapChain1->Release();
+                return false;
+            }
+
+            hr = dcompTarget->SetRoot(dcompVisual);
+
+            if (FAILED(hr))
+            {
+                dcompVisual->Release();
+                dcompTarget->Release();
+                dcompDevice->Release();
+                swapChain1->Release();
+                return false;
+            }
+
+            hr = dcompDevice->Commit();
+
+            if (FAILED(hr))
+            {
+                dcompVisual->Release();
+                dcompTarget->Release();
+                dcompDevice->Release();
+                swapChain1->Release();
+                return false;
+            }
+        }
+        
         if (swapChain1->QueryInterface(IID_PPV_ARGS(&g_pSwapChain)) != S_OK)
             return false;
         swapChain1->Release();
@@ -527,7 +648,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             WaitForLastSubmittedFrame();
             CleanupRenderTarget();
-            HRESULT result = g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+            HRESULT result = g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, g_swapChainFlags);
             assert(SUCCEEDED(result) && "Failed to resize swapchain.");
             CreateRenderTarget();
         }

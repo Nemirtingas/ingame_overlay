@@ -66,6 +66,30 @@ static int ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
     return 0;
 }
 
+static HWND GetCurrentThreadHWND()
+{
+    HWND hWindow = nullptr;
+    DWORD tid = GetCurrentThreadId();
+
+    EnumThreadWindows(
+        tid,
+        [](HWND hwnd, LPARAM lParam) -> BOOL
+        {
+            auto* result = reinterpret_cast<HWND*>(lParam);
+
+            if (IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == nullptr)
+            {
+                *result = hwnd;
+                return FALSE;
+            }
+
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&hWindow));
+
+    return hWindow;
+}
+
 bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount)
 {
     if (!_Hooked)
@@ -195,6 +219,13 @@ void WindowsHook_t::ResetRenderState(OverlayHookState state)
 
 void WindowsHook_t::SetInitialWindowSize(HWND hWnd)
 {
+    if (hWnd == nullptr)
+    {
+        hWnd = GetCurrentThreadHWND();
+        if (hWnd == nullptr)
+            return;
+    }
+
     RECT rect = { 0, 0, 0, 0 };
     ::GetClientRect(hWnd, &rect);
     ImGui::GetIO().DisplaySize = ImVec2((float)(rect.right - rect.left), (float)(rect.bottom - rect.top));
@@ -207,31 +238,40 @@ short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)
 
 bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
 {
-    if (_GameHwnd != hWnd)
+    // hWnd can be null when the client code is not using a swapchain for a HWND.
+    // In that case, we will run some 'degraded' mode because we cannot make sure the HWND didn't change.
+    // TODO: Handle correctly the Composition mode of DirectX.
+    if (hWnd != nullptr && _GameHwnd != hWnd)
+    {
         ResetRenderState(OverlayHookState::Removing);
+    }
 
     if (!_Initialized)
     {
         _GameHwnd = hWnd;
         if (hWnd == nullptr)
-            return false;
+        {
+            // If the hWnd is null, we still want an overlay, so try to find the HWND of the current thread.
+            // Lets hope the current thread running a Present has a HWND
+            hWnd = GetCurrentThreadHWND();
+            if (hWnd == nullptr)
+                return false;
+        }
 
         ImGui_ImplWin32_Init(_GameHwnd, &WindowsHook_t::_ImGuiGetKeyState);
 
         _Initialized = true;
     }
 
-    if (_Initialized)
-    {
-        if (!_OverlayInputsHidden)
-        {
-            ImGui_ImplWin32_NewFrame();
-        }
+    if (!_Initialized)
+        return false;
 
-        return true;
+    if (!_OverlayInputsHidden)
+    {
+        ImGui_ImplWin32_NewFrame();
     }
 
-    return false;
+    return true;
 }
 
 std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)

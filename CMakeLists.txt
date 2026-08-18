@@ -421,6 +421,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       user32
       d3d12
       dxgi
+	  dcomp
     )
 
     target_compile_definitions(dx12_app
