@@ -97,8 +97,11 @@ private:
         DX12Frame_t(DX12Frame_t const&) = delete;
         DX12Frame_t& operator=(DX12Frame_t const&) = delete;
 
-        DX12Frame_t(DX12Frame_t&& other) noexcept:
-            RenderTarget(other.RenderTarget), CommandAllocator(other.CommandAllocator), BackBuffer(other.BackBuffer)
+        DX12Frame_t(DX12Frame_t&& other) noexcept
+            : RenderTarget(other.RenderTarget)
+            , CommandAllocator(other.CommandAllocator)
+            , CommandList(other.CommandList)
+            , BackBuffer(other.BackBuffer)
         {
             other.Reset();
         }
