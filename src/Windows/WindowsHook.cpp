@@ -709,7 +709,7 @@ HRESULT STDMETHODCALLTYPE WindowsHook_t::_MyRawControllerGetCurrentReading(Simpl
         memset(switchArray, 0, sizeof(*switchArray) * switchArrayLength);
 
     if (axisArray != nullptr)
-        memset(axisArray, 0, sizeof(axisArray) * axisArrayLength);
+        memset(axisArray, 0, sizeof(*axisArray) * axisArrayLength);
 
     if (timestamp != nullptr)
         *timestamp = 0;
