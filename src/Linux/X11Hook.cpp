@@ -51,19 +51,21 @@ typedef int (*EnumX11WindowsCallback_t)(Display* display, Window window, void* u
 static void RunEnumX11Windows(Display* display, Window rootWindow, EnumX11WindowsCallback_t callback, void* userParameter)
 {
     Window parentWindow;
-    Window* childrenWindows;
-    Window* child;
-    unsigned int childCount;
+    Window* childrenWindows = nullptr;
+    Window* child = nullptr;
+    unsigned int childCount = 0;
 
-    if (XQueryTree(display, rootWindow, &rootWindow, &parentWindow, &childrenWindows, &childCount) && childCount)
+    if (XQueryTree(display, rootWindow, &rootWindow, &parentWindow, &childrenWindows, &childCount))
     {
         for (unsigned int i = 0; i < childCount; ++i)
         {
             if (!callback(display, childrenWindows[i], userParameter))
-                return;
+                break;
 
             RunEnumX11Windows(display, childrenWindows[i], callback, userParameter);
         }
+
+        XFree(childrenWindows);
     }
 }
 
@@ -171,7 +173,7 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
         for (auto& entry : hook_array)
         {
             *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
-            if (entry.func_ptr == nullptr)
+            if (*entry.func_ptr == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
                 return false;
@@ -289,33 +291,33 @@ std::vector<Window> X11Hook_t::FindApplicationX11Window(int32_t processId)
     };
 
     EnumX11Windows([](Display* display, Window window, void* userParameter) -> int
-    {
-        auto params = reinterpret_cast<decltype(windowParams)*>(userParameter);
-        if (params->pidAtom == None)
-            params->pidAtom = XInternAtom(display, "_NET_WM_PID", True);
-
-        if (params->pidAtom == None)
-            return 0;
-
-        XTextProperty data;
-        int status = XGetTextProperty(display, window, &data, params->pidAtom);
-        if (!status || data.nitems <= 0)
-            return 1;
-
-        int32_t processId = 0;
-        switch (data.format)
         {
-            case 32: processId = *(int32_t*)data.value; break;
-            case 16: processId = *(int16_t*)data.value; break;
-            case 8 : processId = data.value[0]; break;
-            default: return 1;
-        }
+            auto params = reinterpret_cast<decltype(windowParams)*>(userParameter);
 
-        if (processId == params->pid)
-            params->windows.emplace_back(window);
+            if (params->pidAtom == None)
+                params->pidAtom = XInternAtom(display, "_NET_WM_PID", True);
 
-        return 1;
-    }, &windowParams);
+            if (params->pidAtom == None)
+                return 0;
+
+            XTextProperty data{};
+            if (XGetTextProperty(display, window, &data, params->pidAtom))
+            {
+                if (data.format == 32 && data.nitems >= 1 && data.value != nullptr)
+                {
+                    auto processId = static_cast<int32_t>(
+                        *reinterpret_cast<const long*>(data.value));
+
+                    if (processId == params->pid)
+                        params->windows.emplace_back(window);
+                }
+
+                if (data.value)
+                    XFree(data.value);
+            }
+
+            return 1;
+        }, &windowParams);
 
     return windowParams.windows;
 }

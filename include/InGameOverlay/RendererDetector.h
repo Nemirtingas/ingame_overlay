@@ -29,7 +29,7 @@ namespace InGameOverlay {
 /// <param name="restart">If the renderer has not been found but StopRendererDetection has been called, it will scan the renderers again.</param>
 /// <param name="rendererToDetect">Set this to any combined RendererHookType_t value to filter the renderers you want to detect.</param>
 /// <param name="preferSystemLibraries">Prefer hooking the system libraries instead of the first one found.</param>
-/// <returns>True: detection done, False: detection can be called again</returns>
+/// <returns>True: detection can be called again, False: detection done</returns>
 bool DetectRenderer(bool restart = false, RendererHookType_t rendererToDetect = RendererHookType_t::Any, bool preferSystemLibraries = true);
 
 /// <summary>

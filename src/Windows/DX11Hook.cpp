@@ -575,10 +575,10 @@ DX11Hook_t::~DX11Hook_t()
 {
     INGAMEOVERLAY_INFO("DX11 Hook removed");
 
+    _ResetRenderState(OverlayHookState::Removing);
+
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
-
-    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance->UnhookAll();
     _Instance = nullptr;

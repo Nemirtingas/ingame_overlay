@@ -97,8 +97,11 @@ private:
         DX12Frame_t(DX12Frame_t const&) = delete;
         DX12Frame_t& operator=(DX12Frame_t const&) = delete;
 
-        DX12Frame_t(DX12Frame_t&& other) noexcept:
-            RenderTarget(other.RenderTarget), CommandAllocator(other.CommandAllocator), BackBuffer(other.BackBuffer)
+        DX12Frame_t(DX12Frame_t&& other) noexcept
+            : RenderTarget(other.RenderTarget)
+            , CommandAllocator(other.CommandAllocator)
+            , CommandList(other.CommandList)
+            , BackBuffer(other.BackBuffer)
         {
             other.Reset();
         }
@@ -148,6 +151,13 @@ private:
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
+
+    HANDLE _ScreenshotEvent;
+    UINT64 _ScreenshotFenceValue;
+    ID3D12Fence* _ScreenshotFence;
+    ID3D12CommandAllocator* _ScreenshotCommandAllocator;
+    ID3D12GraphicsCommandList* _ScreenshotCommandList;
+
     uint32_t _ImGuiFontTextureId;
     void* _ImGuiFontAtlas;
 
@@ -166,6 +176,8 @@ private:
     void _DestroyRenderTargets();
     bool _CreateImageObjects();
     void _DestroyImageObjects();
+    bool _CreateScreenshotObjects();
+    void _DestroyScreenshotObjects();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
     void _LoadResources();

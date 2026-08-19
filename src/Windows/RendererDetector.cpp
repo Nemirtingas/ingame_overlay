@@ -1455,6 +1455,7 @@ private:
     void _ExitDetection()
     {
         DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
+        _DummyWindowHandle = nullptr;
 
         _DetectionDone = true;
         _DetectionHooks.UnhookAll();

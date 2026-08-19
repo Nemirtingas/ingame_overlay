@@ -288,10 +288,10 @@ OpenGLHook_t::~OpenGLHook_t()
 {
     INGAMEOVERLAY_INFO("OpenGL Hook removed");
 
+    _ResetRenderState(OverlayHookState::Removing);
+
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
-
-    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance->UnhookAll();
     _Instance = nullptr;
