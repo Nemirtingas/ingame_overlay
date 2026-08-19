@@ -403,6 +403,52 @@ void DX12Hook_t::_DestroyImageObjects()
     SafeRelease(_ImageFence);
 }
 
+bool DX12Hook_t::_CreateScreenshotObjects()
+{
+    if (_ScreenshotCommandAllocator != nullptr)
+        return true;
+
+    HRESULT hr;
+
+    _ScreenshotEvent = CreateEventW(0, 0, 0, 0);
+    if (_ScreenshotEvent == NULL)
+        goto on_fail;
+
+    // Create a command allocator
+    hr = _Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_ScreenshotCommandAllocator));
+    if (FAILED(hr) || _ScreenshotCommandAllocator == nullptr)
+        goto on_fail;
+
+    // Spin up a new command list
+    hr = _Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _ScreenshotCommandAllocator, nullptr, IID_PPV_ARGS(&_ScreenshotCommandList));
+    if (FAILED(hr) || _ScreenshotCommandList == nullptr)
+        goto on_fail;
+
+    // Create a fence    
+    hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_ScreenshotFence));
+    if (FAILED(hr) || _ScreenshotFence == nullptr)
+        goto on_fail;
+
+    return true;
+
+on_fail:
+    _DestroyScreenshotObjects();
+
+    return false;
+}
+
+void DX12Hook_t::_DestroyScreenshotObjects()
+{
+    if (_ScreenshotEvent != NULL)
+    {
+        CloseHandle(_ScreenshotEvent);
+        _ScreenshotEvent = NULL;
+    }
+    SafeRelease(_ScreenshotFence);
+    SafeRelease(_ScreenshotCommandList);
+    SafeRelease(_ScreenshotCommandAllocator);
+}
+
 void DX12Hook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_HookState == state)
@@ -427,6 +473,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             _ImageResourcesToLoad.clear();
             _ImageResourcesToRelease.clear();
             _DestroyImageObjects();
+            _DestroyScreenshotObjects();
             _ShaderResourceViewHeaps.clear();
             _ShaderResourceViewHeapDescriptors.clear();
 
@@ -801,9 +848,6 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
 {
     bool result = false;
 
-    ID3D12CommandAllocator* pCommandAlloc = nullptr;
-    ID3D12GraphicsCommandList* pCommandList = nullptr;
-    ID3D12Fence* pFence = nullptr;
     ID3D12Resource* pCopySource = nullptr;
     ID3D12Resource* pStaging = nullptr;
 
@@ -827,29 +871,19 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
     BYTE* pMappedMemory = nullptr;
     ScreenshotCallbackParameter_t screenshot;
 
+    HRESULT hr;
+
     _Device->GetCopyableFootprints(&desc, 0, 1, 0, &layout, &numRows, &rowSize, &totalSize);
 
-    HRESULT hr = frame.BackBuffer->GetHeapProperties(&sourceHeapProperties, nullptr);
+    if (!_CreateScreenshotObjects())
+        goto cleanup;
+
+    hr = frame.BackBuffer->GetHeapProperties(&sourceHeapProperties, nullptr);
     if (SUCCEEDED(hr) && sourceHeapProperties.Type == D3D12_HEAP_TYPE_READBACK)
     {
         pCopySource = frame.BackBuffer;
         goto readback;
     }
-
-    // Create a command allocator
-    hr = _Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&pCommandAlloc));
-    if (FAILED(hr) || pCommandAlloc == nullptr)
-        goto cleanup;
-
-    // Spin up a new command list
-    hr = _Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, pCommandAlloc, nullptr, IID_PPV_ARGS(&pCommandList));
-    if (FAILED(hr) || pCommandList == nullptr)
-        goto cleanup;
-
-    // Create a fence    
-    hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&pFence));
-    if (FAILED(hr) || pFence == nullptr)
-        goto cleanup;
 
     defaultHeapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
     readBackHeapProperties.Type = D3D12_HEAP_TYPE_READBACK;
@@ -881,7 +915,7 @@ readback:
     // Transition the resource if necessary
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-    pCommandList->ResourceBarrier(1, &barrier);
+    _ScreenshotCommandList->ResourceBarrier(1, &barrier);
 
     // Get the copy target location
     copyDest.pResource = pCopySource;
@@ -897,28 +931,35 @@ readback:
     copySrc.SubresourceIndex = 0;
 
     // Copy the texture
-    pCommandList->CopyTextureRegion(&copyDest, 0, 0, 0, &copySrc, nullptr);
+    _ScreenshotCommandList->CopyTextureRegion(&copyDest, 0, 0, 0, &copySrc, nullptr);
 
     // Transition the source resource to the next state
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-    pCommandList->ResourceBarrier(1, &barrier);
+    _ScreenshotCommandList->ResourceBarrier(1, &barrier);
 
-    hr = pCommandList->Close();
+    hr = _ScreenshotCommandList->Close();
     if (FAILED(hr))
         goto cleanup;
 
     // Execute the command list
-    _CommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&pCommandList);
+    _CommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&_ScreenshotCommandList);
 
     // Signal the fence
-    hr = _CommandQueue->Signal(pFence, 1);
+    hr = _CommandQueue->Signal(_ScreenshotFence, ++_ScreenshotFenceValue);
     if (FAILED(hr))
         goto cleanup;
 
-    // Block until the copy is complete
-    while (pFence->GetCompletedValue() < 1)
-        SwitchToThread();
+    _ScreenshotFence->SetEventOnCompletion(_ScreenshotFenceValue, _ScreenshotEvent);
+    WaitForSingleObject(_ScreenshotEvent, INFINITE);
+
+    hr = _ScreenshotCommandAllocator->Reset();
+    if (FAILED(hr))
+        goto cleanup;
+
+    hr = _ScreenshotCommandList->Reset(_ScreenshotCommandAllocator, nullptr);
+    if (FAILED(hr))
+        goto cleanup;
 
     hr = pStaging->Map(0, nullptr, (void**)&pMappedMemory);
     if (FAILED(hr))
@@ -939,9 +980,6 @@ readback:
 cleanup:
 
     SafeRelease(pStaging);
-    SafeRelease(pFence);
-    SafeRelease(pCommandList);
-    SafeRelease(pCommandAlloc);
 
     if (!result)
         _SendScreenshot(nullptr);
@@ -1080,6 +1118,11 @@ DX12Hook_t::DX12Hook_t():
     _ImageCommandQueue(nullptr),
     _ImageCommandAllocator(nullptr),
     _ImageCommandList(nullptr),
+    _ScreenshotEvent(nullptr),
+    _ScreenshotFenceValue(0),
+    _ScreenshotFence(nullptr),
+    _ScreenshotCommandAllocator(nullptr),
+    _ScreenshotCommandList(nullptr),
     _ImGuiFontTextureId(ShaderRessourceView_t::InvalidId),
     _ImGuiFontAtlas(nullptr),
     _ID3D12DeviceRelease(nullptr),
