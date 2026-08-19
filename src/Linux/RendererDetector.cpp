@@ -348,7 +348,7 @@ private:
     static VkResult VKAPI_CALL _MyvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
     {
         auto inst = Inst();
-        std::unique_lock<std::recursive_mutex> lk(inst->_RendererMutex, std::try_to_lock);
+        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
 
         INGAMEOVERLAY_INFO("vkQueuePresentKHR");
         auto res = inst->_VkQueuePresentKHR(queue, pPresentInfo);
