@@ -554,7 +554,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         initInfo.Device = _Device;
         initInfo.NumFramesInFlight = sc_desc.BufferCount;
         initInfo.RTVFormat = sc_desc.BufferDesc.Format;
-        initInfo.DSVFormat = sc_desc.BufferDesc.Format;
+        initInfo.DSVFormat = DXGI_FORMAT_UNKNOWN;
         initInfo.handleIncrement = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         initInfo.UserData = this;
         initInfo.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_desc_handle)
