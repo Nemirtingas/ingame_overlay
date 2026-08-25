@@ -47,6 +47,7 @@ struct RendererTextureLoadParameter_t
     const void* Data;
     uint32_t Height;
     uint32_t Width;
+    RendererPixelFormat PixelFormat;
 };
 
 struct RendererTextureReleaseParameter_t

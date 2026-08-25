@@ -345,6 +345,7 @@ void DX11Hook_t::_LoadResources()
         const void* Data;
         uint32_t Width;
         uint32_t Height;
+        RendererPixelFormat PixelFormat;
     };
 
     std::vector<ValidTexture_t> validResources;
@@ -363,7 +364,8 @@ void DX11Hook_t::_LoadResources()
             r,
             param.Data,
             param.Width,
-            param.Height
+            param.Height,
+            param.PixelFormat
         });
     }
 
@@ -372,12 +374,17 @@ void DX11Hook_t::_LoadResources()
 
     for (auto& tex : validResources)
     {
+        DXGI_FORMAT texFmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F)
+            ? DXGI_FORMAT_R16G16B16A16_FLOAT
+            : DXGI_FORMAT_R8G8B8A8_UNORM;
+        UINT bytesPerPixel = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8u : 4u;
+
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Format = texFmt;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -385,7 +392,7 @@ void DX11Hook_t::_LoadResources()
 
         D3D11_SUBRESOURCE_DATA sub{};
         sub.pSysMem = tex.Data;
-        sub.SysMemPitch = tex.Width * 4;
+        sub.SysMemPitch = tex.Width * bytesPerPixel;
 
         ID3D11Texture2D* texture = nullptr;
         HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);
