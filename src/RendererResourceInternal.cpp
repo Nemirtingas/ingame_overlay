@@ -25,7 +25,8 @@ namespace InGameOverlay {
 
 RendererResourceInternal_t::RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept :
     _RendererHook(rendererHook),
-    _Data(nullptr)
+    _Data(nullptr),
+    _PixelFormat(RendererPixelFormat::RGBA8)
 {
 }
 
@@ -126,6 +127,7 @@ void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width
 
     _RendererResource.RendererResource.reset();
     _Data = data;
+    _PixelFormat = pixelFormat;
     _RendererResource.Width = width;
     _RendererResource.Height = height;
     //add

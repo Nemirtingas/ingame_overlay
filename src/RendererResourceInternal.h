@@ -56,6 +56,7 @@ public:
     ResourceState_t _OldRendererResource;
     ResourceState_t _RendererResource;
     const void* _Data;
+    RendererPixelFormat _PixelFormat;
 
     RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept;
 
@@ -79,7 +80,7 @@ public:
 
     virtual uint32_t Height() const;
 
-    virtual void AttachResource(const void* data, uint32_t width, uint32_t height);
+    virtual void AttachResource(const void* data, uint32_t width, uint32_t height, RendererPixelFormat pixelFormat = RendererPixelFormat::RGBA8);
 
     //add
     virtual void AttachResource(const void* data, uint32_t width, uint32_t height, RendererPixelFormat format);

@@ -384,22 +384,18 @@ void DX11Hook_t::_LoadResources()
         return;
 
     for (auto& tex : validResources)
-    {   
-        //add
-        const bool is_fp16 = (tex.PixelFormat == RendererPixelFormat::RGBA16F);
-        const DXGI_FORMAT fmt = is_fp16 ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
-        const uint32_t bpp = is_fp16 ? 8 : 4;
-        //---
+    {
+        DXGI_FORMAT texFmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F)
+            ? DXGI_FORMAT_R16G16B16A16_FLOAT
+            : DXGI_FORMAT_R8G8B8A8_UNORM;
+        UINT bytesPerPixel = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8u : 4u;
 
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        //orig
-        //desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.Format = fmt;
-        //---
+        desc.Format = texFmt;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -407,10 +403,7 @@ void DX11Hook_t::_LoadResources()
 
         D3D11_SUBRESOURCE_DATA sub{};
         sub.pSysMem = tex.Data;
-        //orig
-        //sub.SysMemPitch = tex.Width * 4;
-        sub.SysMemPitch = tex.Width * bpp;
-        //---
+        sub.SysMemPitch = tex.Width * bytesPerPixel;
 
         ID3D11Texture2D* texture = nullptr;
         HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);

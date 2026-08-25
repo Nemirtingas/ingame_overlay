@@ -652,16 +652,24 @@ void DX12Hook_t::_LoadResources()
     {
         UINT64 totalUploadSize = 0;
         std::vector<UINT> rowPitches;
+        std::vector<DXGI_FORMAT> texFormats;
+        std::vector<UINT64> sliceSizes;
         rowPitches.reserve(validResources.size());
+        texFormats.reserve(validResources.size());
+        sliceSizes.reserve(validResources.size());
         for (auto& tex : validResources)
         {
-            //orig
-            //UINT pitch = (tex.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
-            const uint32_t bpp = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8 : 4;
-            UINT pitch = (tex.Width * bpp + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
-            //---
+            DXGI_FORMAT fmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F)
+                ? DXGI_FORMAT_R16G16B16A16_FLOAT
+                : DXGI_FORMAT_R8G8B8A8_UNORM;
+            UINT bytesPerPixel = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8u : 4u;
+            texFormats.push_back(fmt);
+            UINT pitch = (tex.Width * bytesPerPixel + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
             rowPitches.push_back(pitch);
-            totalUploadSize += tex.Height * pitch;
+            UINT64 sliceSize = (UINT64)tex.Height * pitch;
+            sliceSize = (sliceSize + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1) & ~(UINT64)(D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1);
+            sliceSizes.push_back(sliceSize);
+            totalUploadSize += sliceSize;
         }
 
         D3D12_RESOURCE_DESC uploadDesc{};
@@ -701,29 +709,22 @@ void DX12Hook_t::_LoadResources()
             for (uint32_t y = 0; y < tex.Height; ++y)
             {
                 memcpy((uint8_t*)mapped + offset + y * pitch,
-                    //orig
-                    //(const uint8_t*)tex.Data + y * tex.Width * 4,
-                    //tex.Width * 4);
-                    (const uint8_t*)tex.Data + y * tex.Width * bpp,
-                    tex.Width * bpp);
-                    //---
+                    (const uint8_t*)tex.Data + y * tex.Width * bytesPerPixel,
+                    tex.Width * bytesPerPixel);
             }
 
             D3D12_TEXTURE_COPY_LOCATION srcLoc{};
             srcLoc.pResource = uploadBuffer;
             srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             srcLoc.PlacedFootprint.Offset = offset;
-            //orig
-            //srcLoc.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            srcLoc.PlacedFootprint.Footprint.Format = fmt;
-            //---
+            srcLoc.PlacedFootprint.Footprint.Format = texFormats[i];
             srcLoc.PlacedFootprint.Footprint.Width = tex.Width;
             srcLoc.PlacedFootprint.Footprint.Height = tex.Height;
             srcLoc.PlacedFootprint.Footprint.Depth = 1;
             srcLoc.PlacedFootprint.Footprint.RowPitch = pitch;
 
             srcLocations.push_back(srcLoc);
-            offset += tex.Height * pitch;
+            offset += sliceSizes[i];
         }
 
         uploadBuffer->Unmap(0, &range);
@@ -741,7 +742,7 @@ void DX12Hook_t::_LoadResources()
             texDesc.Height = tex.Height;
             texDesc.DepthOrArraySize = 1;
             texDesc.MipLevels = 1;
-            texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            texDesc.Format = texFormats[i];
             texDesc.SampleDesc.Count = 1;
             texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 
@@ -767,10 +768,7 @@ void DX12Hook_t::_LoadResources()
             _ImageCommandList->ResourceBarrier(1, &barrier);
 
             D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-            //orig
-            //srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            srvDesc.Format = texFmt;
-            //---
+            srvDesc.Format = texFormats[i];
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srvDesc.Texture2D.MipLevels = 1;
             srvDesc.Texture2D.MostDetailedMip = 0;
