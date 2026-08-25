@@ -49,6 +49,11 @@ cmake -S . -B build -DINGAMEOVERLAY_USE_SPDLOG=ON
 - include/InGameOverlay/ contains the public headers
 - tests/ contains example and validation projects for supported renderers
 
+## Resource upload formats
+
+`RendererResource_t::AttachResource(data, width, height)` uploads standard `RGBA8` pixel data.
+To preserve half-float uploads, use the format-aware overload and pass `RendererPixelFormat::RGBA16F`.
+
 ## License
 
 This project is licensed under the GNU General Public License (GPL). See [LICENSE](LICENSE).
