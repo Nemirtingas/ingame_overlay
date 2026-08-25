@@ -25,7 +25,8 @@ namespace InGameOverlay {
 
 RendererResourceInternal_t::RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept :
     _RendererHook(rendererHook),
-    _Data(nullptr)
+    _Data(nullptr),
+    _PixelFormat(RendererPixelFormat::RGBA8)
 {
 }
 
@@ -71,6 +72,7 @@ uint64_t RendererResourceInternal_t::GetResourceId()
                     loadParameter.Data = _Data;
                     loadParameter.Height = _RendererResource.Height;
                     loadParameter.Width = _RendererResource.Width;
+                    loadParameter.PixelFormat = _PixelFormat;
                     r->LoadStatus = RendererTextureStatus_e::Loading;
                     _RendererHook->LoadImageResource(loadParameter);
                 }
@@ -109,13 +111,14 @@ uint32_t RendererResourceInternal_t::Height() const
         : _OldRendererResource.Height;
 }
 
-void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width, uint32_t height)
+void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width, uint32_t height, RendererPixelFormat pixelFormat)
 {
     if (IsLoaded())
         _OldRendererResource = _RendererResource;
 
     _RendererResource.RendererResource.reset();
     _Data = data;
+    _PixelFormat = pixelFormat;
     _RendererResource.Width = width;
     _RendererResource.Height = height;
 }

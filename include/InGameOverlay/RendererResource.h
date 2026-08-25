@@ -22,6 +22,15 @@
 namespace InGameOverlay {
 
 /// <summary>
+/// Pixel format of the data passed to AttachResource.
+/// </summary>
+enum class RendererPixelFormat
+{
+    RGBA8,    ///< 4 bytes per pixel: R8 G8 B8 A8
+    RGBA16F,  ///< 8 bytes per pixel: R16F G16F B16F A16F (half-float)
+};
+
+/// <summary>
 /// A renderer resource. It will be tied to the RendererHook that created it. Don't use it if you recycle the renderer hook.
 /// </summary>
 class RendererResource_t
@@ -65,10 +74,11 @@ public:
     /// You are responsible to not outlive this object usage to the resource buffer.
     /// Attaching a new resource will trigger the autoload if it is enabled, else, the old resource will still be used until you unload it.
     /// </summary>
-    /// <param name="data">The resource raw data (in RGBA format)</param>
+    /// <param name="data">The resource raw data</param>
     /// <param name="width">The resource width</param>
     /// <param name="height">The resource height</param>
-    virtual void AttachResource(const void* data, uint32_t width, uint32_t height) = 0;
+    /// <param name="pixelFormat">Pixel format of the data (default: RGBA8)</param>
+    virtual void AttachResource(const void* data, uint32_t width, uint32_t height, RendererPixelFormat pixelFormat = RendererPixelFormat::RGBA8) = 0;
     /// <summary>
     /// Clears the attached resource. This will NOT delete the resource loaded onto the GPU. Call Unload for that purpose.
     /// </summary>

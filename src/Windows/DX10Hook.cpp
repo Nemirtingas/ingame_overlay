@@ -308,6 +308,7 @@ void DX10Hook_t::_LoadResources()
         const void* Data;
         uint32_t Width;
         uint32_t Height;
+        RendererPixelFormat PixelFormat;
     };
 
     std::vector<ValidTexture_t> validResources;
@@ -326,7 +327,8 @@ void DX10Hook_t::_LoadResources()
             r,
             param.Data,
             param.Width,
-            param.Height
+            param.Height,
+            param.PixelFormat
             });
     }
 
@@ -335,13 +337,18 @@ void DX10Hook_t::_LoadResources()
 
     for (auto& tex : validResources)
     {
+        DXGI_FORMAT texFmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F)
+            ? DXGI_FORMAT_R16G16B16A16_FLOAT
+            : DXGI_FORMAT_R8G8B8A8_UNORM;
+        UINT bytesPerPixel = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8u : 4u;
+
         // Create texture
         D3D10_TEXTURE2D_DESC desc = {};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Format = texFmt;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D10_USAGE_DEFAULT;
         desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
@@ -350,14 +357,14 @@ void DX10Hook_t::_LoadResources()
         ID3D10Texture2D* pTexture = nullptr;
         D3D10_SUBRESOURCE_DATA subResource;
         subResource.pSysMem = tex.Data;
-        subResource.SysMemPitch = tex.Width * 4;
+        subResource.SysMemPitch = tex.Width * bytesPerPixel;
         subResource.SysMemSlicePitch = 0;
         HRESULT hr = _Device->CreateTexture2D(&desc, &subResource, &pTexture);
         IM_ASSERT(SUCCEEDED(hr));
 
         // Create texture view
         D3D10_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.Format = texFmt;
         srvDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
         srvDesc.Texture2D.MipLevels = desc.MipLevels;
         srvDesc.Texture2D.MostDetailedMip = 0;
