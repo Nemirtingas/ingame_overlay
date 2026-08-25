@@ -47,6 +47,10 @@ struct RendererTextureLoadParameter_t
     const void* Data;
     uint32_t Height;
     uint32_t Width;
+    //add
+    RendererPixelFormat PixelFormat = RendererPixelFormat::RGBA8;
+    //---
+
 };
 
 struct RendererTextureReleaseParameter_t

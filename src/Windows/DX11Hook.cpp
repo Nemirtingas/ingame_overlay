@@ -60,9 +60,15 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DX
         case DXGI_FORMAT_B5G5R5A1_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::B5G5R5A1;
         case DXGI_FORMAT_R16G16B16A16_FLOAT : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
         case DXGI_FORMAT_R16G16B16A16_UNORM : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM;
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
-        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        //orig
+        //case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+        //case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
+        //case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8_SRGB;
+        //---
+
         default:                              return InGameOverlay::ScreenshotDataFormat_t::Unknown;
     }
 }
@@ -345,6 +351,9 @@ void DX11Hook_t::_LoadResources()
         const void* Data;
         uint32_t Width;
         uint32_t Height;
+        //add
+        RendererPixelFormat PixelFormat;
+        //---
     };
 
     std::vector<ValidTexture_t> validResources;
@@ -363,7 +372,11 @@ void DX11Hook_t::_LoadResources()
             r,
             param.Data,
             param.Width,
-            param.Height
+            //orig
+            //param.Height
+            param.Height,
+            param.PixelFormat
+            //---
         });
     }
 
@@ -371,13 +384,22 @@ void DX11Hook_t::_LoadResources()
         return;
 
     for (auto& tex : validResources)
-    {
+    {   
+        //add
+        const bool is_fp16 = (tex.PixelFormat == RendererPixelFormat::RGBA16F);
+        const DXGI_FORMAT fmt = is_fp16 ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+        const uint32_t bpp = is_fp16 ? 8 : 4;
+        //---
+
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        //orig
+        //desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.Format = fmt;
+        //---
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -385,7 +407,10 @@ void DX11Hook_t::_LoadResources()
 
         D3D11_SUBRESOURCE_DATA sub{};
         sub.pSysMem = tex.Data;
-        sub.SysMemPitch = tex.Width * 4;
+        //orig
+        //sub.SysMemPitch = tex.Width * 4;
+        sub.SysMemPitch = tex.Width * bpp;
+        //---
 
         ID3D11Texture2D* texture = nullptr;
         HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);

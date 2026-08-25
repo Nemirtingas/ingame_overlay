@@ -32,12 +32,18 @@ struct ResourceState_t
     std::weak_ptr<RendererTexture_t> RendererResource;
     uint32_t Width = 0;
     uint32_t Height = 0;
+    //add
+    RendererPixelFormat PixelFormat = RendererPixelFormat::RGBA8;
+    //---
 
     inline void Reset()
     {
         RendererResource.reset();
         Width = 0;
         Height = 0;
+        //add
+        PixelFormat = RendererPixelFormat::RGBA8;
+        //---
     }
 };
 
@@ -74,6 +80,10 @@ public:
     virtual uint32_t Height() const;
 
     virtual void AttachResource(const void* data, uint32_t width, uint32_t height);
+
+    //add
+    virtual void AttachResource(const void* data, uint32_t width, uint32_t height, RendererPixelFormat format);
+    //---
 
     virtual void ClearAttachedResource();
 

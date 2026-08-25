@@ -92,6 +92,13 @@ enum class ScreenshotDataFormat_t : uint16_t
     B5G6R5,
     B5G5R5A1,
 
+    //add
+    // sRGB variants (hardware sRGB encoding on the RTV)
+    R8G8B8A8_SRGB,
+    B8G8R8A8_SRGB,
+    B8G8R8X8_SRGB,
+    //---
+
     // HDR / float formats
     R16G16B16A16_FLOAT,
     R16G16B16A16_UNORM,

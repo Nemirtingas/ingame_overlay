@@ -68,9 +68,15 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DX
         case DXGI_FORMAT_B5G5R5A1_UNORM     : return InGameOverlay::ScreenshotDataFormat_t::B5G5R5A1;
         case DXGI_FORMAT_R16G16B16A16_FLOAT : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
         case DXGI_FORMAT_R16G16B16A16_UNORM : return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM;
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
-        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
-        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        //orig
+        //case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
+        //case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8;
+        //case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8_SRGB;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8_SRGB;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return InGameOverlay::ScreenshotDataFormat_t::B8G8R8X8_SRGB;
+        //---
+
         default:                              return InGameOverlay::ScreenshotDataFormat_t::Unknown;
     }
 }
@@ -615,6 +621,9 @@ void DX12Hook_t::_LoadResources()
         const void* Data;
         uint32_t Width;
         uint32_t Height;
+        //add
+        RendererPixelFormat PixelFormat;
+        //---
     };
 
     std::vector<ValidTexture_t> validResources;
@@ -631,7 +640,11 @@ void DX12Hook_t::_LoadResources()
             std::static_pointer_cast<DX12Texture_t>(r),
             param.Data,
             param.Width,
-            param.Height
+            //orig
+            //param.Height
+            param.Height,
+            param.PixelFormat
+            //---
         });
     }
 
@@ -642,7 +655,11 @@ void DX12Hook_t::_LoadResources()
         rowPitches.reserve(validResources.size());
         for (auto& tex : validResources)
         {
-            UINT pitch = (tex.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+            //orig
+            //UINT pitch = (tex.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+            const uint32_t bpp = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8 : 4;
+            UINT pitch = (tex.Width * bpp + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+            //---
             rowPitches.push_back(pitch);
             totalUploadSize += tex.Height * pitch;
         }
@@ -676,19 +693,30 @@ void DX12Hook_t::_LoadResources()
         {
             auto& tex = validResources[i];
             UINT pitch = rowPitches[i];
+            //add
+            const uint32_t bpp = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? 8 : 4;
+            const DXGI_FORMAT fmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+            //---
 
             for (uint32_t y = 0; y < tex.Height; ++y)
             {
                 memcpy((uint8_t*)mapped + offset + y * pitch,
-                    (const uint8_t*)tex.Data + y * tex.Width * 4,
-                    tex.Width * 4);
+                    //orig
+                    //(const uint8_t*)tex.Data + y * tex.Width * 4,
+                    //tex.Width * 4);
+                    (const uint8_t*)tex.Data + y * tex.Width * bpp,
+                    tex.Width * bpp);
+                    //---
             }
 
             D3D12_TEXTURE_COPY_LOCATION srcLoc{};
             srcLoc.pResource = uploadBuffer;
             srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
             srcLoc.PlacedFootprint.Offset = offset;
-            srcLoc.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            //orig
+            //srcLoc.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            srcLoc.PlacedFootprint.Footprint.Format = fmt;
+            //---
             srcLoc.PlacedFootprint.Footprint.Width = tex.Width;
             srcLoc.PlacedFootprint.Footprint.Height = tex.Height;
             srcLoc.PlacedFootprint.Footprint.Depth = 1;
@@ -739,7 +767,10 @@ void DX12Hook_t::_LoadResources()
             _ImageCommandList->ResourceBarrier(1, &barrier);
 
             D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-            srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            //orig
+            //srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            srvDesc.Format = texFmt;
+            //---
             srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srvDesc.Texture2D.MipLevels = 1;
             srvDesc.Texture2D.MostDetailedMip = 0;

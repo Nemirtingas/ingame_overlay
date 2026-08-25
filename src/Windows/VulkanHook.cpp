@@ -66,10 +66,16 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(Vk
 {
     switch (format)
     {
-        case VK_FORMAT_R8G8B8A8_UNORM          : 
-        case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotDataFormat_t::R8G8B8A8;
-        case VK_FORMAT_B8G8R8A8_UNORM          :
-        case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotDataFormat_t::B8G8R8A8;
+        //orig
+        //case VK_FORMAT_R8G8B8A8_UNORM          : 
+        //case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotDataFormat_t::R8G8B8A8;
+        //case VK_FORMAT_B8G8R8A8_UNORM          :
+        //case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotDataFormat_t::B8G8R8A8;
+        case VK_FORMAT_R8G8B8A8_UNORM          : return ScreenshotDataFormat_t::R8G8B8A8;
+        case VK_FORMAT_R8G8B8A8_SRGB           : return ScreenshotDataFormat_t::R8G8B8A8_SRGB;
+        case VK_FORMAT_B8G8R8A8_UNORM          : return ScreenshotDataFormat_t::B8G8R8A8;
+        case VK_FORMAT_B8G8R8A8_SRGB           : return ScreenshotDataFormat_t::B8G8R8A8_SRGB;
+        //---
         case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return ScreenshotDataFormat_t::R10G10B10A2;
         case VK_FORMAT_R16G16B16A16_SFLOAT     : return ScreenshotDataFormat_t::R16G16B16A16_FLOAT;
         case VK_FORMAT_R16G16B16A16_UNORM      : return ScreenshotDataFormat_t::R16G16B16A16_UNORM;
@@ -985,6 +991,9 @@ void VulkanHook_t::_LoadResources()
         uint32_t Height;
         VkDeviceSize Offset;
         VkDeviceSize Size;
+        //add
+        RendererPixelFormat PixelFormat;
+        //---
     };
 
     std::vector<ValidTexture_t> validResources;
@@ -1003,7 +1012,11 @@ void VulkanHook_t::_LoadResources()
         t.Data = param.Data;
         t.Width = param.Width;
         t.Height = param.Height;
-        t.Size = t.Width * t.Height * 4;
+        //orig
+        //t.Size = t.Width * t.Height * 4;
+        t.Size = t.Width * t.Height * ((param.PixelFormat == RendererPixelFormat::RGBA16F) ? 8 : 4);
+        t.PixelFormat = param.PixelFormat;
+        //---
 
         validResources.push_back(t);
     }
@@ -1070,11 +1083,17 @@ void VulkanHook_t::_LoadResources()
         VkImage image = VK_NULL_HANDLE;
         VkImageView view = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
+        //add
+        const VkFormat vkFmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F) ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        //---
 
         VkImageCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         info.imageType = VK_IMAGE_TYPE_2D;
-        info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        //orig
+        //info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        info.format = vkFmt;
+        //---
         info.extent = { tex.Width, tex.Height, 1 };
         info.mipLevels = 1;
         info.arrayLayers = 1;
@@ -1099,7 +1118,10 @@ void VulkanHook_t::_LoadResources()
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        //orig
+        //viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        viewInfo.format = vkFmt;
+        //---
         viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = 1;
