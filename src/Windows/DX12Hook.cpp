@@ -642,8 +642,10 @@ void DX12Hook_t::_LoadResources()
         UINT64 totalUploadSize = 0;
         std::vector<UINT> rowPitches;
         std::vector<DXGI_FORMAT> texFormats;
+        std::vector<UINT64> sliceSizes;
         rowPitches.reserve(validResources.size());
         texFormats.reserve(validResources.size());
+        sliceSizes.reserve(validResources.size());
         for (auto& tex : validResources)
         {
             DXGI_FORMAT fmt = (tex.PixelFormat == RendererPixelFormat::RGBA16F)
@@ -653,7 +655,10 @@ void DX12Hook_t::_LoadResources()
             texFormats.push_back(fmt);
             UINT pitch = (tex.Width * bytesPerPixel + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
             rowPitches.push_back(pitch);
-            totalUploadSize += tex.Height * pitch;
+            UINT64 sliceSize = (UINT64)tex.Height * pitch;
+            sliceSize = (sliceSize + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1) & ~(UINT64)(D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1);
+            sliceSizes.push_back(sliceSize);
+            totalUploadSize += sliceSize;
         }
 
         D3D12_RESOURCE_DESC uploadDesc{};
@@ -705,7 +710,7 @@ void DX12Hook_t::_LoadResources()
             srcLoc.PlacedFootprint.Footprint.RowPitch = pitch;
 
             srcLocations.push_back(srcLoc);
-            offset += tex.Height * pitch;
+            offset += sliceSizes[i];
         }
 
         uploadBuffer->Unmap(0, &range);
