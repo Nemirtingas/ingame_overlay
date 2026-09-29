@@ -17,8 +17,6 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
-
 #include "Library.h"
 
 #include <algorithm>
@@ -128,9 +126,10 @@ void CloseLibrary(void* libraryHandle)
 #elif defined(INGAMEOVERLAY_OS_LINUX) || defined(INGAMEOVERLAY_OS_APPLE)
 
 #include <dlfcn.h>
-#include <link.h>
 
 #if defined(INGAMEOVERLAY_OS_LINUX)
+
+#include <link.h>
 
 std::vector<std::filesystem::path> GetCurrentLoadedLibraries()
 {

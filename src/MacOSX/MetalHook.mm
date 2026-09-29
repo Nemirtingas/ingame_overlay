@@ -468,4 +468,10 @@ void MetalHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource
     }
 }
 
+void MetalHook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
+{
+    LibraryPath = libraryPath;
+    LibraryName = LibraryPath.string();
+}
+
 }// namespace InGameOverlay

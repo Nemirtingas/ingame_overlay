@@ -25,11 +25,15 @@
 
 #include "../RendererHookInternal.h"
 
-#include "../InternalIncludes.h"
-
 #include <OpenGL/OpenGL.h>
 
 #include <objc/runtime.h>
+
+#include <filesystem>
+#include <functional>
+#include <set>
+#include <string>
+#include <vector>
 
 //struct CGLDrawable_t;
 //extern "C" CGLError CGLFlushDrawable(CGLDrawable_t*);
@@ -54,6 +58,9 @@ private:
     static OpenGLHook_t* _Instance;
 
     // Variables
+    std::string LibraryName;
+    std::filesystem::path LibraryPath;
+
     bool _Hooked;
     bool _NSViewHooked;
     bool _Initialized;
@@ -81,22 +88,22 @@ private:
     static CGLError _MyCGLFlushDrawable(CGLContextObj glDrawable);
 
 public:
-    std::string LibraryName;
+    virtual ~OpenGLHook_t() override;
 
-    virtual ~OpenGLHook_t();
-
-    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr);
-    virtual void HideAppInputs(bool hide);
-    virtual void HideOverlayInputs(bool hide);
-    virtual bool IsStarted();
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr) override;
+    virtual void HideAppInputs(bool hide) override;
+    virtual void HideOverlayInputs(bool hide) override;
+    virtual bool IsStarted() override;
     static OpenGLHook_t* Inst();
-    virtual const char* GetLibraryName() const;
-    virtual RendererHookType_t GetRendererHookType() const;
+    virtual const char* GetLibraryName() const override;
+    virtual RendererHookType_t GetRendererHookType() const override;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
 
-    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
-    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
-    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) override;
+
+    virtual void SetLibraryPath(std::filesystem::path const& libraryPath) override;
 };
 
 }// namespace InGameOverlay
