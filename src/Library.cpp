@@ -21,6 +21,12 @@
 
 #include "Library.h"
 
+#include <algorithm>
+#include <filesystem>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 #if defined(INGAMEOVERLAY_OS_WINDOWS)
 
 #include <Windows.h>
@@ -121,29 +127,209 @@ void CloseLibrary(void* libraryHandle)
 
 #elif defined(INGAMEOVERLAY_OS_LINUX) || defined(INGAMEOVERLAY_OS_APPLE)
 
+#include <dlfcn.h>
+#include <link.h>
+
+#if defined(INGAMEOVERLAY_OS_LINUX)
+
 std::vector<std::filesystem::path> GetCurrentLoadedLibraries()
 {
-    return std::vector<std::filesystem::path>{};
+    const std::filesystem::path directory{ "/proc/self/map_files" };
+
+    std::vector<std::filesystem::path> paths;
+    std::unordered_set<std::filesystem::path> found;
+
+    std::error_code ec;
+
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+    {
+        if (ec)
+            break;
+
+        std::error_code linkEc;
+        if (!entry.is_symlink(linkEc) || linkEc)
+            continue;
+
+        const auto path = std::filesystem::canonical(entry.path(), linkEc);
+
+        if (linkEc)
+            continue;
+
+        if (found.emplace(path).second)
+            paths.emplace_back(path);
+    }
+
+    return paths;
 }
 
 std::filesystem::path GetLibraryPath(void* libraryHandle)
 {
-    return std::filesystem::path{};
+    if (libraryHandle == nullptr)
+        return {};
+
+    link_map* map = nullptr;
+
+    if (::dlinfo(libraryHandle, RTLD_DI_LINKMAP, &map) != 0 || map == nullptr)
+        return {};
+
+    if (map->l_name == nullptr || map->l_name[0] == '\0')
+        return {};
+
+    std::error_code ec;
+    const auto path = std::filesystem::canonical(map->l_name, ec);
+
+    return ec ? std::filesystem::path(map->l_name) : path;
 }
 
 void* GetLibraryHandle(std::filesystem::path const& libraryName)
 {
-	return nullptr;
+    if (libraryName.empty())
+        return nullptr;
+
+    const auto name = libraryName.filename().native();
+
+    for (auto const& modulePath : GetCurrentLoadedLibraries())
+    {
+        const auto moduleName = modulePath.filename().native();
+
+        if (moduleName.size() < name.size())
+            continue;
+
+        if (!std::equal(name.begin(), name.end(), moduleName.begin()))
+            continue;
+
+        if (moduleName.size() > name.size() && moduleName[name.size()] != '.')
+            continue;
+
+        void* handle = ::dlopen(modulePath.string().c_str(), RTLD_NOW);
+        if (handle != nullptr)
+        {
+            ::dlclose(handle);
+            return handle;
+        }
+    }
+
+    return nullptr;
 }
+
+#elif defined(INGAMEOVERLAY_OS_APPLE)
+
+#include <mach-o/dyld.h>
+
+std::vector<std::filesystem::path> GetCurrentLoadedLibraries()
+{
+    std::vector<std::filesystem::path> paths;
+
+    const uint32_t imageCount = ::_dyld_image_count();
+    paths.reserve(imageCount);
+
+    for (uint32_t i = 0; i < imageCount; ++i)
+    {
+        const char* imagePath = ::_dyld_get_image_name(i);
+        if (imagePath == nullptr)
+            continue;
+
+        std::error_code ec;
+        const auto path = std::filesystem::canonical(imagePath, ec);
+
+        if (!ec)
+            paths.emplace_back(path);
+    }
+
+    return paths;
+}
+
+std::filesystem::path GetLibraryPath(void* libraryHandle)
+{
+    if (libraryHandle == nullptr)
+        return {};
+
+    const uint32_t imageCount = ::_dyld_image_count();
+
+    for (uint32_t i = 0; i < imageCount; ++i)
+    {
+        const char* imagePath = ::_dyld_get_image_name(i);
+        if (imagePath == nullptr)
+            continue;
+
+        void* handle = ::dlopen(imagePath, RTLD_LAZY | RTLD_NOLOAD);
+        if (handle == nullptr)
+            continue;
+
+        const bool found = handle == libraryHandle;
+        ::dlclose(handle);
+
+        if (!found)
+            continue;
+
+        std::error_code ec;
+        const auto path = std::filesystem::canonical(imagePath, ec);
+
+        return ec ? std::filesystem::path(imagePath) : path;
+    }
+
+    return {};
+}
+
+void* GetLibraryHandle(std::filesystem::path const& libraryName)
+{
+    if (libraryName.empty())
+        return nullptr;
+
+    const auto name = libraryName.filename().native();
+
+    const uint32_t imageCount = ::_dyld_image_count();
+
+    for (uint32_t i = 0; i < imageCount; ++i)
+    {
+        const char* imagePath = ::_dyld_get_image_name(i);
+        if (imagePath == nullptr)
+            continue;
+
+        const std::filesystem::path modulePath(imagePath);
+        const auto moduleName = modulePath.filename().native();
+
+        if (moduleName.size() < name.size())
+            continue;
+
+        if (!std::equal(name.begin(), name.end(), moduleName.begin()))
+            continue;
+
+        if (moduleName.size() > name.size() && moduleName[name.size()] != '.')
+            continue;
+
+        void* handle = ::dlopen(imagePath, RTLD_NOW);
+        if (handle != nullptr)
+        {
+            // Like Windows' GetModuleHandle, don't increment the ref counter.
+            ::dlclose(handle);
+            return handle;
+        }
+    }
+
+    return nullptr;
+}
+
+#endif
 
 void* GetLibrarySymbol(void* libraryHandle, std::string_view symbolName)
 {
-    return nullptr;
+    if (libraryHandle == nullptr || symbolName.empty())
+        return nullptr;
+
+    if (symbolName.back() == '\0')
+        return ::dlsym(libraryHandle, symbolName.data());
+
+    const std::string name(symbolName);
+    return ::dlsym(libraryHandle, name.c_str());
 }
 
 void* LoadLibraryFromPath(std::filesystem::path const& libraryPath)
 {
-    return nullptr;
+    if (libraryPath.empty())
+        return nullptr;
+
+    return ::dlopen(libraryPath.string().c_str(), RTLD_NOW);
 }
 
 void CloseLibrary(void* libraryHandle)
