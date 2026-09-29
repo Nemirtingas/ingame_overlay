@@ -21,9 +21,14 @@
 
 #include "../RendererHookInternal.h"
 
-#include <filesystem>
+#include <Windows.h>
 
 #include <d3d9.h>
+
+#include <filesystem>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace InGameOverlay {
 

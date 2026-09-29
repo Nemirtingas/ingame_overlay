@@ -21,11 +21,15 @@
 
 #include "../RendererHookInternal.h"
 
-#include  "SimpleWindowsGamingInput.h"
-
 #include "../mpmc_bounded_queue.h"
 
+#include  "SimpleWindowsGamingInput.h"
+
+#include <Windows.h>
+
 #include <filesystem>
+
+#include <cstdint>
 
 namespace InGameOverlay {
 

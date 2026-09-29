@@ -21,9 +21,17 @@
 
 #include "../RendererHookInternal.h"
 
-#include <filesystem>
+#include <Windows.h>
 
 #include <vulkan/vulkan.h>
+
+#include <filesystem>
+#include <functional>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <cstdint>
 
 namespace InGameOverlay {
 

@@ -21,6 +21,8 @@
 #include <vector>
 #include <filesystem>
 #include <string>
+#include <mutex>
+#include <cassert>
 
 #include <InGameOverlay/RendererDetector.h>
 #include "../VulkanHelpers.h"
@@ -720,7 +722,7 @@ static VulkanDriver_t GetVulkanDriver(std::filesystem::path const& vulkanLibrary
 {
     VulkanDriver_t driver{};
 
-    void* hVulkan = ::GetLibraryHandle(vulkanLibraryPath);
+    void* hVulkan = GetLibraryHandle(vulkanLibraryPath);
     if (hVulkan == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
@@ -1514,15 +1516,12 @@ public:
         }
 
         INGAMEOVERLAY_TRACE("Started renderer detection.");
-
-        std::string name;
-
         for (auto const& library : RendererLibraries)
         {
             if ((rendererToDetect & library.RendererType) != library.RendererType)
                 continue;
 
-            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
+            auto libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : std::filesystem::path(library.DllName);
             if (!libraryPath.empty())
             {
                 void* libraryHandle = GetLibraryHandle(libraryPath);
