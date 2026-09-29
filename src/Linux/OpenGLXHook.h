@@ -21,6 +21,8 @@
 
 #include "../RendererHookInternal.h"
 
+#include <filesystem>
+
 #include <GL/glx.h>
 
 namespace InGameOverlay {
@@ -33,6 +35,9 @@ private:
     static OpenGLXHook_t* _Instance;
 
     // Variables
+    std::string LibraryName;
+    std::filesystem::path LibraryPath;
+
     bool _Hooked;
     bool _X11Hooked;
     bool _Initialized;
@@ -59,22 +64,22 @@ private:
     static void _MyGLXSwapBuffers(Display* display, GLXDrawable drawable);
 
 public:
-    std::string LibraryName;
+    virtual ~OpenGLXHook_t() override;
 
-    virtual ~OpenGLXHook_t();
-
-    virtual bool StartHook(std::function<void()> key_combination_callback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr);
-    virtual void HideAppInputs(bool hide);
-    virtual void HideOverlayInputs(bool hide);
-    virtual bool IsStarted();
+    virtual bool StartHook(std::function<void()> key_combination_callback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imgui_font_atlas = nullptr) override;
+    virtual void HideAppInputs(bool hide) override;
+    virtual void HideOverlayInputs(bool hide) override;
+    virtual bool IsStarted() override;
     static OpenGLXHook_t* Inst();
-    virtual const char* GetLibraryName() const;
-    virtual RendererHookType_t GetRendererHookType() const;
+    virtual const char* GetLibraryName() const override;
+    virtual RendererHookType_t GetRendererHookType() const override;
     void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
 
-    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
-    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
-    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) override;
+
+    virtual void SetLibraryPath(std::filesystem::path const& libraryPath) override;
 };
 
 }// namespace InGameOverlay

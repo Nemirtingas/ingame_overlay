@@ -17,22 +17,23 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include <cassert>
-#include <mutex>
+#include <random>
+#include <vector>
+#include <filesystem>
 #include <string>
-#include <string_view>
+#include <mutex>
+#include <cassert>
 
 #include <InGameOverlay/RendererDetector.h>
 #include "../VulkanHelpers.h"
 
-#include <System/Encoding.hpp>
-#include <System/String.hpp>
-#include <System/System.h>
-#include <System/Library.h>
 #include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
+
+#include "../Library.h"
+#include "../StringUtils.h"
 
 #include "OpenGLXHook.h"
 #include "VulkanHook.h"
@@ -54,13 +55,13 @@ static constexpr const char VULKAN_DLL_NAME[] = "libvulkan.so";
 
 struct OpenGLDriver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(::glXSwapBuffers)* glXSwapBuffers;
 };
 
 struct VulkanDriver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
 
     std::function<void* (const char*)> vkLoader;
     decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR;
@@ -70,32 +71,32 @@ struct VulkanDriver_t
     decltype(::vkDestroyDevice)* vkDestroyDevice;
 };
 
-static std::string FindPreferedModulePath(std::string_view const& name)
+static std::filesystem::path FindPreferedModulePath(const std::filesystem::path::string_type& name)
 {
-    return std::string(name);
+    return std::filesystem::path(name);
 }
 
-static OpenGLDriver_t GetOpenGLDriver(std::string_view const& openGLLibraryPath)
+static OpenGLDriver_t GetOpenGLDriver(std::filesystem::path const& openGLLibraryPath)
 {
     OpenGLDriver_t driver{};
 
-    void* hOpenGL = System::Library::GetLibraryHandle(openGLLibraryPath.data());
+    void* hOpenGL = GetLibraryHandle(openGLLibraryPath);
     if (hOpenGL == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGLX", openGLLibraryPath);
         return driver;
     }
 
-    driver.glXSwapBuffers = (decltype(::glXSwapBuffers)*)System::Library::GetSymbol(hOpenGL, "glXSwapBuffers");
-    driver.LibraryPath = System::Library::GetLibraryPath(hOpenGL);
+    driver.glXSwapBuffers = (decltype(::glXSwapBuffers)*)GetLibrarySymbol(hOpenGL, "glXSwapBuffers");
+    driver.LibraryPath = GetLibraryPath(hOpenGL);
     return driver;
 }
 
-static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
+static VulkanDriver_t GetVulkanDriver(std::filesystem::path const& vulkanLibraryPath)
 {
     VulkanDriver_t driver{};
 
-    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.data());
+    void* hVulkan = GetLibraryHandle(vulkanLibraryPath);
     if (hVulkan == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
@@ -104,7 +105,7 @@ static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
 
     std::function<void* (const char*)> _vkLoader = [hVulkan](const char* symbolName)
     {
-        return System::Library::GetSymbol(hVulkan, symbolName);
+        return GetLibrarySymbol(hVulkan, symbolName);
     };
 
     auto _vkCreateInstance = (decltype(::vkCreateInstance)*)_vkLoader("vkCreateInstance");
@@ -224,7 +225,7 @@ static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
     driver.vkCreateSwapchainKHR = _vkCreateSwapchainKHR;
     driver.vkDestroyDevice = _vkDestroyDevice;
 
-    driver.LibraryPath = System::Library::GetLibraryPath(hVulkan);
+    driver.LibraryPath = GetLibraryPath(hVulkan);
     return driver;
 }
 
@@ -234,7 +235,7 @@ static OpenGLXHook_t* GetOpenGLRendererHook(OpenGLDriver_t const& driver)
         return nullptr;
 
     auto rendererHook = OpenGLXHook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.glXSwapBuffers);
     return rendererHook;
 }
@@ -245,7 +246,7 @@ static VulkanHook_t* GetVulkanRendererHook(VulkanDriver_t const& driver)
         return nullptr;
 
     auto rendererHook = VulkanHook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(
         driver.vkLoader,
         driver.vkAcquireNextImageKHR,
@@ -292,8 +293,8 @@ private:
     struct DetectionDetails_t
     {
         RendererHookType_t RendererType;
-        std::string DllName;
-        void (RendererDetector_t::* DetectionProcedure)(std::string_view const&, bool);
+        std::filesystem::path::string_type DllName;
+        void (RendererDetector_t::* DetectionProcedure)(std::filesystem::path const&, bool);
     };
 
     std::array<DetectionDetails_t, 2> RendererLibraries{
@@ -360,7 +361,7 @@ private:
         return res;
     }
 
-    void _HookOpenGLX(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookOpenGLX(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLXHooked)
         {
@@ -384,7 +385,7 @@ private:
         }
     }
 
-    void _HookVulkan(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookVulkan(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_VulkanHooked)
         {
@@ -457,10 +458,10 @@ public:
             if ((rendererToDetect & library.RendererType) != library.RendererType)
                 continue;
 
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : library.DllName;
+            auto libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : std::filesystem::path(library.DllName);
             if (!libraryPath.empty())
             {
-                void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                void* libraryHandle = GetLibraryHandle(libraryPath);
                 if (libraryHandle != nullptr)
                 {
                     INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
@@ -469,7 +470,7 @@ public:
                     if (_DetectionDone)
                         break;
 
-                    (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
+                    (this->*library.DetectionProcedure)(GetLibraryPath(libraryHandle), preferSystemLibraries);
                 }
             }
         }
@@ -565,7 +566,7 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
     {
         case RendererHookType_t::OpenGL:
         {
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(OPENGLX_DLL_NAME) : OPENGLX_DLL_NAME;
+            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(OPENGLX_DLL_NAME) : OPENGLX_DLL_NAME;
             if (!libraryPath.empty())
             {
                 rendererHook = GetOpenGLRendererHook(GetOpenGLDriver(libraryPath));
@@ -575,7 +576,7 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
         case RendererHookType_t::Vulkan:
         {
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(VULKAN_DLL_NAME) : VULKAN_DLL_NAME;
+            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(VULKAN_DLL_NAME) : VULKAN_DLL_NAME;
             if (!libraryPath.empty())
             {
                 rendererHook = GetVulkanRendererHook(GetVulkanDriver(libraryPath));
