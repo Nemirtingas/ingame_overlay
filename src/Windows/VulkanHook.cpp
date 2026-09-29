@@ -1612,4 +1612,10 @@ void VulkanHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resourc
     }
 }
 
+void VulkanHook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
+{
+    LibraryPath = libraryPath;
+    LibraryName = LibraryPath.string();
+}
+
 }// namespace InGameOverlay

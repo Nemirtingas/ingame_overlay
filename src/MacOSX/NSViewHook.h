@@ -26,6 +26,10 @@
 #import <AppKit/AppKit.h>
 #include <objc/runtime.h>
 
+#include <filesystem>
+#include <functional>
+#include <string>
+
 namespace InGameOverlay {
 
 class NSViewHook_t :
@@ -62,6 +66,7 @@ public:
     bool OverlayInputsHidden;
 
     std::string LibraryName;
+    std::filesystem::path LibraryPath;
 
     virtual ~NSViewHook_t();
 
@@ -72,7 +77,7 @@ public:
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static NSViewHook_t* Inst();
-    virtual const char* GetLibraryName() const;
+    const char* GetLibraryName() const;
 
 };
 

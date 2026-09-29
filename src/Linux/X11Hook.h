@@ -21,6 +21,8 @@
 
 #include "../RendererHookInternal.h"
 
+#include <filesystem>
+
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
@@ -34,6 +36,9 @@ private:
     static X11Hook_t* _inst;
 
     // Variables
+    std::string LibraryName;
+    std::filesystem::path LibraryPath;
+
     bool _Hooked;
     bool _Initialized;
     Display* _Display;
@@ -68,9 +73,7 @@ private:
     static int MyXPending(Display* display);
 
 public:
-    std::string LibraryName;
-
-    virtual ~X11Hook_t();
+    virtual ~X11Hook_t() override;
 
     void ResetRenderState(OverlayHookState state);
     bool SetInitialWindowSize(Window wnd);
@@ -83,7 +86,7 @@ public:
     void HideAppInputs(bool hide);
     void HideOverlayInputs(bool hide);
     static X11Hook_t* Inst();
-    virtual const char* GetLibraryName() const;
+    const char* GetLibraryName() const;
 };
 
 }// namespace InGameOverlay

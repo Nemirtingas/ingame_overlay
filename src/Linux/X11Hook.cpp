@@ -19,11 +19,12 @@
 
 #include "X11Hook.h"
 
+#include "../Library.h"
+
 #undef Status
 
 #include <imgui.h>
 #include <backends/imgui_impl_x11.h>
-#include <System/Library.h>
 
 extern int ImGui_ImplX11_EventHandler(XEvent& event, XEvent* nextEvent);
 
@@ -142,17 +143,18 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
             return false;
         }
 
-        void* hX11 = System::Library::GetLibraryHandle(X11_DLL_NAME);
+        void* hX11 = GetLibraryHandle(X11_DLL_NAME);
         if (hX11 == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook X11: Cannot find {}", X11_DLL_NAME);
             return false;
         }
 
-        System::Library::Library libX11;
-        LibraryName = System::Library::GetLibraryPath(hX11);
+        LibraryPath = GetLibraryPath(hX11);
+        LibraryName = LibraryPath.string();
 
-        if (!libX11.OpenLibrary(LibraryName, false))
+        LibraryWrapper library(LibraryPath);
+        if (!library.IsValid())
         {
             INGAMEOVERLAY_WARN("Failed to hook X11: Cannot load {}", LibraryName);
             return false;
@@ -170,7 +172,7 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
 
         for (auto& entry : hook_array)
         {
-            *entry.func_ptr = libX11.GetSymbol<void*>(entry.func_name);
+            *entry.func_ptr = library.GetSymbol(entry.func_name);
             if (entry.func_ptr == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);

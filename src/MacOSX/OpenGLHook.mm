@@ -392,4 +392,10 @@ void OpenGLHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resourc
     }
 }
 
+void OpenGLHook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
+{
+    LibraryPath = libraryPath;
+    LibraryName = LibraryPath.string();
+}
+
 }// namespace InGameOverlay

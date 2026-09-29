@@ -25,6 +25,7 @@
 #include <set>
 #include <memory>
 #include <algorithm>
+#include <filesystem>
 
 namespace InGameOverlay {
 
@@ -92,6 +93,8 @@ public:
     virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) = 0;
 
     virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) = 0;
+
+    virtual void SetLibraryPath(std::filesystem::path const& libraryPath) = 0;
 };
 
 }

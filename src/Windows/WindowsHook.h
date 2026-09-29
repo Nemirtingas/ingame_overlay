@@ -21,9 +21,15 @@
 
 #include "../RendererHookInternal.h"
 
+#include "../mpmc_bounded_queue.h"
+
 #include  "SimpleWindowsGamingInput.h"
 
-#include "../mpmc_bounded_queue.h"
+#include <Windows.h>
+
+#include <filesystem>
+
+#include <cstdint>
 
 namespace InGameOverlay {
 
@@ -132,6 +138,7 @@ private:
     static short _ImGuiGetKeyState(int nVirtKey);
 public:
     std::string LibraryName;
+    std::filesystem::path LibraryPath;
 
     virtual ~WindowsHook_t();
 

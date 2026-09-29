@@ -19,9 +19,10 @@
 
 #include "NSViewHook.h"
 
+#include "../Library.h"
+
 #include <imgui.h>
 #include <backends/imgui_impl_osx.h>
-#include <System/Library.h>
 
 namespace InGameOverlay {
 
@@ -119,16 +120,18 @@ bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, Togg
             return false;
         }
 
-        void* hAppKit = System::Library::GetLibraryHandle(DLL_NAME);
+        void* hAppKit = GetLibraryHandle(DLL_NAME);
         if (hAppKit == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook NSView: Cannot find {}", DLL_NAME);
             return false;
         }
 
-        System::Library::Library libAppKit;
-        LibraryName = System::Library::GetLibraryPath(hAppKit);
-        if (!libAppKit.OpenLibrary(LibraryName, false))
+        LibraryPath = GetLibraryPath(hAppKit);
+        LibraryName = LibraryPath.string();
+
+        LibraryWrapper library(LibraryPath);
+        if (!library.IsValid())
         {
             INGAMEOVERLAY_WARN("Failed to hook NSView: Cannot load {}", LibraryName);
             return false;

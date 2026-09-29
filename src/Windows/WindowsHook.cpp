@@ -19,9 +19,10 @@
 
 #include "WindowsHook.h"
 
+#include "../Library.h"
+
 #include <imgui.h>
 #include <backends/imgui_impl_win32.h>
-#include <System/Library.h>
 
 #include "WindowsGamingInputVTables.h"
 
@@ -82,18 +83,20 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
             return false;
         }
 
-        void* hUser32 = System::Library::GetLibraryHandle(DLL_NAME);
+        void* hUser32 = GetLibraryHandle(DLL_NAME);
         if (hUser32 == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot find {}", DLL_NAME);
             return false;
         }
 
-        System::Library::Library libUser32;
-        LibraryName = System::Library::GetLibraryPath(hUser32);
-        if (!libUser32.OpenLibrary(LibraryName, false))
+        LibraryPath = GetLibraryPath(hUser32);
+        LibraryName = LibraryPath.string();
+
+        LibraryWrapper library(LibraryPath);
+        if (!library.IsValid())
         {
-            INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot load {}", LibraryName);
+            INGAMEOVERLAY_WARN("Failed to hook Windows: Cannot load {}", LibraryPath);
             return false;
         }
 
@@ -122,7 +125,7 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
 
         for (auto& entry : hook_array)
         {
-            *entry.func_ptr = libUser32.GetSymbol<void*>(entry.func_name);
+            *entry.func_ptr = library.GetSymbol(entry.func_name);
             if (entry.func_ptr == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook Windows: failed to load function {}.", entry.func_name);

@@ -21,21 +21,22 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
-#include <cassert>
-#include <mutex>
+#include <random>
+#include <vector>
+#include <filesystem>
 #include <string>
-#include <string_view>
+#include <mutex>
+#include <cassert>
 
 #include <InGameOverlay/RendererDetector.h>
 
-#include <System/Encoding.hpp>
-#include <System/String.hpp>
-#include <System/System.h>
-#include <System/Library.h>
 #include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
+
+#include "../Library.h"
+#include "../StringUtils.h"
 
 #include "OpenGLHook.h"
 #include "MetalHook.h"
@@ -52,9 +53,9 @@ namespace InGameOverlay {
 static constexpr const char OPENGL_DLL_NAME[] = "OpenGL";
 static constexpr const char METAL_DLL_NAME[] = "Metal";
 
-static std::string FindPreferedModulePath(std::string const& name)
+static std::filesystem::path FindPreferedModulePath(const std::filesystem::path::string_type& name)
 {
-    return name;
+    return std::filesystem::path(name);
 }
 
 class RendererDetector_t
@@ -110,8 +111,8 @@ private:
     struct DetectionDetails_t
     {
         RendererHookType_t RendererType;
-        std::string DllName;
-        void (RendererDetector_t::* DetectionProcedure)(std::string_view const&, bool);
+        std::filesystem::path DllName;
+        void (RendererDetector_t::* DetectionProcedure)(std::filesystem::path const&, bool);
     };
 
     std::array<DetectionDetails_t, 2> RendererLibraries{
@@ -234,12 +235,12 @@ private:
         _DetectionHooks.EndHook();
     }
     
-    void _HookOpenGL(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookOpenGL(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLHooked)
         {
-            System::Library::Library libOpenGL;
-            if (!libOpenGL.OpenLibrary(libraryPath.data(), false))
+            LibraryWrapper libOpenGL(libraryPath);
+            if (!libOpenGL.IsValid())
             {
                 INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
                 return;
@@ -255,7 +256,7 @@ private:
                 _NSOpenGLContextFlushBuffer = (decltype(_NSOpenGLContextFlushBuffer))method_setImplementation(_NSOpenGLContextFlushBufferMethod, (IMP)_MyNSOpenGLContextFlushBuffer);
             }
 
-            auto CGLFlushDrawable = libOpenGL.GetSymbol<decltype(::CGLFlushDrawable)>("CGLFlushDrawable");
+            auto CGLFlushDrawable = reinterpret_cast<decltype(::CGLFlushDrawable)*>(libOpenGL.GetSymbol("CGLFlushDrawable"));
             if (CGLFlushDrawable != nullptr)
             {
                 INGAMEOVERLAY_INFO("Hooked CGLFlushDrawable to detect OpenGL");
@@ -263,7 +264,7 @@ private:
                 _OpenGLHooked = true;
 
                 _OpenGLHook = OpenGLHook_t::Inst();
-                _OpenGLHook->LibraryName = libraryPath;
+                _OpenGLHook->SetLibraryPath(libraryPath);
                 _OpenGLHook->LoadFunctions(nullptr, CGLFlushDrawable);
 
                 _HookCGLFlushDrawable(CGLFlushDrawable);
@@ -275,12 +276,12 @@ private:
         }
     }
     
-    void _HookMetal(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookMetal(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_MetalHooked)
         {
-            System::Library::Library libMetal;
-            if (!libMetal.OpenLibrary(libraryPath.data(), false))
+            LibraryWrapper libMetal(libraryPath);
+            if (!libMetal.IsValid())
             {
                 INGAMEOVERLAY_WARN("Failed to load {} to detect Metal", libraryPath);
                 return;
@@ -320,7 +321,7 @@ private:
                 _MetalHooked = true;
                     
                 _MetalHook = MetalHook_t::Inst();
-                _MetalHook->LibraryName = libraryPath;
+                _MetalHook->SetLibraryPath(libraryPath);
             }
         }
     }
@@ -397,18 +398,15 @@ public:
         }
 
         INGAMEOVERLAY_TRACE("Started renderer detection.");
-
-        std::string name;
-
         for (auto const& library : RendererLibraries)
         {
             if ((rendererToDetect & library.RendererType) != library.RendererType)
                 continue;
 
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : library.DllName;
+            auto libraryPath = preferSystemLibraries ? FindPreferedModulePath(library.DllName) : std::filesystem::path(library.DllName);
             if (!libraryPath.empty())
             {
-                void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                void* libraryHandle = GetLibraryHandle(libraryPath);
                 if (libraryHandle != nullptr)
                 {
                     INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
@@ -417,7 +415,7 @@ public:
                     if (_DetectionDone)
                         break;
 
-                    (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
+                    (this->*library.DetectionProcedure)(GetLibraryPath(libraryHandle), preferSystemLibraries);
                 }
             }
         }
