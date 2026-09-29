@@ -21,6 +21,8 @@
 
 #include "../RendererHookInternal.h"
 
+#include <filesystem>
+
 #include <d3d12.h>
 #include <dxgi1_4.h>
 
@@ -123,6 +125,9 @@ private:
     };
 
     // Variables
+    std::string LibraryName;
+    std::filesystem::path LibraryPath;
+
     bool _Hooked;
     bool _WindowsHooked;
     uint32_t _DeviceReleasing;
@@ -190,17 +195,15 @@ private:
     static void    STDMETHODCALLTYPE _MyID3D12CommandQueueExecuteCommandLists(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
 
 public:
-    std::string LibraryName;
+    virtual ~DX12Hook_t() override;
 
-    virtual ~DX12Hook_t();
-
-    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr);
-    virtual void HideAppInputs(bool hide);
-    virtual void HideOverlayInputs(bool hide);
-    virtual bool IsStarted();
+    virtual bool StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas = nullptr) override;
+    virtual void HideAppInputs(bool hide) override;
+    virtual void HideOverlayInputs(bool hide) override;
+    virtual bool IsStarted() override;
     static DX12Hook_t* Inst();
-    virtual const char* GetLibraryName() const;
-    virtual RendererHookType_t GetRendererHookType() const;
+    virtual const char* GetLibraryName() const override;
+    virtual RendererHookType_t GetRendererHookType() const override;
 
     void LoadFunctions(
         decltype(_ID3D12DeviceRelease) releaseFcn,
@@ -211,9 +214,11 @@ public:
         decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
         decltype(_ID3D12CommandQueueExecuteCommandLists) xecuteCommandListsFcn);
 
-    virtual std::weak_ptr<RendererTexture_t> AllocImageResource();
-    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter);
-    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource);
+    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
+    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;
+    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) override;
+
+    virtual void SetLibraryPath(std::filesystem::path const& libraryPath) override;
 };
 
 }// namespace InGameOverlay

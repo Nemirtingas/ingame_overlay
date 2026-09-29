@@ -630,4 +630,10 @@ void DX10Hook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
     }
 }
 
+void DX10Hook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
+{
+    LibraryPath = libraryPath;
+    LibraryName = LibraryPath.string();
+}
+
 }// namespace InGameOverlay

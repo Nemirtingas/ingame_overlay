@@ -22,6 +22,7 @@
 #pragma once
 
 #include <windows.h>
+#include <midlbase.h>
 
 #include <atomic>
 

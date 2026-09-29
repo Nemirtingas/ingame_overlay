@@ -17,22 +17,21 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include <cassert>
-#include <mutex>
+#include <random>
+#include <vector>
+#include <filesystem>
 #include <string>
-#include <string_view>
 
 #include <InGameOverlay/RendererDetector.h>
 #include "../VulkanHelpers.h"
 
-#include <System/Encoding.hpp>
-#include <System/String.hpp>
-#include <System/System.h>
-#include <System/Library.h>
 #include <mini_detour/mini_detour.h>
 
 #define GLAD_GL_IMPLEMENTATION
 #include <glad/gl.h>
+
+#include "../Library.h"
+#include "../StringUtils.h"
 
 #include "DX12Hook.h"
 #include "DX11Hook.h"
@@ -43,8 +42,6 @@
 #include "DXVKDetector.h"
   
 #include "DirectXVTables.h"
-  
-#include <random>
 
 #ifdef INGAMEOVERLAY_USE_SPDLOG
 
@@ -53,6 +50,8 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #endif
+
+#include <Windows.h>
   
 #ifdef GetModuleHandle
     #undef GetModuleHandle
@@ -66,17 +65,17 @@
 
 namespace InGameOverlay {
 
-static constexpr const char DXGI_DLL_NAME[] = "dxgi.dll";
-static constexpr const char DX9_DLL_NAME[] = "d3d9.dll";
-static constexpr const char DX10_DLL_NAME[] = "d3d10.dll";
-static constexpr const char DX11_DLL_NAME[] = "d3d11.dll";
-static constexpr const char DX12_DLL_NAME[] = "d3d12.dll";
-static constexpr const char OPENGL_DLL_NAME[] = "opengl32.dll";
-static constexpr const char VULKAN_DLL_NAME[] = "vulkan-1.dll";
+static constexpr const wchar_t DXGI_DLL_NAME[]   = L"dxgi.dll";
+static constexpr const wchar_t DX9_DLL_NAME[]    = L"d3d9.dll";
+static constexpr const wchar_t DX10_DLL_NAME[]   = L"d3d10.dll";
+static constexpr const wchar_t DX11_DLL_NAME[]   = L"d3d11.dll";
+static constexpr const wchar_t DX12_DLL_NAME[]   = L"d3d12.dll";
+static constexpr const wchar_t OPENGL_DLL_NAME[] = L"opengl32.dll";
+static constexpr const wchar_t VULKAN_DLL_NAME[] = L"vulkan-1.dll";
 
 struct DirectX9Driver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(&IDirect3DDevice9::Release) pfnRelease;
     decltype(&IDirect3DDevice9::Present) pfnPresent;
     decltype(&IDirect3DDevice9::Reset) pfnReset;
@@ -87,7 +86,7 @@ struct DirectX9Driver_t
 
 struct DirectX10Driver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(&ID3D10Device::Release) pfnRelease;
     decltype(&IDXGISwapChain::Present) pfnPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
@@ -97,7 +96,7 @@ struct DirectX10Driver_t
 
 struct DirectX11Driver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(&ID3D11Device::Release) pfnRelease;
     decltype(&IDXGISwapChain::Present) pfnPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
@@ -107,7 +106,7 @@ struct DirectX11Driver_t
 
 struct DirectX12Driver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(&ID3D12Device::Release) pfnRelease;
     decltype(&IDXGISwapChain::Present) pfnPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
@@ -119,13 +118,13 @@ struct DirectX12Driver_t
 
 struct OpenGLDriver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
     decltype(::SwapBuffers)* wglSwapBuffers;
 };
 
 struct VulkanDriver_t
 {
-    std::string LibraryPath;
+    std::filesystem::path LibraryPath;
 
     std::function<void* (const char*)> vkLoader;
     decltype(::vkAcquireNextImageKHR)* vkAcquireNextImageKHR;
@@ -149,35 +148,47 @@ static std::wstring RandomString(size_t length)
     return randomString;
 }
 
-static std::string GetSystemDirectory()
+static std::filesystem::path GetSystemDirectory()
 {
-    std::wstring tmp(4096, L'\0');
-    tmp.resize(GetSystemDirectoryW(&tmp[0], static_cast<UINT>(tmp.size())));
-    auto systemDirectory = System::Encoding::UTF8::WCharToUtf8(tmp);
+    wchar_t buffer[4096]{};
 
-    System::String::ToLower(systemDirectory);
-    return systemDirectory;
+    const auto length = ::GetSystemDirectoryW(
+        buffer,
+        static_cast<UINT>(std::size(buffer))
+    );
+
+    if (length == 0)
+        return {};
+
+    std::wstring directory(buffer, length);
+    return std::filesystem::path(PathStringToLower(directory));
 }
 
-static std::string FindPreferedModulePath(std::string const& systemDirectory, std::string const& name)
+static std::filesystem::path FindPreferedModulePath(const std::filesystem::path& systemDirectory, const std::filesystem::path::string_type& name)
 {
-    std::string res;
-    std::string tmp;
-    auto modules = System::GetModules();
-    for (auto& item : modules)
-    {
-        tmp = System::String::CopyLower(item);
-        if (tmp.length() >= name.length() && strcmp(tmp.c_str() + tmp.length() - name.length(), name.c_str()) == 0)
-        {
-            if (strncmp(tmp.c_str(), systemDirectory.c_str(), systemDirectory.length()) == 0)
-                return item;
+    const auto lowerSystemDirectory = PathToLower(systemDirectory);
+    const auto lowerName = PathToLower(std::filesystem::path(name));
 
-            // I don't care which one is picked if we can't find a library in the system32 folder...
-            res = std::move(item);
+    auto modules = GetCurrentLoadedLibraries();
+    std::filesystem::path result;
+
+    for (auto& modulePath : modules)
+    {
+        const auto lowerModulePath = PathToLower(modulePath);
+
+        if (lowerModulePath.filename() != lowerName)
+            continue;
+
+        if (lowerModulePath.parent_path() == lowerSystemDirectory)
+        {
+            result.swap(modulePath);
+            return result;
         }
+
+        result.swap(modulePath);
     }
 
-    return res;
+    return result;
 }
 
 static std::wstring CreateDummyHWND(HWND* dummyHwnd, ATOM* dummyAtom)
@@ -277,10 +288,10 @@ static bool DXGIDeviceIsDXVK(IUnknown* pDevice)
 
     pDxvkInterface->GetVulkanHandles(&vkInstance, &vkPhysicalDevice, &vkDevice);
 
-    void* hVulkan = System::Library::GetLibraryHandle(VULKAN_DLL_NAME);
+    void* hVulkan = GetLibraryHandle(VULKAN_DLL_NAME);
     if (hVulkan != nullptr)
     {
-        auto _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)System::Library::GetSymbol(hVulkan, "vkGetInstanceProcAddr");
+        auto _vkGetInstanceProcAddr = (decltype(::vkGetInstanceProcAddr)*)GetLibrarySymbol(hVulkan, "vkGetInstanceProcAddr");
         if (_vkGetInstanceProcAddr != nullptr)
         {
             auto _vkGetPhysicalDeviceProperties = (decltype(::vkGetPhysicalDeviceProperties)*)_vkGetInstanceProcAddr(vkInstance, "vkGetPhysicalDeviceProperties");
@@ -298,10 +309,10 @@ static bool DXGIDeviceIsDXVK(IUnknown* pDevice)
     return true;
 }
 
-static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath, HWND windowHandle)
+static DirectX9Driver_t GetDX9Driver(std::filesystem::path const& directX9LibraryPath, HWND windowHandle)
 {
     DirectX9Driver_t driver{};
-    HMODULE hD3D9 = (HMODULE)System::Library::GetLibraryHandle(directX9LibraryPath.data());
+    HMODULE hD3D9 = (HMODULE)GetLibraryHandle(directX9LibraryPath);
     if (hD3D9 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to setup DX9", directX9LibraryPath);
@@ -312,7 +323,7 @@ static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath
     IDirect3DDevice9* pDevice = nullptr;
     IDirect3DSwapChain9* pSwapChain = nullptr;
 
-    auto Direct3DCreate9Ex = (decltype(::Direct3DCreate9Ex)*)System::Library::GetSymbol(hD3D9, "Direct3DCreate9Ex");
+    auto Direct3DCreate9Ex = (decltype(::Direct3DCreate9Ex)*)GetLibrarySymbol(hD3D9, "Direct3DCreate9Ex");
 
     D3DPRESENT_PARAMETERS params = {};
     params.BackBufferWidth = 1;
@@ -337,7 +348,7 @@ static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath
         }
 
         Direct3DCreate9Ex = nullptr;
-        auto Direct3DCreate9 = (decltype(::Direct3DCreate9)*)System::Library::GetSymbol(hD3D9, "Direct3DCreate9");
+        auto Direct3DCreate9 = (decltype(::Direct3DCreate9)*)GetLibrarySymbol(hD3D9, "Direct3DCreate9");
         if (Direct3DCreate9 != nullptr)
         {
             // D3DDEVTYPE_HAL
@@ -367,7 +378,7 @@ static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath
             (void*&)driver.pfnSwapChainPresent = vTable[(int)IDirect3DSwapChain9VTable::Present];
         }
 
-        driver.LibraryPath = System::Library::GetLibraryPath(hD3D9);
+        driver.LibraryPath = GetLibraryPath(hD3D9);
     }
 
     if (pSwapChain) pSwapChain->Release();
@@ -377,17 +388,17 @@ static DirectX9Driver_t GetDX9Driver(std::string_view const& directX9LibraryPath
     return driver;
 }
 
-static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX10Driver_t GetDX10Driver(std::filesystem::path const& directX10LibraryPath, std::filesystem::path const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX10Driver_t driver{};
 
-    HMODULE hD3D10 = (HMODULE)System::Library::GetLibraryHandle(directX10LibraryPath.data());
+    HMODULE hD3D10 = (HMODULE)GetLibraryHandle(directX10LibraryPath);
     if (hD3D10 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX10", directX10LibraryPath);
         return driver;
     }
-    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    HMODULE dxgi = (HMODULE)GetLibraryHandle(dxgiLibraryPath);
     if (dxgi == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX10", dxgiLibraryPath);
@@ -401,8 +412,8 @@ static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryP
 
     IDXGIFactory2* pDXGIFactory = nullptr;
 
-    auto D3D10CreateDevice = (decltype(::D3D10CreateDevice)*)System::Library::GetSymbol(hD3D10, "D3D10CreateDevice");
-    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+    auto D3D10CreateDevice = (decltype(::D3D10CreateDevice)*)GetLibrarySymbol(hD3D10, "D3D10CreateDevice");
+    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetLibrarySymbol(dxgi, "CreateDXGIFactory1");
 
     if (D3D10CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
     {
@@ -436,7 +447,7 @@ static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryP
     {
         INGAMEOVERLAY_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX10 detection");
 
-        auto D3D10CreateDeviceAndSwapChain = (decltype(::D3D10CreateDeviceAndSwapChain)*)System::Library::GetSymbol(hD3D10, "D3D10CreateDeviceAndSwapChain");
+        auto D3D10CreateDeviceAndSwapChain = (decltype(::D3D10CreateDeviceAndSwapChain)*)GetLibrarySymbol(hD3D10, "D3D10CreateDeviceAndSwapChain");
         if (D3D10CreateDeviceAndSwapChain != nullptr)
         {
             DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
@@ -469,7 +480,7 @@ static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryP
             &driver.pfnPresent1,
             nullptr);
 
-        driver.LibraryPath = System::Library::GetLibraryPath(hD3D10);
+        driver.LibraryPath = GetLibraryPath(hD3D10);
     }
     else
     {
@@ -481,17 +492,17 @@ static DirectX10Driver_t GetDX10Driver(std::string_view const& directX10LibraryP
     return driver;
 }
 
-static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX11Driver_t GetDX11Driver(std::filesystem::path const& directX11LibraryPath, std::filesystem::path const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX11Driver_t driver{};
 
-    HMODULE hD3D11 = (HMODULE)System::Library::GetLibraryHandle(directX11LibraryPath.data());
+    HMODULE hD3D11 = (HMODULE)GetLibraryHandle(directX11LibraryPath);
     if (hD3D11 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX11", directX11LibraryPath);
         return driver;
     }
-    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    HMODULE dxgi = (HMODULE)GetLibraryHandle(dxgiLibraryPath);
     if (dxgi == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX11", dxgiLibraryPath);
@@ -504,8 +515,8 @@ static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryP
 
     IDXGIFactory2* pDXGIFactory = nullptr;
 
-    auto D3D11CreateDevice = (decltype(::D3D11CreateDevice)*)System::Library::GetSymbol(hD3D11, "D3D11CreateDevice");
-    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+    auto D3D11CreateDevice = (decltype(::D3D11CreateDevice)*)GetLibrarySymbol(hD3D11, "D3D11CreateDevice");
+    decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetLibrarySymbol(dxgi, "CreateDXGIFactory1");
 
     if (D3D11CreateDevice != nullptr && CreateDXGIFactory1 != nullptr)
     {
@@ -542,7 +553,7 @@ static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryP
     {
         INGAMEOVERLAY_WARN("Failed to instanciate IDXGISwapChain1, fallback to pure DX11 detection");
 
-        auto D3D11CreateDeviceAndSwapChain = (decltype(::D3D11CreateDeviceAndSwapChain)*)System::Library::GetSymbol(hD3D11, "D3D11CreateDeviceAndSwapChain");
+        auto D3D11CreateDeviceAndSwapChain = (decltype(::D3D11CreateDeviceAndSwapChain)*)GetLibrarySymbol(hD3D11, "D3D11CreateDeviceAndSwapChain");
         if (D3D11CreateDeviceAndSwapChain != nullptr)
         {
             DXGI_SWAP_CHAIN_DESC SwapChainDesc = {};
@@ -575,7 +586,7 @@ static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryP
             &driver.pfnPresent1,
             nullptr);
 
-        driver.LibraryPath = System::Library::GetLibraryPath(hD3D11);
+        driver.LibraryPath = GetLibraryPath(hD3D11);
     }
 
     if (pDevice) pDevice->Release();
@@ -584,17 +595,17 @@ static DirectX11Driver_t GetDX11Driver(std::string_view const& directX11LibraryP
     return driver;
 }
 
-static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryPath, std::string const& dxgiLibraryPath, HWND windowHandle)
+static DirectX12Driver_t GetDX12Driver(std::filesystem::path const& directX12LibraryPath, std::filesystem::path const& dxgiLibraryPath, HWND windowHandle)
 {
     DirectX12Driver_t driver{};
 
-    HMODULE hD3D12 = (HMODULE)System::Library::GetLibraryHandle(directX12LibraryPath.data());
+    HMODULE hD3D12 = (HMODULE)GetLibraryHandle(directX12LibraryPath);
     if (hD3D12 == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX12", directX12LibraryPath);
         return driver;
     }
-    HMODULE dxgi = (HMODULE)System::Library::GetLibraryHandle(dxgiLibraryPath.c_str());
+    HMODULE dxgi = (HMODULE)GetLibraryHandle(dxgiLibraryPath);
     if (dxgi == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect DX12", dxgiLibraryPath);
@@ -606,7 +617,7 @@ static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryP
     ID3D12CommandQueue* pCommandQueue = nullptr;
     ID3D12Device* pDevice = nullptr;
 
-    auto D3D12CreateDevice = (decltype(::D3D12CreateDevice)*)System::Library::GetSymbol(hD3D12, "D3D12CreateDevice");
+    auto D3D12CreateDevice = (decltype(::D3D12CreateDevice)*)GetLibrarySymbol(hD3D12, "D3D12CreateDevice");
     if (D3D12CreateDevice != nullptr)
     {
         INGAMEOVERLAY_DEBUG("Creating D3D12 device...");
@@ -625,7 +636,7 @@ static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryP
             if (pCommandQueue != nullptr)
             {
                 INGAMEOVERLAY_DEBUG("Created CommandQueue!");
-                decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))System::Library::GetSymbol(dxgi, "CreateDXGIFactory1");
+                decltype(CreateDXGIFactory1)* CreateDXGIFactory1 = (decltype(CreateDXGIFactory1))GetLibrarySymbol(dxgi, "CreateDXGIFactory1");
                 if (CreateDXGIFactory1 != nullptr)
                 {
                     INGAMEOVERLAY_DEBUG("Creating DXGI Factory...");                    
@@ -676,7 +687,7 @@ static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryP
             &driver.pfnPresent1,
             &driver.pfnResizeBuffer1);
 
-        driver.LibraryPath = System::Library::GetLibraryPath(hD3D12);
+        driver.LibraryPath = GetLibraryPath(hD3D12);
 
         if (pSwapChain3 != nullptr) pSwapChain3->Release();
     }
@@ -689,27 +700,27 @@ static DirectX12Driver_t GetDX12Driver(std::string_view const& directX12LibraryP
     return driver;
 }
 
-static OpenGLDriver_t GetOpenGLDriver(std::string_view const& libraryPath)
+static OpenGLDriver_t GetOpenGLDriver(std::filesystem::path const& libraryPath)
 {
     OpenGLDriver_t driver{};
 
-    HMODULE hOpenGL = (HMODULE)System::Library::GetLibraryHandle(libraryPath.data());
+    HMODULE hOpenGL = (HMODULE)GetLibraryHandle(libraryPath);
     if (hOpenGL == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect OpenGL", libraryPath);
         return driver;
     }
 
-    driver.wglSwapBuffers = (decltype(::SwapBuffers)*)System::Library::GetSymbol(hOpenGL, "wglSwapBuffers");
-    driver.LibraryPath = System::Library::GetLibraryPath(hOpenGL);
+    driver.wglSwapBuffers = (decltype(::SwapBuffers)*)GetLibrarySymbol(hOpenGL, "wglSwapBuffers");
+    driver.LibraryPath = GetLibraryPath(hOpenGL);
     return driver;
 }
 
-static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
+static VulkanDriver_t GetVulkanDriver(std::filesystem::path const& vulkanLibraryPath)
 {
     VulkanDriver_t driver{};
 
-    void* hVulkan = System::Library::GetLibraryHandle(vulkanLibraryPath.data());
+    void* hVulkan = ::GetLibraryHandle(vulkanLibraryPath);
     if (hVulkan == nullptr)
     {
         INGAMEOVERLAY_WARN("Failed to load {} to detect Vulkan", vulkanLibraryPath);
@@ -718,7 +729,7 @@ static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
 
     std::function<void* (const char*)> _vkLoader = [hVulkan](const char* symbolName)
     {
-        return System::Library::GetSymbol(hVulkan, symbolName);
+        return GetLibrarySymbol(hVulkan, symbolName);
     };
 
     auto _vkCreateInstance = (decltype(::vkCreateInstance)*)_vkLoader("vkCreateInstance");
@@ -838,7 +849,7 @@ static VulkanDriver_t GetVulkanDriver(std::string_view const& vulkanLibraryPath)
     driver.vkCreateSwapchainKHR = _vkCreateSwapchainKHR;
     driver.vkDestroyDevice = _vkDestroyDevice;
 
-    driver.LibraryPath = System::Library::GetLibraryPath(hVulkan);
+    driver.LibraryPath = GetLibraryPath(hVulkan);
     return driver;
 }
 
@@ -848,7 +859,7 @@ static DX9Hook_t* GetDX9RendererHook(DirectX9Driver_t const& driver)
         return nullptr;
 
     auto rendererHook = DX9Hook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnReset, driver.pfnPresentEx, driver.pfnResetEx, driver.pfnSwapChainPresent);
     return rendererHook;
 }
@@ -859,7 +870,7 @@ static DX10Hook_t* GetDX10RendererHook(DirectX10Driver_t const& driver)
         return nullptr;
 
     auto rendererHook = DX10Hook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
     return rendererHook;
 }
@@ -870,7 +881,7 @@ static DX11Hook_t* GetDX11RendererHook(DirectX11Driver_t const& driver)
         return nullptr;
 
     auto rendererHook = DX11Hook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1);
     return rendererHook;
 }
@@ -881,7 +892,7 @@ static DX12Hook_t* GetDX12RendererHook(DirectX12Driver_t const& driver)
         return nullptr;
 
     auto rendererHook = DX12Hook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
     return rendererHook;
 }
@@ -892,7 +903,7 @@ static OpenGLHook_t* GetOpenGLRendererHook(OpenGLDriver_t const& driver)
         return nullptr;
 
     auto rendererHook = OpenGLHook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(driver.wglSwapBuffers);
     return rendererHook;
 }
@@ -903,7 +914,7 @@ static VulkanHook_t* GetVulkanRendererHook(VulkanDriver_t const& driver)
         return nullptr;
 
     auto rendererHook = VulkanHook_t::Inst();
-    rendererHook->LibraryName = driver.LibraryPath;
+    rendererHook->SetLibraryPath(driver.LibraryPath);
     rendererHook->LoadFunctions(
         driver.vkLoader,
         driver.vkAcquireNextImageKHR,
@@ -954,8 +965,8 @@ private:
     struct DetectionDetails_t
     {
         RendererHookType_t RendererType;
-        std::string DllName;
-        void (RendererDetector_t::* DetectionProcedure)(std::string_view const&, bool);
+        std::filesystem::path::string_type DllName;
+        void (RendererDetector_t::* DetectionProcedure)(std::filesystem::path const&, bool);
     };
 
     std::array<DetectionDetails_t, 6> RendererLibraries{
@@ -991,7 +1002,7 @@ private:
     OpenGLHook_t* _OpenGLHook;
     VulkanHook_t* _VulkanHook;
 
-    std::string _SystemDirectory;
+    std::filesystem::path _SystemDirectory;
     HWND _DummyWindowHandle;
     std::wstring _DummyWindowClassName;
     ATOM _DummyWindowAtom;
@@ -1318,11 +1329,11 @@ private:
             _DetectionHooks.EndHook();
         }
     }
-    void _HookDX9(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookDX9(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX9Hooked)
         {
-            auto driver = GetDX9Driver(libraryPath.data(), _DummyWindowHandle);
+            auto driver = GetDX9Driver(libraryPath, _DummyWindowHandle);
             _DX9Hook = GetDX9RendererHook(driver);
             if (_DX9Hook != nullptr)
             {
@@ -1338,11 +1349,11 @@ private:
         }
     }
 
-    void _HookDX10(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookDX10(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX10Hooked)
         {
-            auto driver = GetDX10Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            auto driver = GetDX10Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
             _DX10Hook = GetDX10RendererHook(driver);
             if (_DX10Hook != nullptr)
             {
@@ -1358,11 +1369,11 @@ private:
         }
     }
 
-    void _HookDX11(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookDX11(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX11Hooked)
         {
-            auto driver = GetDX11Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            auto driver = GetDX11Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
             _DX11Hook = GetDX11RendererHook(driver);
             if (_DX11Hook != nullptr)
             {
@@ -1378,11 +1389,11 @@ private:
         }
     }
 
-    void _HookDX12(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookDX12(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_DX12Hooked)
         {
-            auto driver = GetDX12Driver(libraryPath.data(), preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
+            auto driver = GetDX12Driver(libraryPath, preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, DXGI_DLL_NAME) : DXGI_DLL_NAME, _DummyWindowHandle);
             _DX12Hook = GetDX12RendererHook(driver);
             if (_DX12Hook != nullptr)
             {
@@ -1398,7 +1409,7 @@ private:
         }
     }
 
-    void _HookOpenGL(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookOpenGL(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_OpenGLHooked)
         {
@@ -1422,11 +1433,11 @@ private:
         }
     }
 
-    void _HookVulkan(std::string_view const& libraryPath, bool preferSystemLibraries)
+    void _HookVulkan(std::filesystem::path const& libraryPath, bool preferSystemLibraries)
     {
         if (!_VulkanHooked)
         {
-            auto driver = GetVulkanDriver(libraryPath.data());
+            auto driver = GetVulkanDriver(libraryPath);
             _VulkanHook = GetVulkanRendererHook(driver);
             if (_VulkanHook != nullptr)
             {
@@ -1511,10 +1522,10 @@ public:
             if ((rendererToDetect & library.RendererType) != library.RendererType)
                 continue;
 
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
+            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(_SystemDirectory, library.DllName) : library.DllName;
             if (!libraryPath.empty())
             {
-                void* libraryHandle = System::Library::GetLibraryHandle(libraryPath.c_str());
+                void* libraryHandle = GetLibraryHandle(libraryPath);
                 if (libraryHandle != nullptr)
                 {
                     INGAMEOVERLAY_DEBUG("Waiting for renderer mutex for {}...", libraryPath);
@@ -1523,7 +1534,7 @@ public:
                     if (_DetectionDone)
                         break;
 
-                    (this->*library.DetectionProcedure)(System::Library::GetLibraryPath(libraryHandle), preferSystemLibraries);
+                    (this->*library.DetectionProcedure)(GetLibraryPath(libraryHandle), preferSystemLibraries);
                 }
             }
         }
@@ -1639,7 +1650,7 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
             {
                 case RendererHookType_t::DirectX9:
                 {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX9_DLL_NAME) : DX9_DLL_NAME;
+                    std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX9_DLL_NAME) : DX9_DLL_NAME;
                     if (!libraryPath.empty())
                     {
                         rendererHook = GetDX9RendererHook(GetDX9Driver(libraryPath, dummyWindow));
@@ -1649,8 +1660,8 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
                 case RendererHookType_t::DirectX10:
                 {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX10_DLL_NAME) : DX10_DLL_NAME;
-                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX10_DLL_NAME) : DX10_DLL_NAME;
+                    std::filesystem::path dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
                     if (!libraryPath.empty())
                     {
                         rendererHook = GetDX10RendererHook(GetDX10Driver(libraryPath, dxgiLibraryPath, dummyWindow));
@@ -1660,8 +1671,8 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
                 case RendererHookType_t::DirectX11:
                 {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX11_DLL_NAME) : DX11_DLL_NAME;
-                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX11_DLL_NAME) : DX11_DLL_NAME;
+                    std::filesystem::path dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
                     if (!libraryPath.empty())
                     {
                         rendererHook = GetDX11RendererHook(GetDX11Driver(libraryPath, dxgiLibraryPath, dummyWindow));
@@ -1671,8 +1682,8 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
                 case RendererHookType_t::DirectX12:
                 {
-                    std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX12_DLL_NAME) : DX12_DLL_NAME;
-                    std::string dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
+                    std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DX12_DLL_NAME) : DX12_DLL_NAME;
+                    std::filesystem::path dxgiLibraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), DXGI_DLL_NAME) : DXGI_DLL_NAME;
                     if (!libraryPath.empty())
                     {
                         rendererHook = GetDX12RendererHook(GetDX12Driver(libraryPath, dxgiLibraryPath, dummyWindow));
@@ -1688,7 +1699,7 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
         case RendererHookType_t::OpenGL:
         {
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), OPENGL_DLL_NAME) : OPENGL_DLL_NAME;
+            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), OPENGL_DLL_NAME) : OPENGL_DLL_NAME;
             if (!libraryPath.empty())
             {
                 rendererHook = GetOpenGLRendererHook(GetOpenGLDriver(libraryPath));
@@ -1698,7 +1709,7 @@ RendererHook_t* GetRenderer(RendererHookType_t rendererToDetect, bool preferSyst
 
         case RendererHookType_t::Vulkan:
         {
-            std::string libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), VULKAN_DLL_NAME) : VULKAN_DLL_NAME;
+            std::filesystem::path libraryPath = preferSystemLibraries ? FindPreferedModulePath(GetSystemDirectory(), VULKAN_DLL_NAME) : VULKAN_DLL_NAME;
             if (!libraryPath.empty())
             {
                 rendererHook = GetVulkanRendererHook(GetVulkanDriver(libraryPath));

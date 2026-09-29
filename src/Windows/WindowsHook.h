@@ -25,6 +25,8 @@
 
 #include "../mpmc_bounded_queue.h"
 
+#include <filesystem>
+
 namespace InGameOverlay {
 
 struct WindowsHookEvent_t
@@ -132,6 +134,7 @@ private:
     static short _ImGuiGetKeyState(int nVirtKey);
 public:
     std::string LibraryName;
+    std::filesystem::path LibraryPath;
 
     virtual ~WindowsHook_t();
 

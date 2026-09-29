@@ -19,16 +19,11 @@
 
 #pragma once
 
+#include "OSDetector.h"
+
 #include "BaseHook.h"
 
-#if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
-
-#include <windows.h>
-#ifdef GetModuleHandle
-#undef GetModuleHandle
-#endif
-
-#endif
+#include <filesystem>
 
 #ifdef INGAMEOVERLAY_USE_SPDLOG
 #define SPDLOG_ACTIVE_LEVEL 0
@@ -45,6 +40,26 @@ void SetLogger(std::shared_ptr<spdlog::logger> logger);
 #define INGAMEOVERLAY_INFO(...)  SPDLOG_LOGGER_INFO(GetLogger(), __VA_ARGS__)
 #define INGAMEOVERLAY_WARN(...)  SPDLOG_LOGGER_WARN(GetLogger(), __VA_ARGS__)
 #define INGAMEOVERLAY_ERROR(...) SPDLOG_LOGGER_ERROR(GetLogger(), __VA_ARGS__)
+
+template <>
+struct fmt::formatter<std::filesystem::path>
+{
+    constexpr auto parse(format_parse_context& ctx)
+    {
+        auto it = ctx.begin(), end = ctx.end();
+
+        if (it != end && *it != '}')
+            throw format_error("invalid format");
+
+        return it;
+    }
+
+    template <typename FormatContext>
+    auto format(const std::filesystem::path& value, FormatContext& ctx) const
+    {
+        return format_to(ctx.out(), "{}", value.string());
+    }
+};
 
 #else
 

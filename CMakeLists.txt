@@ -141,12 +141,16 @@ endif()
 
 list(APPEND INGAMEOVERLAY_SOURCES
   src/BaseHook.cpp
+  src/Library.cpp
   src/Internal.cpp
   src/RendererHookInternal.cpp
   src/RendererResourceInternal.cpp
 )
 
 list(APPEND PRIVATE_INGAMEOVERLAY_HEADERS
+  src/Library.h
+  src/OSDetector.h
+  src/StringUtils.h
   src/InternalIncludes.h
   src/BaseHook.h
   src/RendererHookInternal.h
@@ -177,27 +181,21 @@ set(INGAMEOVERLAY_IMGUI_HEADERS
 )
 
 if(${INGAMEOVERLAY_DYNAMIC_RUNTIME})
-set(MINIDETOUR_DYNAMIC_RUNTIME "" CACHE BOOL ON FORCE)
 set(MINIDETOUR_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
-set(SYSTEM_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
 else()
-set(MINIDETOUR_DYNAMIC_RUNTIME "" CACHE BOOL OFF FORCE)
 set(MINIDETOUR_DYNAMIC_RUNTIME OFF CACHE BOOL "" FORCE)
-set(SYSTEM_DYNAMIC_RUNTIME OFF CACHE BOOL "" FORCE)
 endif()
 
 if(NOT ${INGAMEOVERLAY_USE_SYSTEM_LIBRARIES})
   if(${INGAMEOVERLAY_USE_SPDLOG})
     add_subdirectory(deps/spdlog EXCLUDE_FROM_ALL)
   endif()
-  add_subdirectory(deps/System EXCLUDE_FROM_ALL)
   add_subdirectory(deps/mini_detour EXCLUDE_FROM_ALL)
 else()
   if(${INGAMEOVERLAY_USE_SPDLOG})
     find_package(spdlog CONFIG REQUIRED)
   endif()
   find_package(MiniDetour CONFIG REQUIRED)
-  find_package(System CONFIG REQUIRED)
 endif()
 
 add_library(ingame_overlay
@@ -219,7 +217,6 @@ set_target_properties(ingame_overlay PROPERTIES
 target_link_libraries(ingame_overlay
   PUBLIC
 
-  Nemirtingas::System
   Nemirtingas::MiniDetour
 
   $<$<BOOL:${INGAMEOVERLAY_USE_SPDLOG}>:spdlog::spdlog_header_only>
