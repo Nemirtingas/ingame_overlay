@@ -1,9 +1,6 @@
 [submodule "deps/ImGui"]
 	path = deps/ImGui
 	url = https://github.com/Nemirtingas/ImGui.git
-[submodule "deps/System"]
-	path = deps/System
-	url = https://github.com/Nemirtingas/System.git
 [submodule "deps/mini_detour"]
 	path = deps/mini_detour
 	url = https://github.com/Nemirtingas/mini_detour.git
