@@ -173,7 +173,7 @@ bool X11Hook_t::StartHook(std::function<void()>& keyCombinationCallback, ToggleK
         for (auto& entry : hook_array)
         {
             *entry.func_ptr = library.GetSymbol(entry.func_name);
-            if (entry.func_ptr == nullptr)
+            if (*entry.func_ptr == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook X11: Event function {} missing.", entry.func_name);
                 return false;

@@ -126,7 +126,7 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
         for (auto& entry : hook_array)
         {
             *entry.func_ptr = library.GetSymbol(entry.func_name);
-            if (entry.func_ptr == nullptr)
+            if (*entry.func_ptr == nullptr)
             {
                 INGAMEOVERLAY_ERROR("Failed to hook Windows: failed to load function {}.", entry.func_name);
                 return false;
