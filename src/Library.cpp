@@ -25,6 +25,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <cstring>
+
 #if defined(INGAMEOVERLAY_OS_WINDOWS)
 
 #include <Windows.h>
@@ -96,17 +98,9 @@ void* GetLibraryHandle(std::filesystem::path const& libraryName)
 	return GetModuleHandleW(libraryName.native().c_str());
 }
 
-void* GetLibrarySymbol(void* libraryHandle, std::string_view symbolName)
+static void* NativeGetLibrarySymbol(void* libraryHandle, const char* symbolName)
 {
-    if (libraryHandle == nullptr || symbolName.empty())
-        return nullptr;
-
-    if (symbolName.back() == '\0')
-        return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(libraryHandle), symbolName.data()));
-
-    const std::string name(symbolName);
-
-    return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(libraryHandle), name.c_str()));
+    return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(libraryHandle), symbolName));
 }
 
 void* LoadLibraryFromPath(std::filesystem::path const& libraryPath)
@@ -117,10 +111,9 @@ void* LoadLibraryFromPath(std::filesystem::path const& libraryPath)
     return static_cast<void*>(LoadLibraryW(libraryPath.native().c_str()));
 }
 
-void CloseLibrary(void* libraryHandle)
+static void NativeCloseLibrary(void* libraryHandle)
 {
-    if (libraryHandle != nullptr)
-        FreeLibrary(static_cast<HMODULE>(libraryHandle));
+    FreeLibrary(static_cast<HMODULE>(libraryHandle));
 }
 
 #elif defined(INGAMEOVERLAY_OS_LINUX) || defined(INGAMEOVERLAY_OS_APPLE)
@@ -311,16 +304,9 @@ void* GetLibraryHandle(std::filesystem::path const& libraryName)
 
 #endif
 
-void* GetLibrarySymbol(void* libraryHandle, std::string_view symbolName)
+static void* NativeGetLibrarySymbol(void* libraryHandle, const char* symbolName)
 {
-    if (libraryHandle == nullptr || symbolName.empty())
-        return nullptr;
-
-    if (symbolName.back() == '\0')
-        return ::dlsym(libraryHandle, symbolName.data());
-
-    const std::string name(symbolName);
-    return ::dlsym(libraryHandle, name.c_str());
+    return ::dlsym(libraryHandle, symbolName);
 }
 
 void* LoadLibraryFromPath(std::filesystem::path const& libraryPath)
@@ -331,10 +317,43 @@ void* LoadLibraryFromPath(std::filesystem::path const& libraryPath)
     return ::dlopen(libraryPath.string().c_str(), RTLD_NOW);
 }
 
-void CloseLibrary(void* libraryHandle)
+static void NativeCloseLibrary(void* libraryHandle)
 {
-    if (libraryHandle != nullptr)
-        dlclose(libraryHandle);
+    ::dlclose(libraryHandle);
 }
 
 #endif
+
+void* GetLibrarySymbol(void* libraryHandle, std::string_view symbolName)
+{
+    if (libraryHandle == nullptr || symbolName.empty())
+        return nullptr;
+
+    constexpr std::size_t BufferSize = 256;
+
+    char buffer[BufferSize];
+    std::string heapName;
+    const char* name = symbolName.data();
+
+    if (symbolName.size() < BufferSize)
+    {
+        std::memcpy(buffer, symbolName.data(), symbolName.size());
+        buffer[symbolName.size()] = '\0';
+        name = buffer;
+    }
+    else
+    {
+        heapName.assign(symbolName);
+        name = heapName.c_str();
+    }
+
+    return NativeGetLibrarySymbol(libraryHandle, name);
+}
+
+void CloseLibrary(void* libraryHandle)
+{
+    if (libraryHandle == nullptr)
+        return;
+
+    NativeCloseLibrary(libraryHandle);
+}
