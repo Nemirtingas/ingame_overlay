@@ -538,10 +538,10 @@ DX10Hook_t::~DX10Hook_t()
 {
     INGAMEOVERLAY_INFO("DX10 Hook removed");
 
+    _ResetRenderState(OverlayHookState::Removing);
+
     if (_WindowsHooked)
         delete WindowsHook_t::Inst();
-
-    _ResetRenderState(OverlayHookState::Removing);
 
     _Instance->UnhookAll();
     _Instance = nullptr;
