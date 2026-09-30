@@ -136,21 +136,25 @@ private:
 public:
     struct X11WindowEnumerationResult_t
     {
-        inline X11WindowEnumerationResult_t() = default;
-        inline X11WindowEnumerationResult_t(std::shared_ptr<SafeXlibDisplay_t> display, Window window)
+        X11WindowEnumerationResult_t() = default;
+
+        X11WindowEnumerationResult_t(
+            const std::shared_ptr<SafeXlibDisplay_t>& display,
+            Window window)
             : DisplayHandle(display)
             , WindowHandle(window)
-        { }
+        {
+        }
 
         std::shared_ptr<SafeXlibDisplay_t> DisplayHandle;
-        uint32_t WindowHandle;
+        Window WindowHandle = None;
     };
 
     virtual ~X11Hook_t() override;
 
     void ResetRenderState(OverlayHookState state);
     bool SetInitialWindowSize(Display* display, Window wnd);
-    bool PrepareForOverlay(void* display, uint32_t wnd);
+    bool PrepareForOverlay(Display* display, uint32_t wnd);
     std::vector<X11WindowEnumerationResult_t> FindApplicationX11Window(int32_t processId);
 
     bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);

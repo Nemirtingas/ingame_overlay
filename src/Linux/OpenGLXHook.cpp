@@ -137,7 +137,6 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         //if (_Context == nullptr)
         //    return;
 
-
         if (!X11Hook_t::Inst()->SetInitialWindowSize(display, (Window)drawable))
             return;
 

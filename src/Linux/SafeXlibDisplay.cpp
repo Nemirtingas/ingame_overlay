@@ -26,11 +26,6 @@
 namespace InGameOverlay
 {
 
-SafeXlibDisplay_t::SafeXlibDisplay_t()
-    : DisplayHandle(nullptr)
-{
-}
-
 SafeXlibDisplay_t::SafeXlibDisplay_t(void* displayHandle)
     : DisplayHandle(displayHandle)
 {
@@ -39,7 +34,30 @@ SafeXlibDisplay_t::SafeXlibDisplay_t(void* displayHandle)
 SafeXlibDisplay_t::~SafeXlibDisplay_t()
 {
     if (DisplayHandle != nullptr)
-        XCloseDisplay(static_cast<Display*>(DisplayHandle));
+    {
+        XCloseDisplay((Display*)DisplayHandle);
+        DisplayHandle = nullptr;
+    }
+}
+
+SafeXlibDisplay_t::SafeXlibDisplay_t(SafeXlibDisplay_t&& other) noexcept
+    : DisplayHandle(other.DisplayHandle)
+{
+    other.DisplayHandle = nullptr;
+}
+
+SafeXlibDisplay_t& SafeXlibDisplay_t::operator=(SafeXlibDisplay_t&& other) noexcept
+{
+    if (this != &other)
+    {
+        if (DisplayHandle != nullptr)
+            XCloseDisplay((Display*)DisplayHandle);
+
+        DisplayHandle = other.DisplayHandle;
+        other.DisplayHandle = nullptr;
+    }
+
+    return *this;
 }
 
 }

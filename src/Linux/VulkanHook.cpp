@@ -891,7 +891,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay(_Display.get(), _Window))
+        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Display*)_Display->DisplayHandle, _Window))
             return;
         
         auto screenshotType = _ScreenshotType();

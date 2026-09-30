@@ -23,11 +23,20 @@ namespace InGameOverlay {
 
 struct SafeXlibDisplay_t
 {
-    void* DisplayHandle;
+    void* DisplayHandle = nullptr;
 
-    SafeXlibDisplay_t();
-    SafeXlibDisplay_t(void* displayHandle);
+    SafeXlibDisplay_t() = default;
+
+    explicit SafeXlibDisplay_t(void* displayHandle);
+
     ~SafeXlibDisplay_t();
+
+    SafeXlibDisplay_t(const SafeXlibDisplay_t&) = delete;
+    SafeXlibDisplay_t& operator=(const SafeXlibDisplay_t&) = delete;
+
+    SafeXlibDisplay_t(SafeXlibDisplay_t&& other) noexcept;
+
+    SafeXlibDisplay_t& operator=(SafeXlibDisplay_t&& other) noexcept;
 };
 
 }

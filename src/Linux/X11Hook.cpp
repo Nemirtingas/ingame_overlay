@@ -42,48 +42,90 @@ X11Hook_t* X11Hook_t::_inst = nullptr;
 
 static std::shared_ptr<SafeXlibDisplay_t> GetX11Display()
 {
-    auto displayHandle = XOpenDisplay(nullptr);
-    if (displayHandle == nullptr)
-        return std::make_shared<SafeXlibDisplay_t>();
+    Display* display = XOpenDisplay(nullptr);
 
-    return std::make_shared<SafeXlibDisplay_t>(displayHandle);
+    if (display == nullptr)
+        return nullptr;
+
+    return std::make_shared<SafeXlibDisplay_t>(display);
 }
 
-typedef int (*EnumX11WindowsCallback_t)(std::shared_ptr<SafeXlibDisplay_t> display, Window window, void* userParameter);
+using EnumX11WindowsCallback_t = int (*)(const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, void* userParameter);
 
-static void RunEnumX11Windows(std::shared_ptr<SafeXlibDisplay_t> display, Window rootWindow, EnumX11WindowsCallback_t callback, void* userParameter)
+// Returns false when enumeration must be stopped.
+static bool RunEnumX11Windows(const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, EnumX11WindowsCallback_t callback, void* userParameter)
 {
-    Window parentWindow;
-    Window* childrenWindows;
-    Window* child;
-    unsigned int childCount;
+    if (!display || display->DisplayHandle == nullptr || callback == nullptr)
+        return false;
 
-    if (XQueryTree(static_cast<Display*>(display->DisplayHandle), rootWindow, &rootWindow, &parentWindow, &childrenWindows, &childCount) && childCount)
+    auto x11Display = (Display*)display->DisplayHandle;
+
+    Window rootReturn = None;
+    Window parentWindow = None;
+    Window* childrenWindows = nullptr;
+    unsigned int childCount = 0;
+
+    if (!XQueryTree(x11Display, window, &rootReturn, &parentWindow, &childrenWindows, &childCount))
+        return true;
+
+    bool continueEnumeration = true;
+
+    for (unsigned int i = 0; i < childCount; ++i)
     {
-        for (unsigned int i = 0; i < childCount; ++i)
-        {
-            if (!callback(display, childrenWindows[i], userParameter))
-                return;
+        const auto childWindow = childrenWindows[i];
 
-            RunEnumX11Windows(display, childrenWindows[i], callback, userParameter);
+        // Callback returns 0 when enumeration must stop.
+        if (!callback(display, childWindow, userParameter))
+        {
+            continueEnumeration = false;
+            break;
+        }
+
+        // Recursively enumerate children.
+        if (!RunEnumX11Windows(display, childWindow, callback, userParameter))
+        {
+            continueEnumeration = false;
+            break;
         }
     }
+
+    if (childrenWindows != nullptr)
+        XFree(childrenWindows);
+
+    return continueEnumeration;
 }
 
 static void EnumX11Windows(EnumX11WindowsCallback_t callback, void* userParameter, Display* display = nullptr)
 {
+    if (callback == nullptr)
+        return;
+
     std::shared_ptr<SafeXlibDisplay_t> localDisplay;
+
     if (display == nullptr)
     {
         localDisplay = GetX11Display();
-        display = static_cast<Display*>(localDisplay->DisplayHandle);
+
+        if (!localDisplay || localDisplay->DisplayHandle == nullptr)
+            return;
+
+        display = (Display*)localDisplay->DisplayHandle;
+    }
+    else
+    {
+        localDisplay = std::make_shared<SafeXlibDisplay_t>();
+        localDisplay->DisplayHandle = display;
     }
 
     if (display == nullptr)
         return;
 
-    Window rootWindow = DefaultRootWindow(display);
-    if (rootWindow == None || !callback(localDisplay, rootWindow, userParameter))
+    const auto rootWindow = DefaultRootWindow(display);
+
+    if (rootWindow == None)
+        return;
+
+    if (!callback(localDisplay, rootWindow, userParameter))
         return;
 
     RunEnumX11Windows(localDisplay, rootWindow, callback, userParameter);
@@ -731,10 +773,8 @@ bool X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
     return false;
 }
 
-bool X11Hook_t::PrepareForOverlay(void* display_, uint32_t wnd)
+bool X11Hook_t::PrepareForOverlay(Display* display, uint32_t wnd)
 {
-    auto* display = (Display*)display_;
-
     if(!_Hooked)
         return false;
 
@@ -750,49 +790,86 @@ bool X11Hook_t::PrepareForOverlay(void* display_, uint32_t wnd)
 
 std::vector<X11Hook_t::X11WindowEnumerationResult_t> X11Hook_t::FindApplicationX11Window(int32_t processId)
 {
-    struct
+    struct WindowParams
     {
         int32_t pid;
         std::vector<X11WindowEnumerationResult_t> windows;
-        Atom pidAtom;
-    } windowParams{
+        Atom pidAtom = None;
+    };
+
+    WindowParams windowParams{
         processId,
         {},
         None
     };
 
-    EnumX11Windows([](std::shared_ptr<SafeXlibDisplay_t> display, Window window, void* userParameter) -> int
-    {
-        auto params = reinterpret_cast<decltype(windowParams)*>(userParameter);
-        if (params->pidAtom == None)
-            params->pidAtom = XInternAtom(static_cast<Display*>(display->DisplayHandle), "_NET_WM_PID", True);
-
-        if (params->pidAtom == None)
-            return 0;
-
-        XTextProperty data;
-        int status = XGetTextProperty(static_cast<Display*>(display->DisplayHandle), window, &data, params->pidAtom);
-        if (!status || data.nitems <= 0)
-            return 1;
-
-        int32_t processId = 0;
-        switch (data.format)
+    EnumX11Windows([](const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, void* userParameter) -> int
         {
-            case 32: processId = *(int32_t*)data.value; break;
-            case 16: processId = *(int16_t*)data.value; break;
-            case 8 : processId = data.value[0]; break;
-            default: return 1;
-        }
+            auto* params = static_cast<WindowParams*>(userParameter);
 
-        INGAMEOVERLAY_TRACE("Display: {}, Window: {}", (void*)display->DisplayHandle, (uint32_t)window);
+            if (params == nullptr || !display || display->DisplayHandle == nullptr)
+                return 0;
 
-        if (processId == params->pid)
-            params->windows.emplace_back(display, window);
+            Display* x11Display = (Display*)display->DisplayHandle;
 
-        return 1;
-    }, &windowParams);
+            // Resolve _NET_WM_PID once.
+            if (params->pidAtom == None)
+                params->pidAtom = XInternAtom(x11Display, "_NET_WM_PID", True);
 
-    return windowParams.windows;
+            if (params->pidAtom == None)
+                return 0;
+
+            XTextProperty data{};
+
+            int status = XGetTextProperty(
+                static_cast<Display*>(display->DisplayHandle),
+                window,
+                &data,
+                params->pidAtom);
+
+            if (!status || data.nitems <= 0)
+            {
+                if (data.value)
+                    XFree(data.value);
+
+                return 1;
+            }
+
+            int32_t processId = 0;
+
+            switch (data.format)
+            {
+                case 32:
+                {
+                    const unsigned long value = reinterpret_cast<unsigned long*>(data.value)[0];
+
+                    processId = static_cast<int32_t>(value);
+                    break;
+                }
+
+                case 16:
+                    processId = static_cast<int32_t>(reinterpret_cast<unsigned short*>(data.value)[0]);
+                    break;
+
+                case 8:
+                    processId = static_cast<int32_t>(data.value[0]);
+                    break;
+
+                default:
+                    XFree(data.value);
+                    return 1;
+            }
+
+            XFree(data.value);
+
+            if (processId == params->pid)
+                params->windows.emplace_back(display, window);
+
+            return 1;
+        },
+        &windowParams);
+
+    return std::move(windowParams.windows);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
