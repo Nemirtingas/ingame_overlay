@@ -146,6 +146,8 @@ public:
         uint32_t WindowHandle;
     };
 
+    virtual ~X11Hook_t() override;
+
     void ResetRenderState(OverlayHookState state);
     bool SetInitialWindowSize(Display* display, Window wnd);
     bool PrepareForOverlay(void* display, uint32_t wnd);
