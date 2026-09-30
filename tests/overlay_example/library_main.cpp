@@ -407,6 +407,8 @@ void shared_library_load(void* hmodule)
 
                 ImGui::Text("Mouse pos: %d, %d", (int)io.MousePos.x, (int)io.MousePos.y);
                 ImGui::Text("Renderer Hooked: %s", OverlayData->Renderer->GetLibraryName());
+                ImGui::Text("ImGui Backend Renderer: %s", ImGui::GetIO().BackendRendererName);
+                ImGui::Text("ImGui Backend Platform: %s", ImGui::GetIO().BackendPlatformName);
                 ImGui::InputText("Test input text", OverlayData->OverlayInputTextBuffer, sizeof(OverlayData->OverlayInputTextBuffer));
 
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout

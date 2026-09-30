@@ -22,6 +22,7 @@
 #include <vector>
 #include <array>
 #include <utility>
+#include <algorithm>
 #include <mini_detour/mini_detour.h>
 
 class BaseHook_t

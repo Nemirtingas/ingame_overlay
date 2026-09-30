@@ -137,8 +137,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         //if (_Context == nullptr)
         //    return;
 
-
-        if (!X11Hook_t::Inst()->SetInitialWindowSize((Window)drawable))
+        if (!X11Hook_t::Inst()->SetInitialWindowSize(display, (Window)drawable))
             return;
 
         ImGui_ImplOpenGL3_Init();
@@ -152,7 +151,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
     //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay((Window)drawable))
+    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay(display, (Window)drawable))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
