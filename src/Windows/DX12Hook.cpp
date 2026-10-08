@@ -197,8 +197,24 @@ DX12Hook_t::ShaderRessourceView_t DX12Hook_t::_GetFreeShaderRessourceView()
 void DX12Hook_t::_ReleaseShaderRessourceView(uint32_t id)
 {
     auto& heap = _ShaderResourceViewHeaps[GetHeapIndex(id)];
+    if (!heap.HeapBitmap[GetHeapUsedIndex(id)])
+        return;
+
     heap.HeapBitmap[GetHeapUsedIndex(id)] = false;
     --heap.UsedHeap;
+}
+
+uint32_t DX12Hook_t::_GetShaderRessourceViewId(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle)
+{
+    UINT inc = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (uint32_t heapIndex = 0; heapIndex < _ShaderResourceViewHeapDescriptors.size(); ++heapIndex)
+    {
+        const SIZE_T heapStart = _ShaderResourceViewHeapDescriptors[heapIndex].Heap->GetCPUDescriptorHandleForHeapStart().ptr;
+        if (cpuHandle.ptr >= heapStart && cpuHandle.ptr < heapStart + SIZE_T(inc) * ShaderResourceViewHeap_t::HeapSize)
+            return MakeHeapId(heapIndex, static_cast<uint32_t>((cpuHandle.ptr - heapStart) / inc));
+    }
+
+    return ShaderRessourceView_t::InvalidId;
 }
 
 ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
@@ -544,8 +560,6 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             return;
         }
 
-        auto shaderRessourceView = _GetFreeShaderRessourceView();
-
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
@@ -561,14 +575,16 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         {
             auto* _this = reinterpret_cast<DX12Hook_t*>(info->UserData);
             auto shaderResource = _this->_GetFreeShaderRessourceView();
-            _this->_ImGuiFontTextureId = shaderResource.Id;
             *out_cpu_desc_handle = shaderResource.CpuHandle;
             *out_gpu_desc_handle = shaderResource.GpuHandle;
         };
         initInfo.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_desc_handle)
         {
+            // ImGui allocates one descriptor per texture, find the slot from the handle it gives back.
             auto* _this = reinterpret_cast<DX12Hook_t*>(info->UserData);
-            _this->_ReleaseShaderRessourceView(_this->_ImGuiFontTextureId);
+            auto id = _this->_GetShaderRessourceViewId(cpu_desc_handle);
+            if (id != ShaderRessourceView_t::InvalidId)
+                _this->_ReleaseShaderRessourceView(id);
         };
 
         ImGui_ImplDX12_Init(&initInfo);
@@ -1146,7 +1162,6 @@ DX12Hook_t::DX12Hook_t():
     _ScreenshotFence(nullptr),
     _ScreenshotCommandAllocator(nullptr),
     _ScreenshotCommandList(nullptr),
-    _ImGuiFontTextureId(ShaderRessourceView_t::InvalidId),
     _ImGuiFontAtlas(nullptr),
     _ID3D12DeviceRelease(nullptr),
     _IDXGISwapChainPresent(nullptr),

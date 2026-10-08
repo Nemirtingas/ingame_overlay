@@ -170,7 +170,6 @@ private:
     ID3D12CommandAllocator* _ScreenshotCommandAllocator;
     ID3D12GraphicsCommandList* _ScreenshotCommandList;
 
-    uint32_t _ImGuiFontTextureId;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -180,6 +179,7 @@ private:
     ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
     ShaderRessourceView_t _GetFreeShaderRessourceView();
     void _ReleaseShaderRessourceView(uint32_t id);
+    uint32_t _GetShaderRessourceViewId(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
     ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
