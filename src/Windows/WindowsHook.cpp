@@ -441,6 +441,14 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
     return false;
 }
 
+// Same as NEXTRAWINPUTBLOCK, which relies on a QWORD type the Windows headers don't declare.
+static PRAWINPUT NextRawInputBlock(PRAWINPUT pRawInput)
+{
+    constexpr ULONG_PTR alignment = sizeof(ULONG_PTR);
+    const ULONG_PTR next = reinterpret_cast<ULONG_PTR>(pRawInput) + pRawInput->header.dwSize;
+    return reinterpret_cast<PRAWINPUT>((next + alignment - 1) & ~(alignment - 1));
+}
+
 UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
@@ -450,8 +458,13 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, 
 
     if (!inst->_OverlayInputsHidden && pData != nullptr)
     {
+        // RAWINPUT blocks have a variable size (dwSize), they must not be walked as an array.
+        PRAWINPUT pRawInput = pData;
         for (int i = 0; i < res; ++i)
-            inst->_RawEvent(pData[i]);
+        {
+            inst->_RawEvent(*pRawInput);
+            pRawInput = NextRawInputBlock(pRawInput);
+        }
     }
 
     if (!inst->_ApplicationInputsHidden)
