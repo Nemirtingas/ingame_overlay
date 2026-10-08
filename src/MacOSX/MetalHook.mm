@@ -355,6 +355,7 @@ void MetalHook_t::MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, S
 MetalHook_t::MetalHook_t():
     _Initialized(false),
     _Hooked(false),
+    _NSViewHooked(false),
     _ImGuiFontAtlas(nullptr),
     _MetalDevice(nil),
     _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),

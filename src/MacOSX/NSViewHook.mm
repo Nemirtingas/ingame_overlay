@@ -324,14 +324,24 @@ NSViewHook_t::~NSViewHook_t()
 
     ResetRenderState();
 
-    Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
-    method_setImplementation(ns_method, (IMP)pressedMouseButtons);
+    // Only restore what StartHook replaced, a null IMP would crash the next NSEvent call.
+    if (pressedMouseButtons != nullptr)
+    {
+        Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
+        method_setImplementation(ns_method, (IMP)pressedMouseButtons);
+    }
 
-    ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
-    method_setImplementation(ns_method, (IMP)mouseLocation);
+    if (mouseLocation != nullptr)
+    {
+        Method ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
+        method_setImplementation(ns_method, (IMP)mouseLocation);
+    }
 
-    [NSEvent removeMonitor :_EventMonitor];
-    _EventMonitor = nil;
+    if (_EventMonitor != nil)
+    {
+        [NSEvent removeMonitor :_EventMonitor];
+        _EventMonitor = nil;
+    }
 
     _Instance->UnhookAll();
     _Instance = nullptr;
