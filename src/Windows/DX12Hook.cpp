@@ -24,68 +24,9 @@
 #include <imgui_internal.h>
 #include <backends/imgui_impl_dx12.h>
 
-#include <atomic>
+#include "ComDestructionNotifier.h"
 
 namespace InGameOverlay {
-
-// {6C2E9F1A-3B7D-4E58-A1C4-9D0B7E2F5A63}
-static constexpr GUID SwapChainDestructionNotifierGuid = { 0x6c2e9f1a, 0x3b7d, 0x4e58, { 0xa1, 0xc4, 0x9d, 0x0b, 0x7e, 0x2f, 0x5a, 0x63 } };
-
-// Stored as private data in the application swapchain: DXGI releases it when the swapchain is destroyed,
-// which is our signal to release every overlay resource holding a reference on the application device.
-class SwapChainDestructionNotifier_t : public IUnknown
-{
-    std::atomic<ULONG> _RefCount;
-    void (*_Callback)(void*);
-    void* _UserData;
-
-public:
-    SwapChainDestructionNotifier_t(void (*callback)(void*), void* userData) :
-        _RefCount(1),
-        _Callback(callback),
-        _UserData(userData)
-    {}
-
-    // Called when we remove the notifier ourselves, the callback must not run in that case.
-    void Detach()
-    {
-        _Callback = nullptr;
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override
-    {
-        if (ppvObject == nullptr)
-            return E_POINTER;
-
-        if (riid != __uuidof(IUnknown))
-        {
-            *ppvObject = nullptr;
-            return E_NOINTERFACE;
-        }
-
-        *ppvObject = static_cast<IUnknown*>(this);
-        AddRef();
-        return S_OK;
-    }
-
-    ULONG STDMETHODCALLTYPE AddRef() override
-    {
-        return ++_RefCount;
-    }
-
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const ULONG refCount = --_RefCount;
-        if (refCount == 0)
-        {
-            if (_Callback != nullptr)
-                _Callback(_UserData);
-
-            delete this;
-        }
-        return refCount;
-    }
-};
 
 struct DX12Texture_t : RendererTexture_t {
     D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle = {};
@@ -544,7 +485,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             {
                 // The swapchain is still alive (resize failure, hook removal), stop watching it.
                 _SwapChainNotifier->Detach();
-                _SwapChain->SetPrivateDataInterface(SwapChainDestructionNotifierGuid, nullptr);
+                _SwapChain->SetPrivateDataInterface(GetComDestructionNotifierGuid(), nullptr);
                 _SwapChainNotifier = nullptr;
                 _SwapChain = nullptr;
             }
@@ -668,8 +609,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         }
 
         // Tie the overlay lifetime to the swapchain instead of guessing the device reference count.
-        auto* notifier = new SwapChainDestructionNotifier_t(&DX12Hook_t::_OnSwapChainDestroyed, this);
-        if (SUCCEEDED(pSwapChain->SetPrivateDataInterface(SwapChainDestructionNotifierGuid, notifier)))
+        auto* notifier = new ComDestructionNotifier_t(&DX12Hook_t::_OnSwapChainDestroyed, this);
+        if (SUCCEEDED(pSwapChain->SetPrivateDataInterface(GetComDestructionNotifierGuid(), notifier)))
         {
             _SwapChain = pSwapChain;
             _SwapChainNotifier = notifier;

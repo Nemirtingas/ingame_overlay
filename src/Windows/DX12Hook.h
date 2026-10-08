@@ -35,7 +35,7 @@
 
 namespace InGameOverlay {
 
-class SwapChainDestructionNotifier_t;
+class ComDestructionNotifier_t;
 
 class DX12Hook_t : 
     public InGameOverlay::RendererHookInternal_t,
@@ -154,7 +154,7 @@ private:
     OverlayHookState _HookState;
     // Not owned, only valid while _SwapChainNotifier is set.
     IDXGISwapChain* _SwapChain;
-    SwapChainDestructionNotifier_t* _SwapChainNotifier;
+    ComDestructionNotifier_t* _SwapChainNotifier;
     std::vector<DX12Frame_t> _OverlayFrames;
     std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderResourceViewHeapDescriptors;
     std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;

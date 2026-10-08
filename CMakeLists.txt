@@ -21,6 +21,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/DirectXVTables.h
     src/Windows/SimpleWindowsGamingInput.h
     src/Windows/WindowsGamingInputVTables.h
+    src/Windows/ComDestructionNotifier.h
     src/Windows/DXVKDetector.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
