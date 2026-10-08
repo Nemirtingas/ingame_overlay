@@ -35,6 +35,8 @@
 
 namespace InGameOverlay {
 
+class ComDestructionNotifier_t;
+
 class DX12Hook_t : 
     public InGameOverlay::RendererHookInternal_t,
     public BaseHook_t
@@ -144,14 +146,15 @@ private:
 
     bool _Hooked;
     bool _WindowsHooked;
-    uint32_t _DeviceReleasing;
 
     int _CommandQueueOffsetRetries;
     size_t _CommandQueueOffset;
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
-    ULONG _HookDeviceRefCount;
     OverlayHookState _HookState;
+    // Not owned, only valid while _SwapChainNotifier is set.
+    IDXGISwapChain* _SwapChain;
+    ComDestructionNotifier_t* _SwapChainNotifier;
     std::vector<DX12Frame_t> _OverlayFrames;
     std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderResourceViewHeapDescriptors;
     std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;
@@ -191,7 +194,6 @@ private:
 
     ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
-    void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
     void _WaitForFrame(DX12Frame_t& frame);
@@ -206,7 +208,6 @@ private:
     void _HandleScreenshot(DX12Frame_t& frame);
 
     // Hook to render functions
-    decltype(&ID3D12Device::Release)                   _ID3D12DeviceRelease;
     decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain::ResizeBuffers)           _IDXGISwapChainResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)            _IDXGISwapChainResizeTarget;
@@ -214,7 +215,7 @@ private:
     decltype(&IDXGISwapChain3::ResizeBuffers1)         _IDXGISwapChain3ResizeBuffers1;
     decltype(&ID3D12CommandQueue::ExecuteCommandLists) _ID3D12CommandQueueExecuteCommandLists;
 
-    static ULONG   STDMETHODCALLTYPE _MyID3D12DeviceRelease(IUnknown* _this);
+    static void _OnSwapChainDestroyed(void* userData);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
@@ -234,7 +235,6 @@ public:
     virtual RendererHookType_t GetRendererHookType() const override;
 
     void LoadFunctions(
-        decltype(_ID3D12DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
         decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
