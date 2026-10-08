@@ -109,7 +109,6 @@ struct DirectX11Driver_t
 struct DirectX12Driver_t
 {
     std::filesystem::path LibraryPath;
-    decltype(&ID3D12Device::Release) pfnRelease;
     decltype(&IDXGISwapChain::Present) pfnPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
@@ -674,10 +673,6 @@ static DirectX12Driver_t GetDX12Driver(std::filesystem::path const& directX12Lib
         pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
 
         {
-            void** vTable = *reinterpret_cast<void***>(pDevice);
-            (void*&)driver.pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
-        }
-        {
             void** vTable = *reinterpret_cast<void***>(pCommandQueue);
             (void*&)driver.pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
         }
@@ -895,7 +890,7 @@ static DX12Hook_t* GetDX12RendererHook(DirectX12Driver_t const& driver)
 
     auto rendererHook = DX12Hook_t::Inst();
     rendererHook->SetLibraryPath(driver.LibraryPath);
-    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
+    rendererHook->LoadFunctions(driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
     return rendererHook;
 }
 

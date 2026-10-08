@@ -24,7 +24,68 @@
 #include <imgui_internal.h>
 #include <backends/imgui_impl_dx12.h>
 
+#include <atomic>
+
 namespace InGameOverlay {
+
+// {6C2E9F1A-3B7D-4E58-A1C4-9D0B7E2F5A63}
+static constexpr GUID SwapChainDestructionNotifierGuid = { 0x6c2e9f1a, 0x3b7d, 0x4e58, { 0xa1, 0xc4, 0x9d, 0x0b, 0x7e, 0x2f, 0x5a, 0x63 } };
+
+// Stored as private data in the application swapchain: DXGI releases it when the swapchain is destroyed,
+// which is our signal to release every overlay resource holding a reference on the application device.
+class SwapChainDestructionNotifier_t : public IUnknown
+{
+    std::atomic<ULONG> _RefCount;
+    void (*_Callback)(void*);
+    void* _UserData;
+
+public:
+    SwapChainDestructionNotifier_t(void (*callback)(void*), void* userData) :
+        _RefCount(1),
+        _Callback(callback),
+        _UserData(userData)
+    {}
+
+    // Called when we remove the notifier ourselves, the callback must not run in that case.
+    void Detach()
+    {
+        _Callback = nullptr;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override
+    {
+        if (ppvObject == nullptr)
+            return E_POINTER;
+
+        if (riid != __uuidof(IUnknown))
+        {
+            *ppvObject = nullptr;
+            return E_NOINTERFACE;
+        }
+
+        *ppvObject = static_cast<IUnknown*>(this);
+        AddRef();
+        return S_OK;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return ++_RefCount;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG refCount = --_RefCount;
+        if (refCount == 0)
+        {
+            if (_Callback != nullptr)
+                _Callback(_UserData);
+
+            delete this;
+        }
+        return refCount;
+    }
+};
 
 struct DX12Texture_t : RendererTexture_t {
     D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle = {};
@@ -94,7 +155,7 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 {
     if (!_Hooked)
     {
-        if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
+        if (_IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook DirectX 12: Rendering functions missing.");
             return false;
@@ -106,7 +167,6 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
         _WindowsHooked = true;
 
         BeginHook();
-        TRY_HOOK_FUNCTION(ID3D12DeviceRelease);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeBuffers);
@@ -258,42 +318,6 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
     return pCommandQueue;
 }
 
-void DX12Hook_t::_UpdateHookDeviceRefCount()
-{
-    switch (_HookState)
-    {
-        case OverlayHookState::Removing: _HookDeviceRefCount =
-            + 1 // _Device->AddRef
-            ;
-            break;
-        // ImGui:
-        //   PipelineState
-        //   FontTexture
-        //   (VertexBuffer + IndexBuffer) * FrameCount
-        case OverlayHookState::Ready: _HookDeviceRefCount =
-            + 6 // 6 From swapchain
-            + 1 // ID3D12RootSignature (linear) (singleton per device)
-            + 1 // ID3D12RootSignature (neared) (singleton per device)
-            + 2 // 2 From lazy initialization of DX12, the device gets 2 refs randomly in ImGui_ImplDX12_CreateDeviceObjects 
-            + 1 // _Device->AddRef
-            + 1 // RenderTargetViewDescriptorHeap
-            + 1 // FrameFence
-            + (_OverlayFrames.size() * 2) + 1 // FrameCount * (RenderTargetCommandAllocator + RenderTargetCommandList)
-            + 1 // ImageFence
-            + 1 // ImageCommandQueue
-            + 1 // ImageCommandAllocator
-            + 1 // ImageCommandList
-            + _ShaderResourceViewHeapDescriptors.size()
-            + _ImageResourcesToRelease.size()
-            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
-            + 1 // ID3D12PipelineState (linear)
-            + 1 // ID3D12PipelineState (nearest)
-            + (_OverlayFrames.size() * 2) // ImGui VertexBuffer + IndexBuffer
-            ;
-            break;
-    }
-}
-
 bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
     IDXGISwapChain3* pSwapChain3 = nullptr;
@@ -367,6 +391,8 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
             }
 
             _Device->CreateRenderTargetView(frame.BackBuffer, NULL, rtvHandle);
+            // Back buffers are acquired again on each frame, holding them could keep the swapchain alive.
+            SafeRelease(frame.BackBuffer);
             frame.RenderTarget = rtvHandle;
             rtvHandle.ptr += rtvDescriptorSize;
         }
@@ -507,17 +533,22 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
     
-    if (state == OverlayHookState::Removing)
-        ++_DeviceReleasing;
-
     OverlayHookReady(state);
     
     _HookState = state;
-    _UpdateHookDeviceRefCount();
 
     switch (state)
     {
         case OverlayHookState::Removing:
+            if (_SwapChainNotifier != nullptr)
+            {
+                // The swapchain is still alive (resize failure, hook removal), stop watching it.
+                _SwapChainNotifier->Detach();
+                _SwapChain->SetPrivateDataInterface(SwapChainDestructionNotifierGuid, nullptr);
+                _SwapChainNotifier = nullptr;
+                _SwapChain = nullptr;
+            }
+
             ImGui_ImplDX12_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
@@ -542,9 +573,6 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             _DestroyRenderTargets();
 
     }
-    
-    if (state == OverlayHookState::Removing)
-        --_DeviceReleasing;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -639,12 +667,32 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             return;
         }
 
+        // Tie the overlay lifetime to the swapchain instead of guessing the device reference count.
+        auto* notifier = new SwapChainDestructionNotifier_t(&DX12Hook_t::_OnSwapChainDestroyed, this);
+        if (SUCCEEDED(pSwapChain->SetPrivateDataInterface(SwapChainDestructionNotifierGuid, notifier)))
+        {
+            _SwapChain = pSwapChain;
+            _SwapChainNotifier = notifier;
+        }
+        else
+        {
+            INGAMEOVERLAY_WARN("Failed to watch the DirectX 12 swapchain destruction.");
+            notifier->Detach();
+        }
+        notifier->Release();
+
         _ResetRenderState(OverlayHookState::Ready);
     }
 
     if (ImGui_ImplDX12_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(sc_desc.OutputWindow))
     {
-        auto& frame = _OverlayFrames[pSwapChain3->GetCurrentBackBufferIndex()];
+        const UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
+        auto& frame = _OverlayFrames[bufferIndex];
+        if (FAILED(pSwapChain3->GetBuffer(bufferIndex, IID_PPV_ARGS(&frame.BackBuffer))))
+        {
+            pSwapChain3->Release();
+            return;
+        }
 
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -694,6 +742,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(frame);
+
+        SafeRelease(frame.BackBuffer);
     }
 
     pSwapChain3->Release();
@@ -878,8 +928,6 @@ void DX12Hook_t::_LoadResources()
 
     _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
         _ImageResourcesToLoad.begin() + loadParameterCount);
-
-    _UpdateHookDeviceRefCount();
 }
 
 void DX12Hook_t::_ReleaseResources()
@@ -898,8 +946,6 @@ void DX12Hook_t::_ReleaseResources()
             ++it;
         }
     }
-
-    _UpdateHookDeviceRefCount();
 }
 
 void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
@@ -1066,20 +1112,15 @@ cleanup:
         _SendScreenshot(nullptr);
 }
 
-ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
+void DX12Hook_t::_OnSwapChainDestroyed(void* userData)
 {
-    auto inst = DX12Hook_t::Inst();
-    auto result = (_this->*inst->_ID3D12DeviceRelease)();
+    auto* inst = reinterpret_cast<DX12Hook_t*>(userData);
+    INGAMEOVERLAY_INFO("DirectX 12 swapchain destroyed, removing the overlay.");
 
-    if (_this == inst->_Device)
-    {
-        INGAMEOVERLAY_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
-
-        if (inst->_DeviceReleasing == 0 && result <= inst->_HookDeviceRefCount)
-            inst->_ResetRenderState(OverlayHookState::Removing);
-    }
-
-    return result;
+    // The swapchain is being destroyed, it must not be used anymore.
+    inst->_SwapChainNotifier = nullptr;
+    inst->_SwapChain = nullptr;
+    inst->_ResetRenderState(OverlayHookState::Removing);
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
@@ -1185,13 +1226,13 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _DeviceReleasing(0),
     _CommandQueueOffsetRetries(0),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
-    _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
+    _SwapChain(nullptr),
+    _SwapChainNotifier(nullptr),
     _RenderTargetViewDescriptorHeap(nullptr),
     _FrameFence(nullptr),
     _FrameFenceEvent(nullptr),
@@ -1208,7 +1249,6 @@ DX12Hook_t::DX12Hook_t():
     _ScreenshotCommandAllocator(nullptr),
     _ScreenshotCommandList(nullptr),
     _ImGuiFontAtlas(nullptr),
-    _ID3D12DeviceRelease(nullptr),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),
     _IDXGISwapChainResizeTarget(nullptr),
@@ -1250,7 +1290,6 @@ RendererHookType_t DX12Hook_t::GetRendererHookType() const
 }
 
 void DX12Hook_t::LoadFunctions(
-    decltype(_ID3D12DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,
     decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
     decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
@@ -1258,8 +1297,6 @@ void DX12Hook_t::LoadFunctions(
     decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
     decltype(_ID3D12CommandQueueExecuteCommandLists) executeCommandListsFcn)
 {
-    _ID3D12DeviceRelease = releaseFcn;
-
     _IDXGISwapChainPresent = presentFcn;
     _IDXGISwapChainResizeBuffers = resizeBuffersFcn;
     _IDXGISwapChainResizeTarget = resizeTargetFcn;
