@@ -296,6 +296,7 @@ CGLError OpenGLHook_t::_MyCGLFlushDrawable(CGLContextObj glDrawable)
 
 OpenGLHook_t::OpenGLHook_t():
     _Hooked(false),
+    _NSViewHooked(false),
     _Initialized(false),
     _ImGuiFontAtlas(nullptr),
     _NSOpenGLContextFlushBufferMethod(nullptr),
