@@ -891,31 +891,36 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
-        if (ImGui_ImplVulkan_NewFrame() && !X11Hook_t::Inst()->PrepareForOverlay((Display*)_Display->DisplayHandle, _Window))
-            return;
-        
+        // The command buffer is recording and the fence has been reset: it must always be submitted,
+        // even if the overlay cannot render this frame, or the next vkWaitForFences will never return.
+        auto canTakeScreenshot = false;
         auto screenshotType = _ScreenshotType();
-        if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot(frame);
-
-        if (_ImGuiFontAtlas != nullptr)
+        if (ImGui_ImplVulkan_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay((Display*)_Display->DisplayHandle, _Window))
         {
-            const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+            if (screenshotType == ScreenshotType_t::BeforeOverlay)
+                _HandleScreenshot(frame);
+
+            if (_ImGuiFontAtlas != nullptr)
+            {
+                const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
+                ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+            }
+
+            ++_CurrentFrame;
+            ImGui::NewFrame();
+
+            OverlayProc();
+
+            _LoadResources();
+            _ReleaseResources();
+
+            ImGui::Render();
+
+            // Record dear imgui primitives into command buffer
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
+
+            canTakeScreenshot = true;
         }
-
-        ++_CurrentFrame;
-        ImGui::NewFrame();
-
-        OverlayProc();
-
-        _LoadResources();
-        _ReleaseResources();
-
-        ImGui::Render();
-
-        // Record dear imgui primitives into command buffer
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), frame.CommandBuffer);
 
         // Submit command buffer
         _vkCmdEndRenderPass(frame.CommandBuffer);
@@ -974,7 +979,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkQueueSubmit(_VulkanQueue, 1, &info, frame.Fence);
         }
 
-        if (screenshotType == ScreenshotType_t::AfterOverlay)
+        if (canTakeScreenshot && screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(frame);
     }
 }
