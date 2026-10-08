@@ -223,7 +223,18 @@ void OpenGLHook_t::_LoadResources()
 
 void OpenGLHook_t::_ReleaseResources()
 {
-    _ImageResourcesToRelease.clear();
+    // Keep the resources released during this frame, the current draw data may still use them.
+    for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
+    {
+        if (it->ReleaseFrame < _CurrentFrame)
+        {
+            it = _ImageResourcesToRelease.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
 }
 
 void OpenGLHook_t::_HandleScreenshot()

@@ -365,7 +365,18 @@ void DX9Hook_t::_ReleaseResources()
     if (_ImageResourcesToRelease.empty())
         return;
 
-    _ImageResourcesToRelease.clear();
+    // Keep the resources released during this frame, the current draw data may still use them.
+    for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
+    {
+        if (it->ReleaseFrame < _CurrentFrame)
+        {
+            it = _ImageResourcesToRelease.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
     _UpdateHookDeviceRefCount();
 }
 
