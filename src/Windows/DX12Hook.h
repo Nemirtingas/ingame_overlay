@@ -93,12 +93,14 @@ private:
         ID3D12CommandAllocator* CommandAllocator = nullptr;
         ID3D12GraphicsCommandList* CommandList = nullptr;
         ID3D12Resource* BackBuffer = nullptr;
+        UINT64 FenceValue = 0;
 
         inline void Reset()
         {
             CommandAllocator = nullptr;
             CommandList = nullptr;
             BackBuffer = nullptr;
+            FenceValue = 0;
         }
 
         DX12Frame_t() = default;
@@ -111,6 +113,7 @@ private:
             , CommandAllocator(other.CommandAllocator)
             , CommandList(other.CommandList)
             , BackBuffer(other.BackBuffer)
+            , FenceValue(other.FenceValue)
         {
             other.Reset();
         }
@@ -121,6 +124,7 @@ private:
             CommandAllocator = other.CommandAllocator;
             CommandList = other.CommandList;
             BackBuffer = other.BackBuffer;
+            FenceValue = other.FenceValue;
             other.Reset();
 
             return *this;
@@ -153,6 +157,10 @@ private:
     std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;
     // Render Target View heap
     ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
+    // Signaled on the application queue after each overlay frame, see DX12Frame_t::FenceValue.
+    ID3D12Fence* _FrameFence;
+    HANDLE _FrameFenceEvent;
+    UINT64 _FrameFenceValue;
 
     HANDLE _ImageEvent;
     UINT64 _ImageFenceValue;
@@ -186,6 +194,7 @@ private:
     void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
+    void _WaitForFrame(DX12Frame_t& frame);
     bool _CreateImageObjects();
     void _DestroyImageObjects();
     bool _CreateScreenshotObjects();

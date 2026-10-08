@@ -277,6 +277,7 @@ void DX12Hook_t::_UpdateHookDeviceRefCount()
             + 2 // 2 From lazy initialization of DX12, the device gets 2 refs randomly in ImGui_ImplDX12_CreateDeviceObjects 
             + 1 // _Device->AddRef
             + 1 // RenderTargetViewDescriptorHeap
+            + 1 // FrameFence
             + (_OverlayFrames.size() * 2) + 1 // FrameCount * (RenderTargetCommandAllocator + RenderTargetCommandList)
             + 1 // ImageFence
             + 1 // ImageCommandQueue
@@ -301,6 +302,19 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     // Happens when the functions have been hooked, but the DX hook is not setup yet.
     if (_Device == nullptr)
         return false;
+
+    if (_FrameFence == nullptr)
+    {
+        if (_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_FrameFence)) != S_OK)
+            return false;
+
+        _FrameFenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (_FrameFenceEvent == nullptr)
+        {
+            SafeRelease(_FrameFence);
+            return false;
+        }
+    }
 
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
     if (pSwapChain3 == nullptr)
@@ -365,8 +379,31 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 
 void DX12Hook_t::_DestroyRenderTargets()
 {
+    // The frames command allocators and lists may still be used by the GPU.
+    if (_FrameFence != nullptr)
+    {
+        for (auto& frame : _OverlayFrames)
+            _WaitForFrame(frame);
+    }
+
     _OverlayFrames.clear();
     SafeRelease(_RenderTargetViewDescriptorHeap);
+    SafeRelease(_FrameFence);
+    if (_FrameFenceEvent != NULL)
+    {
+        CloseHandle(_FrameFenceEvent);
+        _FrameFenceEvent = NULL;
+    }
+    _FrameFenceValue = 0;
+}
+
+void DX12Hook_t::_WaitForFrame(DX12Frame_t& frame)
+{
+    if (frame.FenceValue == 0 || _FrameFence->GetCompletedValue() >= frame.FenceValue)
+        return;
+
+    if (SUCCEEDED(_FrameFence->SetEventOnCompletion(frame.FenceValue, _FrameFenceEvent)))
+        WaitForSingleObject(_FrameFenceEvent, INFINITE);
 }
 
 bool DX12Hook_t::_CreateImageObjects()
@@ -635,6 +672,9 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
+        // The allocator can only be reset once the GPU finished the previous overlay frame using it,
+        // the application presenting faster than the GPU must not make us overwrite commands in flight.
+        _WaitForFrame(frame);
         frame.CommandAllocator->Reset();
         frame.CommandList->Reset(frame.CommandAllocator, NULL);
         frame.CommandList->ResourceBarrier(1, &barrier);
@@ -649,6 +689,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         frame.CommandList->Close();
 
         pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&frame.CommandList);
+        if (SUCCEEDED(pCommandQueue->Signal(_FrameFence, ++_FrameFenceValue)))
+            frame.FenceValue = _FrameFenceValue;
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(frame);
@@ -1151,6 +1193,9 @@ DX12Hook_t::DX12Hook_t():
     _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _RenderTargetViewDescriptorHeap(nullptr),
+    _FrameFence(nullptr),
+    _FrameFenceEvent(nullptr),
+    _FrameFenceValue(0),
     _ImageEvent(nullptr),
     _ImageFenceValue(0),
     _ImageFence(nullptr),
