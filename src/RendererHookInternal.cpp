@@ -29,6 +29,9 @@ RendererHookInternal_t::RendererHookInternal_t() :
     _BatchSize(10),
     _CurrentFrame(0)
 {
+    // No-op defaults so the render loop can call them without checking if the user set them.
+    OverlayProc = []() {};
+    OverlayHookReady = [](OverlayHookState) {};
 }
 
 RendererHookInternal_t::~RendererHookInternal_t()
