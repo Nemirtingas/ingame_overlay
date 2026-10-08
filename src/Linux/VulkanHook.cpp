@@ -380,6 +380,8 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
 
             _FreeVulkanRessources();
 
