@@ -98,3 +98,4 @@ There is no automated test suite. "Testing" means the CI build succeeds on Windo
 - Edit vendored code (`src/glad2`, `src/VulkanSDK`, `tests/common/vulkansdk`, `tests/common/stb_image.h`) or submodule contents in `deps/` from this repository; changes to ImGui or mini_detour belong in their own repos.
 - Commit build output (`OUT/`, `build/`) or `deps/spdlog`.
 - Push to any remote (`git push`, opening pull requests, etc.). Work only in the local repository: create branches and commits locally, and leave pushing to the developer.
+- Add `Co-Authored-By` or any other AI attribution trailer to commit messages.
