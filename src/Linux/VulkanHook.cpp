@@ -407,6 +407,7 @@ void VulkanHook_t::_FreeVulkanRessources()
     _DestroyImageDevices();
 
     _DestroyDescriptorPools();
+    _DestroyRenderPass();
 
     _VulkanQueue = nullptr;
     _VulkanDevice = nullptr;
