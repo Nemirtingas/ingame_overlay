@@ -251,7 +251,6 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
 
     if (!_Initialized)
     {
-        _GameHwnd = hWnd;
         if (hWnd == nullptr)
         {
             // If the hWnd is null, we still want an overlay, so try to find the HWND of the current thread.
@@ -261,6 +260,7 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
                 return false;
         }
 
+        _GameHwnd = hWnd;
         ImGui_ImplWin32_Init(_GameHwnd, &WindowsHook_t::_ImGuiGetKeyState);
 
         _Initialized = true;
