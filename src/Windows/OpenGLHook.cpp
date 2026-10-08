@@ -119,6 +119,13 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
     if (!_Initialized)
     {
+        // The renderer can be obtained with GetRenderer, without the detector loading glad.
+        if (gladLoaderLoadGL() < GLAD_MAKE_VERSION(3, 1))
+        {
+            INGAMEOVERLAY_WARN("Failed to load OpenGL functions or OpenGL version is lower than 3.1.");
+            return;
+        }
+
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
