@@ -402,6 +402,35 @@ void DX12Hook_t::_WaitForFrame(DX12Frame_t& frame)
         WaitForSingleObject(_FrameFenceEvent, INFINITE);
 }
 
+bool DX12Hook_t::_ConfirmDeviceLost(HRESULT result, bool checkDeviceHealth)
+{
+    if (_DeviceLost)
+        return true;
+    if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET ||
+        result == DXGI_ERROR_DEVICE_HUNG ||
+        (checkDeviceHealth && _Device != nullptr && FAILED(_Device->GetDeviceRemovedReason())))
+    {
+        _DeviceLost = true;
+        INGAMEOVERLAY_WARN("DirectX 12 device lost (HRESULT 0x{:08X}).", static_cast<unsigned int>(result));
+        return true;
+    }
+    return false;
+}
+
+bool DX12Hook_t::_ConfirmDeviceLostForSwapChain(IDXGISwapChain* swapChain, HRESULT result)
+{
+    if (_Device == nullptr || SUCCEEDED(result))
+        return false;
+
+    ID3D12Device* presentingDevice = nullptr;
+    if (FAILED(swapChain->GetDevice(IID_PPV_ARGS(&presentingDevice))) || presentingDevice == nullptr)
+        return false;
+
+    const bool isActiveDevice = presentingDevice == _Device || _SwapChain == swapChain;
+    presentingDevice->Release();
+    return isActiveDevice && _ConfirmDeviceLost(result, true);
+}
+
 bool DX12Hook_t::_CreateImageObjects()
 {
     HRESULT hr;
@@ -725,12 +754,23 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
     if(_HookState == OverlayHookState::Removing)
     {
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
-        _Device = nullptr;
-        if (pSwapChain3->GetDevice(IID_PPV_ARGS(&_Device)) != S_OK)
+        ID3D12Device* candidateDevice = nullptr;
+        if (FAILED(pSwapChain3->GetDevice(IID_PPV_ARGS(&candidateDevice))) || candidateDevice == nullptr)
         {
             pSwapChain3->Release();
             return;
         }
+        if (FAILED(candidateDevice->GetDeviceRemovedReason()))
+        {
+            _DeviceLost = true;
+            candidateDevice->Release();
+            pSwapChain3->Release();
+            return;
+        }
+        SafeRelease(_Device);
+        _Device = candidateDevice;
+        _DeviceLost = false;
+        _WaitFailureUnsafe = false;
 
         bool contextCreated = false;
         bool backendInitialized = false;
@@ -1425,10 +1465,13 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
         return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
-    if (pCommandQueue != nullptr)
+    if (pCommandQueue != nullptr && !inst->_WaitFailureUnsafe)
         inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
-    return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    HRESULT result = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, result))
+        inst->_ResetRenderState(OverlayHookState::Removing);
+    return result;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
@@ -1446,6 +1489,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1471,6 +1519,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1492,10 +1545,13 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
         return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
-    if (pCommandQueue != nullptr)
+    if (pCommandQueue != nullptr && !inst->_WaitFailureUnsafe)
         inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
-    return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    HRESULT result = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, result))
+        inst->_ResetRenderState(OverlayHookState::Removing);
+    return result;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
@@ -1513,6 +1569,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwap
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1541,6 +1602,8 @@ DX12Hook_t::DX12Hook_t():
     _CommandQueue(nullptr),
     _Device(nullptr),
     _HookState(OverlayHookState::Removing),
+    _DeviceLost(false),
+    _WaitFailureUnsafe(false),
     _SwapChain(nullptr),
     _SwapChainNotifier(nullptr),
     _RenderTargetViewDescriptorHeap(nullptr),

@@ -179,6 +179,8 @@ private:
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
     OverlayHookState _HookState;
+    bool _DeviceLost;
+    bool _WaitFailureUnsafe;
     // Not owned, only valid while _SwapChainNotifier is set.
     IDXGISwapChain* _SwapChain;
     ComDestructionNotifier_t* _SwapChainNotifier;
@@ -231,6 +233,8 @@ private:
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
     void _WaitForFrame(DX12Frame_t& frame);
+    bool _ConfirmDeviceLost(HRESULT result = S_OK, bool checkDeviceHealth = false);
+    bool _ConfirmDeviceLostForSwapChain(IDXGISwapChain* swapChain, HRESULT result);
     bool _CreateImageObjects();
     void _DestroyImageObjects();
     bool _CreateScreenshotObjects();
