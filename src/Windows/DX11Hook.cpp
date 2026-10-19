@@ -342,8 +342,25 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
         ImGui::Render();
 
-        _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        {
+            struct RenderTargetState_t
+            {
+                ID3D11RenderTargetView* RenderTargetViews[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+                ID3D11DepthStencilView* DepthStencilView = nullptr;
+
+                ~RenderTargetState_t()
+                {
+                    for (auto*& renderTargetView : RenderTargetViews)
+                        SafeRelease(renderTargetView);
+                    SafeRelease(DepthStencilView);
+                }
+            } renderTargetState;
+
+            _DeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, &renderTargetState.DepthStencilView);
+            _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            _DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, renderTargetState.DepthStencilView);
+        }
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(pSwapChain);
