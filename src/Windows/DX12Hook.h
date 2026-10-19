@@ -141,6 +141,32 @@ private:
         }
     };
 
+    struct PendingScreenshot_t
+    {
+        ID3D12Resource* Staging = nullptr;
+        ID3D12Resource* BackBuffer = nullptr;
+        ID3D12CommandQueue* CommandQueue = nullptr;
+        UINT Width = 0;
+        UINT Height = 0;
+        DXGI_FORMAT Format = DXGI_FORMAT_UNKNOWN;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT Footprint = {};
+        UINT64 FenceValue = 0;
+        ScreenshotType_t Type = ScreenshotType_t::None;
+        uint64_t RequestId = 0;
+        bool Submitted = false;
+        bool Signaled = false;
+    };
+
+    struct RetainedScreenshotBatch_t
+    {
+        PendingScreenshot_t Pending;
+        ID3D12Fence* Fence = nullptr;
+        ID3D12CommandAllocator* Allocator = nullptr;
+        ID3D12GraphicsCommandList* CommandList = nullptr;
+        HANDLE Event = nullptr;
+        RetainedScreenshotBatch_t* Next = nullptr;
+    };
+
     // Variables
     std::string LibraryName;
     std::filesystem::path LibraryPath;
@@ -184,6 +210,9 @@ private:
     ID3D12Fence* _ScreenshotFence;
     ID3D12CommandAllocator* _ScreenshotCommandAllocator;
     ID3D12GraphicsCommandList* _ScreenshotCommandList;
+    PendingScreenshot_t _PendingScreenshot;
+    bool _ScreenshotQueueFailed;
+    bool _ScreenshotDeviceLost;
 
     void* _ImGuiFontAtlas;
     bool _ImGuiContextOwned;
@@ -206,12 +235,13 @@ private:
     void _DestroyImageObjects();
     bool _CreateScreenshotObjects();
     void _DestroyScreenshotObjects();
+    bool _PollScreenshot(bool waitForCompletion, DWORD timeout);
     void _ResetRenderState(OverlayHookState state);
     bool _IsSwapChain(IUnknown* pSwapChain) const;
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
     void _LoadResources();
     void _ReleaseResources();
-    void _HandleScreenshot(DX12Frame_t& frame);
+    void _HandleScreenshot(DX12Frame_t& frame, ID3D12CommandQueue* pCommandQueue);
 
     // Hook to render functions
     decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;

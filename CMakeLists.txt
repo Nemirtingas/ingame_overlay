@@ -273,6 +273,11 @@ set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
 if(${INGAMEOVERLAY_BUILD_TESTS})
 
+  add_executable(dx12_screenshot_requests_test
+    tests/dx12_screenshot_requests/main.cpp
+  )
+  target_link_libraries(dx12_screenshot_requests_test PRIVATE ingame_overlay)
+
   if(WIN32)
     if(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS)
       add_executable(windows_shaders

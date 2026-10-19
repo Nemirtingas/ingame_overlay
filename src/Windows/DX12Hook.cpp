@@ -25,6 +25,8 @@
 #include <limits>
 #include <backends/imgui_impl_dx12.h>
 
+#include <new>
+
 #include "ComDestructionNotifier.h"
 
 namespace InGameOverlay {
@@ -477,6 +479,52 @@ on_fail:
 
 void DX12Hook_t::_DestroyScreenshotObjects()
 {
+    if (_ScreenshotDeviceLost)
+    {
+        SafeRelease(_PendingScreenshot.Staging);
+        SafeRelease(_PendingScreenshot.BackBuffer);
+        SafeRelease(_PendingScreenshot.CommandQueue);
+        _PendingScreenshot = {};
+        if (_ScreenshotEvent != NULL)
+        {
+            CloseHandle(_ScreenshotEvent);
+            _ScreenshotEvent = NULL;
+        }
+        SafeRelease(_ScreenshotFence);
+        SafeRelease(_ScreenshotCommandList);
+        SafeRelease(_ScreenshotCommandAllocator);
+        _ScreenshotQueueFailed = false;
+        _ScreenshotDeviceLost = false;
+        return;
+    }
+    if (_PendingScreenshot.Submitted)
+    {
+        // Without a completed fence (including the 250 ms removal wait), D3D12
+        // gives us no safe point to release these references. In particular,
+        // retaining BackBuffer can delay swapchain destruction if no later
+        // Present occurs; releasing it here could invalidate in-flight GPU work.
+        static RetainedScreenshotBatch_t* retainedBatches = nullptr;
+        auto* retained = new (std::nothrow) RetainedScreenshotBatch_t{};
+        if (retained != nullptr)
+        {
+            retained->Pending = _PendingScreenshot;
+            retained->Fence = _ScreenshotFence;
+            retained->Allocator = _ScreenshotCommandAllocator;
+            retained->CommandList = _ScreenshotCommandList;
+            retained->Event = _ScreenshotEvent;
+            retained->Next = retainedBatches;
+            retainedBatches = retained;
+        }
+        // If allocation fails, intentionally leak the COM references by dropping
+        // our raw pointers; releasing them could free objects still used by the GPU.
+        _PendingScreenshot = {};
+        _ScreenshotFence = nullptr;
+        _ScreenshotCommandAllocator = nullptr;
+        _ScreenshotCommandList = nullptr;
+        _ScreenshotEvent = nullptr;
+        _ScreenshotQueueFailed = false;
+        return;
+    }
     if (_ScreenshotEvent != NULL)
     {
         CloseHandle(_ScreenshotEvent);
@@ -485,6 +533,82 @@ void DX12Hook_t::_DestroyScreenshotObjects()
     SafeRelease(_ScreenshotFence);
     SafeRelease(_ScreenshotCommandList);
     SafeRelease(_ScreenshotCommandAllocator);
+    _ScreenshotQueueFailed = false;
+}
+
+bool DX12Hook_t::_PollScreenshot(bool waitForCompletion, DWORD timeout)
+{
+    if (!_PendingScreenshot.Submitted)
+        return true;
+
+    if (!_PendingScreenshot.Signaled || _ScreenshotFence == nullptr)
+        return false;
+
+    UINT64 completed = _ScreenshotFence->GetCompletedValue();
+    if (completed == UINT64_MAX)
+    {
+        _ScreenshotQueueFailed = true;
+        _ScreenshotDeviceLost = true;
+        return false;
+    }
+
+    if (completed < _PendingScreenshot.FenceValue && waitForCompletion)
+    {
+        if (FAILED(_ScreenshotFence->SetEventOnCompletion(_PendingScreenshot.FenceValue, _ScreenshotEvent)) ||
+            WaitForSingleObject(_ScreenshotEvent, timeout) != WAIT_OBJECT_0)
+            return false;
+        completed = _ScreenshotFence->GetCompletedValue();
+    }
+    if (completed == UINT64_MAX)
+    {
+        _ScreenshotQueueFailed = true;
+        _ScreenshotDeviceLost = true;
+        return false;
+    }
+    if (completed < _PendingScreenshot.FenceValue)
+        return false;
+
+    HRESULT hr = _ScreenshotCommandAllocator->Reset();
+    if (SUCCEEDED(hr))
+        hr = _ScreenshotCommandList->Reset(_ScreenshotCommandAllocator, nullptr);
+    if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
+        SafeRelease(_PendingScreenshot.Staging);
+        SafeRelease(_PendingScreenshot.BackBuffer);
+        SafeRelease(_PendingScreenshot.CommandQueue);
+        const auto requestId = _PendingScreenshot.RequestId;
+        _PendingScreenshot = {};
+        _SendScreenshotForRequest(requestId, nullptr);
+        return true;
+    }
+
+    PendingScreenshot_t completedScreenshot = _PendingScreenshot;
+    _PendingScreenshot = {};
+    BYTE* mapped = nullptr;
+    hr = completedScreenshot.Staging->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+    if (SUCCEEDED(hr) && mapped != nullptr)
+    {
+        ScreenshotCallbackParameter_t screenshot{};
+        screenshot.Width = completedScreenshot.Width;
+        screenshot.Height = completedScreenshot.Height;
+        screenshot.Pitch = completedScreenshot.Footprint.Footprint.RowPitch;
+        screenshot.Data = mapped;
+        screenshot.Format = RendererFormatToScreenshotFormat(completedScreenshot.Format);
+
+        _SendScreenshotForRequest(completedScreenshot.RequestId, &screenshot);
+
+        completedScreenshot.Staging->Unmap(0, nullptr);
+    }
+    else
+    {
+        _SendScreenshotForRequest(completedScreenshot.RequestId, nullptr);
+    }
+
+    SafeRelease(completedScreenshot.Staging);
+    SafeRelease(completedScreenshot.BackBuffer);
+    SafeRelease(completedScreenshot.CommandQueue);
+    return true;
 }
 
 void DX12Hook_t::_ResetRenderState(OverlayHookState state)
@@ -492,9 +616,8 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
     
-    OverlayHookReady(state);
-    
     _HookState = state;
+    OverlayHookReady(state);
 
     switch (state)
     {
@@ -523,6 +646,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
                 _PendingImageFenceValid = false;
             }
             _ImageUploadBatchState.Reset();
+            _PollScreenshot(true, 250);
             if (_SwapChainNotifier != nullptr)
             {
                 // The swapchain is still alive (resize failure, hook removal), stop watching it.
@@ -557,6 +681,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             break;
 
         case OverlayHookState::Reset:
+            _PollScreenshot(true, 250);
             _DestroyRenderTargets();
 
     }
@@ -594,6 +719,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         return;
 
     pSwapChain3->GetDesc(&sc_desc);
+
+    _PollScreenshot(false, 0);
 
     if(_HookState == OverlayHookState::Removing)
     {
@@ -725,8 +852,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         }
 
         auto screenshotType = _ScreenshotType();
-        if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot(frame);
+        if (screenshotType == ScreenshotType_t::BeforeOverlay && !_PendingScreenshot.Submitted && !_ScreenshotQueueFailed)
+            _HandleScreenshot(frame, pCommandQueue);
 
         if (_ImGuiFontAtlas != nullptr)
         {
@@ -770,8 +897,8 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         if (SUCCEEDED(pCommandQueue->Signal(_FrameFence, ++_FrameFenceValue)))
             frame.FenceValue = _FrameFenceValue;
 
-        if (screenshotType == ScreenshotType_t::AfterOverlay)
-            _HandleScreenshot(frame);
+        if (screenshotType == ScreenshotType_t::AfterOverlay && !_PendingScreenshot.Submitted && !_ScreenshotQueueFailed)
+            _HandleScreenshot(frame, pCommandQueue);
 
         SafeRelease(frame.BackBuffer);
     }
@@ -1100,7 +1227,7 @@ void DX12Hook_t::_ReleaseResources()
     }
 }
 
-void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
+void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame, ID3D12CommandQueue* pCommandQueue)
 {
     bool result = false;
 
@@ -1126,6 +1253,29 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
     ScreenshotCallbackParameter_t screenshot;
 
     HRESULT hr;
+    const uint64_t requestId = _ScreenshotRequestId();
+
+    if (pCommandQueue == nullptr || _PendingScreenshot.Submitted || _ScreenshotQueueFailed)
+        return;
+
+    ID3D12Device* queueDevice = nullptr;
+    hr = pCommandQueue->GetDevice(IID_PPV_ARGS(&queueDevice));
+    IUnknown* queueIdentity = nullptr;
+    IUnknown* deviceIdentity = nullptr;
+    if (SUCCEEDED(hr) && queueDevice != nullptr)
+        hr = queueDevice->QueryInterface(IID_PPV_ARGS(&queueIdentity));
+    if (SUCCEEDED(hr) && _Device != nullptr)
+        hr = _Device->QueryInterface(IID_PPV_ARGS(&deviceIdentity));
+    const bool sameDevice = SUCCEEDED(hr) && queueIdentity != nullptr && deviceIdentity != nullptr && queueIdentity == deviceIdentity;
+    SafeRelease(queueIdentity);
+    SafeRelease(deviceIdentity);
+    if (FAILED(hr) || queueDevice == nullptr || !sameDevice)
+    {
+        SafeRelease(queueDevice);
+        _SendScreenshotForRequest(requestId, nullptr);
+        return;
+    }
+    queueDevice->Release();
 
     _Device->GetCopyableFootprints(&desc, 0, 1, 0, &layout, &numRows, &rowSize, &totalSize);
 
@@ -1146,7 +1296,7 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
         screenshot.Data = reinterpret_cast<void*>(pMappedMemory);
         screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
 
-        _SendScreenshot(&screenshot);
+        _SendScreenshotForRequest(requestId, &screenshot);
 
         frame.BackBuffer->Unmap(0, nullptr);
 
@@ -1210,47 +1360,36 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
 
     hr = _ScreenshotCommandList->Close();
     if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
         goto cleanup;
+    }
 
-    _CommandQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&_ScreenshotCommandList));
+    pCommandQueue->AddRef();
+    frame.BackBuffer->AddRef();
+    _PendingScreenshot.Staging = pStaging;
+    pStaging = nullptr;
+    _PendingScreenshot.BackBuffer = frame.BackBuffer;
+    _PendingScreenshot.CommandQueue = pCommandQueue;
+    _PendingScreenshot.Width = static_cast<UINT>(desc.Width);
+    _PendingScreenshot.Height = desc.Height;
+    _PendingScreenshot.Format = desc.Format;
+    _PendingScreenshot.Footprint = layout;
+    _PendingScreenshot.Type = _ScreenshotType();
+    _PendingScreenshot.RequestId = requestId;
+
+    pCommandQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&_ScreenshotCommandList));
+    _PendingScreenshot.Submitted = true;
 
     // Signal the fence
-    hr = _CommandQueue->Signal(_ScreenshotFence, ++_ScreenshotFenceValue);
+    hr = pCommandQueue->Signal(_ScreenshotFence, ++_ScreenshotFenceValue);
     if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
         goto cleanup;
-
-    hr = _ScreenshotFence->SetEventOnCompletion(_ScreenshotFenceValue, _ScreenshotEvent);
-    if (FAILED(hr))
-        goto cleanup;
-
-    DWORD waitResult = WaitForSingleObject(_ScreenshotEvent, INFINITE);
-
-    if (waitResult != WAIT_OBJECT_0)
-        goto cleanup;
-
-    hr = _ScreenshotCommandAllocator->Reset();
-    if (FAILED(hr))
-        goto cleanup;
-
-    hr = _ScreenshotCommandList->Reset(_ScreenshotCommandAllocator, nullptr);
-    if (FAILED(hr))
-        goto cleanup;
-
-    hr = pStaging->Map(0, nullptr, (void**)&pMappedMemory);
-    if (FAILED(hr))
-        goto cleanup;
-
-    screenshot.Width = desc.Width;
-    screenshot.Height = desc.Height;
-    screenshot.Pitch = layout.Footprint.RowPitch;
-    screenshot.Data = reinterpret_cast<void*>(pMappedMemory);
-    screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
-
-    _SendScreenshot(&screenshot);
-
-    pStaging->Unmap(0, nullptr);
-    pMappedMemory = nullptr;
-
+    }
+    _PendingScreenshot.FenceValue = _ScreenshotFenceValue;
+    _PendingScreenshot.Signaled = true;
     result = true;
 
 cleanup:
@@ -1261,7 +1400,7 @@ cleanup:
     SafeRelease(pStaging);
 
     if (!result)
-        _SendScreenshot(nullptr);
+        _SendScreenshotForRequest(requestId, nullptr);
 }
 
 void DX12Hook_t::_OnSwapChainDestroyed(void* userData)
@@ -1421,6 +1560,9 @@ DX12Hook_t::DX12Hook_t():
     _ScreenshotFence(nullptr),
     _ScreenshotCommandAllocator(nullptr),
     _ScreenshotCommandList(nullptr),
+    _PendingScreenshot{},
+    _ScreenshotQueueFailed(false),
+    _ScreenshotDeviceLost(false),
     _ImGuiFontAtlas(nullptr),
     _ImGuiContextOwned(false),
     _IDXGISwapChainPresent(nullptr),

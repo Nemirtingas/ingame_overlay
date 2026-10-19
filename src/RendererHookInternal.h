@@ -64,6 +64,7 @@ class RendererHookInternal_t : public RendererHook_t
     ScreenshotCallback_t _ScreenshotCallback;
     void* _ScreenshotCallbackUserParameter;
     ScreenshotType_t _TakeScreenshotType;
+    uint64_t _ScreenshotRequestGeneration;
 
 protected:
     uint32_t _BatchSize;
@@ -75,6 +76,8 @@ protected:
     ScreenshotType_t _ScreenshotType();
 
     void _SendScreenshot(ScreenshotCallbackParameter_t* screenshot);
+    uint64_t _ScreenshotRequestId();
+    void _SendScreenshotForRequest(uint64_t requestId, ScreenshotCallbackParameter_t* screenshot);
 
 public:
     virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam);

@@ -26,6 +26,7 @@ RendererHookInternal_t::RendererHookInternal_t() :
     _ScreenshotCallback(nullptr),
     _ScreenshotCallbackUserParameter(nullptr),
     _TakeScreenshotType(ScreenshotType_t::None),
+    _ScreenshotRequestGeneration(0),
     _BatchSize(10),
     _CurrentFrame(0)
 {
@@ -45,7 +46,18 @@ ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
 
 void RendererHookInternal_t::_SendScreenshot(ScreenshotCallbackParameter_t* screenshot)
 {
-    _TakeScreenshotType = ScreenshotType_t::None;
+    _SendScreenshotForRequest(_ScreenshotRequestGeneration, screenshot);
+}
+
+uint64_t RendererHookInternal_t::_ScreenshotRequestId()
+{
+    return _ScreenshotRequestGeneration;
+}
+
+void RendererHookInternal_t::_SendScreenshotForRequest(uint64_t requestId, ScreenshotCallbackParameter_t* screenshot)
+{
+    if (_ScreenshotRequestGeneration == requestId)
+        _TakeScreenshotType = ScreenshotType_t::None;
     if (screenshot != nullptr && _ScreenshotCallback != nullptr)
     {
         switch (screenshot->Format)
@@ -95,6 +107,7 @@ void RendererHookInternal_t::SetAutoLoadBatchSize(uint32_t batchSize)
 void RendererHookInternal_t::TakeScreenshot(ScreenshotType_t type)
 {
     _TakeScreenshotType = type;
+    ++_ScreenshotRequestGeneration;
 }
 
 RendererResource_t* RendererHookInternal_t::CreateResource()
