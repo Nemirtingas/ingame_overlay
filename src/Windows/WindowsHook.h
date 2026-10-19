@@ -150,7 +150,7 @@ public:
     virtual ~WindowsHook_t();
 
     void ResetRenderState(OverlayHookState state);
-    void SetInitialWindowSize(HWND hWnd);
+    bool SetInitialWindowSize(HWND hWnd);
     bool PrepareForOverlay(HWND hWnd);
     std::vector<HWND> FindApplicationHWND(DWORD processId);
 

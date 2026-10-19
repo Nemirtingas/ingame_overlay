@@ -841,7 +841,8 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow))
+            return;
 
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);

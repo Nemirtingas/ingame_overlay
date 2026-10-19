@@ -222,11 +222,13 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(destWindow))
+            return;
+
         ImGui_ImplDX9_Init(pDevice);
 
         _LastWindow = destWindow;
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
         if (!ImGui_ImplDX9_CreateDeviceObjects())
         {

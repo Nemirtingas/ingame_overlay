@@ -823,6 +823,13 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             _ImGuiContextOwned = true;
         }
 
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow))
+        {
+            cleanupInitialization();
+            pSwapChain3->Release();
+            return;
+        }
+
         ImGui_ImplDX12_InitInfo initInfo{};
         initInfo.CommandQueue = pCommandQueue;
         initInfo.Device = _Device;
@@ -854,8 +861,6 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             pSwapChain3->Release();
             return;
         }
-
-        WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
 
         if (!ImGui_ImplDX12_CreateDeviceObjects())
         {
