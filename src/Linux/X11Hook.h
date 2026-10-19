@@ -34,6 +34,13 @@
 
 namespace InGameOverlay {
 
+struct NativeWindow_t
+{
+    Display* DisplayHandle = nullptr;
+    Window WindowHandle = None;
+    std::shared_ptr<SafeXlibDisplay_t> Owner;
+};
+
 class X11Hook_t :
     public BaseHook_t
 {
@@ -134,28 +141,12 @@ private:
     static xcb_query_pointer_reply_t* MyXCBQueryPointerReply(xcb_connection_t* connection, xcb_query_pointer_cookie_t cookie, xcb_generic_error_t** error);
 
 public:
-    struct X11WindowEnumerationResult_t
-    {
-        X11WindowEnumerationResult_t() = default;
-
-        X11WindowEnumerationResult_t(
-            const std::shared_ptr<SafeXlibDisplay_t>& display,
-            Window window)
-            : DisplayHandle(display)
-            , WindowHandle(window)
-        {
-        }
-
-        std::shared_ptr<SafeXlibDisplay_t> DisplayHandle;
-        Window WindowHandle = None;
-    };
-
     virtual ~X11Hook_t() override;
 
     void ResetRenderState(OverlayHookState state);
-    bool SetInitialWindowSize(Display* display, Window wnd);
-    bool PrepareForOverlay(Display* display, uint32_t wnd);
-    std::vector<X11WindowEnumerationResult_t> FindApplicationX11Window(int32_t processId);
+    bool SetInitialWindowSize(NativeWindow_t const& window);
+    bool PrepareForOverlay(NativeWindow_t const& window);
+    std::vector<NativeWindow_t> FindApplicationWindows();
 
     bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);

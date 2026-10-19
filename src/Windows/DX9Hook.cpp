@@ -18,7 +18,7 @@
  */
 
 #include "DX9Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -75,7 +75,7 @@ bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKe
             return false;
         }
         
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -105,13 +105,13 @@ bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKe
 void DX9Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX9Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX9Hook_t::IsStarted()
@@ -171,7 +171,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
 
         case OverlayHookState::Removing:
             ImGui_ImplDX9_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -222,7 +222,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(destWindow))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ destWindow }))
             return;
 
         ImGui_ImplDX9_Init(pDevice);
@@ -243,7 +243,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     if (_HookState != OverlayHookState::Ready)
         return;
 
-    if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
+    if (ImGui_ImplDX9_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ destWindow }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -565,7 +565,7 @@ DX9Hook_t::~DX9Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

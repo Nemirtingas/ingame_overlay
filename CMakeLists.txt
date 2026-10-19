@@ -30,6 +30,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/OpenGLHook.h
     src/Windows/VulkanHook.h
     src/Windows/WindowsHook.h
+    src/WindowHook.h
     src/Windows/WindowsHookEventQueue.h
   )
 
@@ -68,6 +69,7 @@ elseif(APPLE)
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/MacOSX/NSViewHook.h
+    src/WindowHook.h
     src/MacOSX/OpenGLHook.h
     src/MacOSX/MetalHook.h
   )
@@ -97,6 +99,7 @@ elseif(UNIX)
     src/VulkanHelpers.h
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
+    src/WindowHook.h
     src/Linux/VulkanHook.h
     src/Linux/SafeXlibDisplay.h
   )

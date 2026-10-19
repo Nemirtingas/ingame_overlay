@@ -20,7 +20,7 @@
 #include <glad/gl.h>
 
 #include "OpenGLXHook.h"
-#include "X11Hook.h"
+#include "../WindowHook.h"
 
 #undef Status
 
@@ -48,7 +48,7 @@ bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, Togg
             return false;
         }
 
-        if (!X11Hook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _X11Hooked = true;
@@ -67,13 +67,13 @@ bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, Togg
 void OpenGLXHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
-        X11Hook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void OpenGLXHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
-        X11Hook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool OpenGLXHook_t::IsStarted()
@@ -100,7 +100,7 @@ void OpenGLXHook_t::_ResetRenderState(OverlayHookState state)
             // The application may have already destroyed its context during teardown.
             if (glXGetCurrentContext() != nullptr)
                 ImGui_ImplOpenGL3_Shutdown();
-            X11Hook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             //ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -147,7 +147,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         //if (_Context == nullptr)
         //    return;
 
-        if (!X11Hook_t::Inst()->SetInitialWindowSize(display, (Window)drawable))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ display, (Window)drawable }))
             return;
 
         ImGui_ImplOpenGL3_Init();
@@ -161,7 +161,7 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
     //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay(display, (Window)drawable))
+    if (ImGui_ImplOpenGL3_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ display, (Window)drawable }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -339,7 +339,7 @@ OpenGLXHook_t::~OpenGLXHook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_X11Hooked)
-        delete X11Hook_t::Inst();
+        delete WindowHook_t::Inst();
 
     //dlclose(_library);
 

@@ -18,7 +18,7 @@
  */
 
 #include "DX10Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -77,7 +77,7 @@ bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -103,13 +103,13 @@ bool DX10Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 void DX10Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX10Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX10Hook_t::IsStarted()
@@ -225,7 +225,7 @@ void DX10Hook_t::_ResetRenderState(OverlayHookState state)
         case OverlayHookState::Removing:
             _SwapChainIdentity = 0;
             ImGui_ImplDX10_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -267,7 +267,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ desc.OutputWindow }))
             return;
 
         ImGui_ImplDX10_Init(_Device);
@@ -285,7 +285,7 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX10_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
+    if (ImGui_ImplDX10_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ desc.OutputWindow }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -619,7 +619,7 @@ DX10Hook_t::~DX10Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

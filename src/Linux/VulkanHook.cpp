@@ -18,7 +18,7 @@
  */
 
 #include "VulkanHook.h"
-#include "X11Hook.h"
+#include "../WindowHook.h"
 
 #undef Status
 
@@ -98,7 +98,7 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         if (!_CreateVulkanInstance())
             return false;
 
-        if (!X11Hook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _X11Hooked = true;
@@ -123,13 +123,13 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
 void VulkanHook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        X11Hook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void VulkanHook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        X11Hook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool VulkanHook_t::IsStarted()
@@ -377,7 +377,7 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
     {
         case OverlayHookState::Removing:
             ImGui_ImplVulkan_Shutdown();
-            X11Hook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -836,17 +836,17 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
-        auto windows = X11Hook_t::Inst()->FindApplicationX11Window(getpid());
+        auto windows = WindowHook_t::Inst()->FindApplicationWindows();
         if (windows.empty())
             return;
 
-        _Display = windows[0].DisplayHandle;
+        _Display = windows[0].Owner;
         _Window = windows[0].WindowHandle;
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!X11Hook_t::Inst()->SetInitialWindowSize(static_cast<Display*>(_Display->DisplayHandle), (Window)_Window))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ static_cast<Display*>(_Display->DisplayHandle), (Window)_Window, _Display }))
             return;
 
         if (_VulkanQueue == nullptr)
@@ -919,7 +919,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
         // even if the overlay cannot render this frame, or the next vkWaitForFences will never return.
         auto canTakeScreenshot = false;
         auto screenshotType = _ScreenshotType();
-        if (ImGui_ImplVulkan_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay((Display*)_Display->DisplayHandle, _Window))
+        if (ImGui_ImplVulkan_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ static_cast<Display*>(_Display->DisplayHandle), (Window)_Window, _Display }))
         {
             if (screenshotType == ScreenshotType_t::BeforeOverlay)
                 _HandleScreenshot(frame);
@@ -1798,7 +1798,7 @@ VulkanHook_t::~VulkanHook_t()
     INGAMEOVERLAY_INFO("VulkanHook_t Hook removed");
 
     if (_X11Hooked)
-        delete X11Hook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

@@ -35,6 +35,8 @@
 
 namespace InGameOverlay {
 
+struct NativeWindow_t { HWND Window = nullptr; };
+
 struct WindowsHookKeyCombination_t
 {
     std::function<void()> callback;
@@ -150,9 +152,9 @@ public:
     virtual ~WindowsHook_t();
 
     void ResetRenderState(OverlayHookState state);
-    bool SetInitialWindowSize(HWND hWnd);
-    bool PrepareForOverlay(HWND hWnd);
-    std::vector<HWND> FindApplicationHWND(DWORD processId);
+    bool SetInitialWindowSize(NativeWindow_t const& window);
+    bool PrepareForOverlay(NativeWindow_t const& window);
+    std::vector<NativeWindow_t> FindApplicationWindows();
 
     bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);

@@ -227,8 +227,9 @@ void WindowsHook_t::ResetRenderState(OverlayHookState state)
     ImGui_ImplWin32_Shutdown();
 }
 
-bool WindowsHook_t::SetInitialWindowSize(HWND hWnd)
+bool WindowsHook_t::SetInitialWindowSize(NativeWindow_t const& window)
 {
+    HWND hWnd = window.Window;
     if (hWnd == nullptr)
     {
         hWnd = GetCurrentThreadHWND();
@@ -247,8 +248,9 @@ short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)
     return WindowsHook_t::Inst()->_GetKeyState(nVirtKey);
 }
 
-bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
+bool WindowsHook_t::PrepareForOverlay(NativeWindow_t const& window)
 {
+    HWND hWnd = window.Window;
     // hWnd can be null when the client code is not using a swapchain for a HWND.
     // In that case, we will run some 'degraded' mode because we cannot make sure the HWND didn't change.
     // TODO: Handle correctly the Composition mode of DirectX.
@@ -292,14 +294,14 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
     return true;
 }
 
-std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
+std::vector<NativeWindow_t> WindowsHook_t::FindApplicationWindows()
 {
     struct
     {
         DWORD pid;
-        std::vector<HWND> windows;
+        std::vector<NativeWindow_t> windows;
     } windowParams{
-        processId
+        GetCurrentProcessId()
     };
 
     EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
@@ -313,7 +315,7 @@ std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
         auto params = reinterpret_cast<decltype(windowParams)*>(lParam);
 
         if (processId == params->pid)
-            params->windows.emplace_back(hwnd);
+            params->windows.push_back(NativeWindow_t{ hwnd });
 
         return TRUE;
     }, reinterpret_cast<LPARAM>(&windowParams));

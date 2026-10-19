@@ -18,7 +18,7 @@
  */
 
 #include "DX12Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -131,7 +131,7 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -160,13 +160,13 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 void DX12Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX12Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX12Hook_t::IsStarted()
@@ -686,7 +686,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             }
 
             ImGui_ImplDX12_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             if (_ImGuiContextOwned)
             {
                 ImGui::DestroyContext();
@@ -823,7 +823,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             _ImGuiContextOwned = true;
         }
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ sc_desc.OutputWindow }))
         {
             cleanupInitialization();
             pSwapChain3->Release();
@@ -886,7 +886,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX12_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(sc_desc.OutputWindow))
+    if (ImGui_ImplDX12_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ sc_desc.OutputWindow }))
     {
         const UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         auto& frame = _OverlayFrames[bufferIndex];
@@ -1649,7 +1649,7 @@ DX12Hook_t::~DX12Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

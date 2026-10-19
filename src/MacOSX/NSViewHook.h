@@ -32,6 +32,8 @@
 
 namespace InGameOverlay {
 
+struct NativeWindow_t {};
+
 class NSViewHook_t :
     public BaseHook_t
 {

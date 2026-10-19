@@ -18,7 +18,7 @@
  */
 
 #include "OpenGLHook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -46,7 +46,7 @@ bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -66,7 +66,7 @@ void OpenGLHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
     {
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
     }
 }
 
@@ -74,7 +74,7 @@ void OpenGLHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
     {
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
     }
 }
 
@@ -102,7 +102,7 @@ void OpenGLHook_t::_ResetRenderState(OverlayHookState state)
             // The application may have already destroyed its context during teardown.
             if (wglGetCurrentContext() != nullptr)
                 ImGui_ImplOpenGL3_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             //ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -136,7 +136,7 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(hWnd))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ hWnd }))
             return;
 
         ImGui_ImplOpenGL3_Init();
@@ -148,7 +148,7 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
         _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplOpenGL3_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(hWnd))
+    if (ImGui_ImplOpenGL3_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ hWnd }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -325,7 +325,7 @@ OpenGLHook_t::~OpenGLHook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

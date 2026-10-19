@@ -19,6 +19,8 @@
 
 #include "X11Hook.h"
 
+#include <unistd.h>
+
 #include "../Library.h"
 
 #undef Status
@@ -731,8 +733,10 @@ void X11Hook_t::ResetRenderState(OverlayHookState state)
     }
 }
 
-bool X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
+bool X11Hook_t::SetInitialWindowSize(NativeWindow_t const& window)
 {
+    Display* display = window.DisplayHandle;
+    Window wnd = window.WindowHandle;
     if (!_Hooked)
     {
         auto* xcbConnection = _GetXCBConnection(display);
@@ -773,8 +777,10 @@ bool X11Hook_t::SetInitialWindowSize(Display* display, Window wnd)
     return false;
 }
 
-bool X11Hook_t::PrepareForOverlay(Display* display, uint32_t wnd)
+bool X11Hook_t::PrepareForOverlay(NativeWindow_t const& window)
 {
+    Display* display = window.DisplayHandle;
+    uint32_t wnd = static_cast<uint32_t>(window.WindowHandle);
     if(!_Hooked)
         return false;
 
@@ -788,17 +794,17 @@ bool X11Hook_t::PrepareForOverlay(Display* display, uint32_t wnd)
     return false;
 }
 
-std::vector<X11Hook_t::X11WindowEnumerationResult_t> X11Hook_t::FindApplicationX11Window(int32_t processId)
+std::vector<NativeWindow_t> X11Hook_t::FindApplicationWindows()
 {
     struct WindowParams
     {
         int32_t pid;
-        std::vector<X11WindowEnumerationResult_t> windows;
+        std::vector<NativeWindow_t> windows;
         Atom pidAtom = None;
     };
 
     WindowParams windowParams{
-        processId,
+        getpid(),
         {},
         None
     };
@@ -863,7 +869,7 @@ std::vector<X11Hook_t::X11WindowEnumerationResult_t> X11Hook_t::FindApplicationX
             XFree(data.value);
 
             if (processId == params->pid)
-                params->windows.emplace_back(display, window);
+                params->windows.push_back(NativeWindow_t{ static_cast<Display*>(display->DisplayHandle), window, display });
 
             return 1;
         },
