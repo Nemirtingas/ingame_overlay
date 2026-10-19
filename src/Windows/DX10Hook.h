@@ -51,6 +51,7 @@ private:
     bool _UsesDXVK;
     uint32_t _DeviceReleasing;
     ID3D10Device* _Device;
+    uintptr_t _SwapChainIdentity;
     ULONG _HookDeviceRefCount;
     OverlayHookState _HookState;
     ID3D10RenderTargetView* _RenderTargetView;
@@ -65,6 +66,7 @@ private:
     void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain *pSwapChain);
     void _DestroyRenderTargets();
+    uintptr_t _GetSwapChainIdentity(IUnknown* pSwapChain) const;
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain, UINT flags);
     void _LoadResources();
