@@ -117,8 +117,12 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 {
     HWND hWnd = WindowFromDC(hDC);
 
-    if (hWnd != _LastWindow)
+    // Release the overlay when its window is gone or changed; it is rebuilt for the next valid window.
+    if (hWnd == nullptr || hWnd != _LastWindow)
         _ResetRenderState(OverlayHookState::Removing);
+
+    if (hWnd == nullptr)
+        return;
 
     if (!_Initialized)
     {
