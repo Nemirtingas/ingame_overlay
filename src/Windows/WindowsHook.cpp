@@ -227,18 +227,19 @@ void WindowsHook_t::ResetRenderState(OverlayHookState state)
     ImGui_ImplWin32_Shutdown();
 }
 
-void WindowsHook_t::SetInitialWindowSize(HWND hWnd)
+bool WindowsHook_t::SetInitialWindowSize(HWND hWnd)
 {
     if (hWnd == nullptr)
     {
         hWnd = GetCurrentThreadHWND();
         if (hWnd == nullptr)
-            return;
+            return false;
     }
 
     RECT rect = { 0, 0, 0, 0 };
     ::GetClientRect(hWnd, &rect);
     ImGui::GetIO().DisplaySize = ImVec2((float)(rect.right - rect.left), (float)(rect.bottom - rect.top));
+    return true;
 }
 
 short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)

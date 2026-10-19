@@ -126,6 +126,9 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
             return;
         }
 
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(hWnd))
+            return;
+
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
@@ -133,7 +136,6 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
 
         _LastWindow = hWnd;
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(hWnd);
 
         _Initialized = true;
         _ResetRenderState(OverlayHookState::Ready);
