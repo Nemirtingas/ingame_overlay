@@ -159,6 +159,7 @@ list(APPEND PRIVATE_INGAMEOVERLAY_HEADERS
   src/InternalIncludes.h
   src/BaseHook.h
   src/RendererHookInternal.h
+  src/RendererUploadBatchState.h
   src/RendererResourceInternal.h
 )
 

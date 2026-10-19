@@ -34,6 +34,7 @@ enum class RendererTextureStatus_e
     NotLoaded,
     Loading,
     Loaded,
+    Failed,
 };
 
 struct RendererTexture_t

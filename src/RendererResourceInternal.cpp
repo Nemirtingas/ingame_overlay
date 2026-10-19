@@ -25,7 +25,8 @@ namespace InGameOverlay {
 
 RendererResourceInternal_t::RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept :
     _RendererHook(rendererHook),
-    _Data(nullptr)
+    _Data(nullptr),
+    _LoadFailed(false)
 {
 }
 
@@ -41,7 +42,8 @@ void RendererResourceInternal_t::Delete()
 
 bool RendererResourceInternal_t::IsLoaded() const
 {
-    return !_RendererResource.RendererResource.expired();
+    auto resource = _RendererResource.RendererResource.lock();
+    return resource != nullptr && resource->LoadStatus == RendererTextureStatus_e::Loaded;
 }
 
 bool RendererResourceInternal_t::HasAttachedResource() const
@@ -51,13 +53,17 @@ bool RendererResourceInternal_t::HasAttachedResource() const
 
 uint64_t RendererResourceInternal_t::GetResourceId()
 {
-    if (HasAttachedResource())
+    if (!_LoadFailed && HasAttachedResource())
     {
         auto r = _RendererResource.RendererResource.lock();
         if (r == nullptr)
         {
             _RendererResource.RendererResource = _RendererHook->AllocImageResource();
             r = _RendererResource.RendererResource.lock();
+            if (r == nullptr)
+            {
+                _LoadFailed = true;
+            }
         }
 
         if (r != nullptr)
@@ -76,7 +82,11 @@ uint64_t RendererResourceInternal_t::GetResourceId()
                 }
                 break;
 
-                case RendererTextureStatus_e::Loading: break;
+                case RendererTextureStatus_e::Loading:
+                    break;
+                case RendererTextureStatus_e::Failed:
+                    _LoadFailed = true;
+                    break;
                 case RendererTextureStatus_e::Loaded:
                     if (AttachementChanged())
                         UnloadOldResource();
@@ -116,6 +126,7 @@ void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width
 
     _RendererResource.RendererResource.reset();
     _Data = data;
+    _LoadFailed = false;
     _RendererResource.Width = width;
     _RendererResource.Height = height;
 }
@@ -131,6 +142,7 @@ void RendererResourceInternal_t::Unload(bool clearAttachedResource)
 
     _RendererHook->ReleaseImageResource(_RendererResource.RendererResource);
     _RendererResource.Reset();
+    _LoadFailed = false;
 
     if (clearAttachedResource)
         ClearAttachedResource();

@@ -21,6 +21,7 @@
 #include "WindowsHook.h"
 
 #include <imgui.h>
+#include <limits>
 #include <imgui_internal.h>
 #include <backends/imgui_impl_vulkan.h>
 
@@ -380,6 +381,8 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
             _ImageResourcesToRelease.clear();
 
             _FreeVulkanRessources();
+            _ImageUploadBatchState.ClearResources();
+            _ImageUploadBatchState.Reset();
 
             _SentOutOfDate = false;
             break;
@@ -402,7 +405,24 @@ PFN_vkVoidFunction VulkanHook_t::_LoadVulkanFunction(const char* functionName)
 void VulkanHook_t::_FreeVulkanRessources()
 {
     _DestroyRenderTargets();
-    _DestroyImageDevices();
+    if (_PendingImageUpload)
+    {
+        // Submitted work has no completion proof. Leave its command pool, fence, staging
+        // allocation, and images to VkDestroyDevice, which follows this teardown callback.
+        _VulkanImageCommandBuffer = VK_NULL_HANDLE;
+        _VulkanImageCommandPool = VK_NULL_HANDLE;
+        _VulkanImageFence = VK_NULL_HANDLE;
+        _PendingImageUploadBuffer = VK_NULL_HANDLE;
+        _PendingImageUploadMemory = VK_NULL_HANDLE;
+        _PendingImageUpload = false;
+        _ImageUploadBatchState.Fail();
+        _DestroyImageDescriptorSetLayout();
+        _DestroyImageSampler();
+    }
+    else
+    {
+        _DestroyImageDevices();
+    }
 
     _DestroyDescriptorPools();
     _DestroyRenderPass();
@@ -475,6 +495,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkDestroyFramebuffer);
     LOAD_VULKAN_FUNCTION(vkCreateFence);
     LOAD_VULKAN_FUNCTION(vkWaitForFences);
+    LOAD_VULKAN_FUNCTION(vkGetFenceStatus);
     LOAD_VULKAN_FUNCTION(vkResetFences);
     LOAD_VULKAN_FUNCTION(vkDestroyFence);
     LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
@@ -983,6 +1004,61 @@ void VulkanHook_t::_LoadResources()
 {
     VkResult result;
 
+    if (_PendingImageUpload)
+    {
+        if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            return;
+        if (_VulkanDevice == VK_NULL_HANDLE || _VulkanImageFence == VK_NULL_HANDLE || _vkGetFenceStatus == nullptr)
+        {
+            _ImageUploadBatchState.Fail();
+            return;
+        }
+
+        result = _vkGetFenceStatus(_VulkanDevice, _VulkanImageFence);
+        if (result == VK_NOT_READY)
+            return;
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Poll(false, true);
+            for (auto& resource : _ImageUploadBatchState.Resources())
+                resource->LoadStatus = RendererTextureStatus_e::Failed;
+            return;
+        }
+        _ImageUploadBatchState.Poll(true, false);
+        for (auto& resource : _ImageUploadBatchState.Resources())
+            resource->LoadStatus = RendererTextureStatus_e::Loaded;
+
+        _vkDestroyBuffer(_VulkanDevice, _PendingImageUploadBuffer, _VulkanAllocationCallbacks);
+        _vkFreeMemory(_VulkanDevice, _PendingImageUploadMemory, _VulkanAllocationCallbacks);
+        _PendingImageUploadBuffer = VK_NULL_HANDLE;
+        _PendingImageUploadMemory = VK_NULL_HANDLE;
+        _PendingImageUpload = false;
+
+        result = _vkResetFences(_VulkanDevice, 1, &_VulkanImageFence);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Fail();
+            _ImageUploadBatchState.ClearResources();
+            return;
+        }
+        result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Fail();
+            _ImageUploadBatchState.ClearResources();
+            return;
+        }
+
+        _ImageUploadBatchState.ClearResources();
+        _ImageUploadBatchState.Reset();
+    }
+
+    if (!_ImageUploadBatchState.CanSubmit())
+        return;
+
     struct ValidTexture_t
     {
         std::shared_ptr<VulkanTexture_t> Resource;
@@ -1003,30 +1079,99 @@ void VulkanHook_t::_LoadResources()
 
         auto r = param.Resource.lock();
         if (!r) continue;
+        if (param.Data == nullptr || param.Width == 0 || param.Height == 0)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         ValidTexture_t t{};
         t.Resource = std::static_pointer_cast<VulkanTexture_t>(r);
         t.Data = param.Data;
         t.Width = param.Width;
         t.Height = param.Height;
-        t.Size = t.Width * t.Height * 4;
+        const VkDeviceSize maxSize = (std::numeric_limits<VkDeviceSize>::max)();
+        if (static_cast<VkDeviceSize>(t.Width) > maxSize / t.Height / 4)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
+        t.Size = static_cast<VkDeviceSize>(t.Width) * static_cast<VkDeviceSize>(t.Height) * 4;
 
         validResources.push_back(t);
     }
 
     if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
         return;
+    }
 
     VkDeviceSize totalUploadSize = 0;
 
     for (auto& v : validResources)
     {
+        if (v.Size > (std::numeric_limits<VkDeviceSize>::max)() - totalUploadSize)
+        {
+            for (auto& tex : validResources)
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+            return;
+        }
         v.Offset = totalUploadSize;
         totalUploadSize += v.Size;
     }
 
     VkBuffer uploadBuffer = VK_NULL_HANDLE;
     VkDeviceMemory uploadBufferMemory = VK_NULL_HANDLE;
+
+    auto failBatch = [this, &validResources, loadParameterCount, &uploadBuffer, &uploadBufferMemory]()
+    {
+        VkResult resetResult = VK_SUCCESS;
+        if (_VulkanImageCommandPool != VK_NULL_HANDLE)
+            resetResult = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+
+        if (resetResult != VK_SUCCESS)
+        {
+            _CheckVkResult(resetResult);
+            _ImageUploadBatchState.Fail();
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(tex.Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            _PendingImageUploadMemory = uploadBufferMemory;
+            _PendingImageUpload = true;
+            uploadBuffer = VK_NULL_HANDLE;
+            uploadBufferMemory = VK_NULL_HANDLE;
+        }
+        else
+        {
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                if (tex.Resource->VulkanImageView != VK_NULL_HANDLE)
+                    _vkDestroyImageView(_VulkanDevice, tex.Resource->VulkanImageView, _VulkanAllocationCallbacks);
+                if (tex.Resource->VulkanImage != VK_NULL_HANDLE)
+                    _vkDestroyImage(_VulkanDevice, tex.Resource->VulkanImage, _VulkanAllocationCallbacks);
+                if (tex.Resource->VulkanImageMemory != VK_NULL_HANDLE)
+                    _vkFreeMemory(_VulkanDevice, tex.Resource->VulkanImageMemory, _VulkanAllocationCallbacks);
+                tex.Resource->VulkanImageView = VK_NULL_HANDLE;
+                tex.Resource->VulkanImage = VK_NULL_HANDLE;
+                tex.Resource->VulkanImageMemory = VK_NULL_HANDLE;
+            }
+            if (uploadBuffer != VK_NULL_HANDLE)
+                _vkDestroyBuffer(_VulkanDevice, uploadBuffer, _VulkanAllocationCallbacks);
+            if (uploadBufferMemory != VK_NULL_HANDLE)
+                _vkFreeMemory(_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
+        }
+
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
+    };
 
     {
         VkBufferCreateInfo buffer_info{};
@@ -1036,6 +1181,11 @@ void VulkanHook_t::_LoadResources()
 
         result = _vkCreateBuffer(_VulkanDevice, &buffer_info, _VulkanAllocationCallbacks, &uploadBuffer);
         _CheckVkResult(result);
+        if (result != VK_SUCCESS || uploadBuffer == VK_NULL_HANDLE)
+        {
+            failBatch();
+            return;
+        }
 
         VkMemoryRequirements req;
         _vkGetBufferMemoryRequirements(_VulkanDevice, uploadBuffer, &req);
@@ -1047,15 +1197,38 @@ void VulkanHook_t::_LoadResources()
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             req.memoryTypeBits);
 
+        if (alloc.memoryTypeIndex == 0xFFFFFFFF)
+        {
+            failBatch();
+            return;
+        }
+
         result = _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &uploadBufferMemory);
         _CheckVkResult(result);
+        if (result != VK_SUCCESS || uploadBufferMemory == VK_NULL_HANDLE)
+        {
+            failBatch();
+            return;
+        }
 
-        _vkBindBufferMemory(_VulkanDevice, uploadBuffer, uploadBufferMemory, 0);
+        result = _vkBindBufferMemory(_VulkanDevice, uploadBuffer, uploadBufferMemory, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
     }
 
     {
         uint8_t* map = nullptr;
-        _vkMapMemory(_VulkanDevice, uploadBufferMemory, 0, totalUploadSize, 0, (void**)&map);
+        result = _vkMapMemory(_VulkanDevice, uploadBufferMemory, 0, totalUploadSize, 0, (void**)&map);
+        if (result != VK_SUCCESS || map == nullptr)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
 
         for (auto& v : validResources)
             memcpy(map + v.Offset, v.Data, v.Size);
@@ -1063,13 +1236,25 @@ void VulkanHook_t::_LoadResources()
         _vkUnmapMemory(_VulkanDevice, uploadBufferMemory);
     }
 
-    _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+    result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        failBatch();
+        return;
+    }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    _vkBeginCommandBuffer(_VulkanImageCommandBuffer, &beginInfo);
+    result = _vkBeginCommandBuffer(_VulkanImageCommandBuffer, &beginInfo);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        failBatch();
+        return;
+    }
 
     for (auto& tex : validResources)
     {
@@ -1088,7 +1273,13 @@ void VulkanHook_t::_LoadResources()
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
         info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-        _vkCreateImage(_VulkanDevice, &info, _VulkanAllocationCallbacks, &image);
+        result = _vkCreateImage(_VulkanDevice, &info, _VulkanAllocationCallbacks, &image);
+        if (result != VK_SUCCESS || image == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
 
         VkMemoryRequirements req;
         _vkGetImageMemoryRequirements(_VulkanDevice, image, &req);
@@ -1098,8 +1289,30 @@ void VulkanHook_t::_LoadResources()
         alloc.allocationSize = req.size;
         alloc.memoryTypeIndex = _GetVulkanMemoryType(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, req.memoryTypeBits);
 
-        _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &memory);
-        _vkBindImageMemory(_VulkanDevice, image, memory, 0);
+        if (alloc.memoryTypeIndex == 0xFFFFFFFF)
+        {
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
+
+        result = _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &memory);
+        if (result != VK_SUCCESS || memory == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
+        result = _vkBindImageMemory(_VulkanDevice, image, memory, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            _vkFreeMemory(_VulkanDevice, memory, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1110,7 +1323,15 @@ void VulkanHook_t::_LoadResources()
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = 1;
 
-        _vkCreateImageView(_VulkanDevice, &viewInfo, _VulkanAllocationCallbacks, &view);
+        result = _vkCreateImageView(_VulkanDevice, &viewInfo, _VulkanAllocationCallbacks, &view);
+        if (result != VK_SUCCESS || view == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            _vkFreeMemory(_VulkanDevice, memory, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
 
         _CreateImageTexture(tex.Resource->ImageDescriptorId.DescriptorSet, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -1160,22 +1381,60 @@ void VulkanHook_t::_LoadResources()
         tex.Resource->VulkanImage = image;
         tex.Resource->VulkanImageMemory = memory;
         tex.Resource->VulkanImageView = view;
-        tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
     }
 
-    _vkEndCommandBuffer(_VulkanImageCommandBuffer);
+    result = _vkEndCommandBuffer(_VulkanImageCommandBuffer);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+        failBatch();
+        return;
+    }
 
     VkSubmitInfo submit{};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &_VulkanImageCommandBuffer;
 
-    _vkQueueSubmit(_VulkanQueue, 1, &submit, _VulkanImageFence);
-    _vkWaitForFences(_VulkanDevice, 1, &_VulkanImageFence, VK_TRUE, UINT64_MAX);
-    _vkResetFences(_VulkanDevice, 1, &_VulkanImageFence);
+    result = _vkQueueSubmit(_VulkanQueue, 1, &submit, _VulkanImageFence);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        if (result == VK_ERROR_DEVICE_LOST)
+        {
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(tex.Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            _PendingImageUploadMemory = uploadBufferMemory;
+            _PendingImageUpload = true;
+            _ImageUploadBatchState.Submitted(false);
+            uploadBuffer = VK_NULL_HANDLE;
+            uploadBufferMemory = VK_NULL_HANDLE;
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+        }
+        else
+        {
+            _ImageUploadBatchState.Submitted(false);
+            failBatch();
+        }
+        return;
+    }
 
-    _vkDestroyBuffer(_VulkanDevice, uploadBuffer, _VulkanAllocationCallbacks);
-    _vkFreeMemory(_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
+    // Poll the fence on later render frames. Keep the full batch and staging allocation alive,
+    // and do not reset the fence, command pool, or command buffer until completion is confirmed.
+    for (auto& tex : validResources)
+        _ImageUploadBatchState.Retain(tex.Resource);
+    _PendingImageUploadBuffer = uploadBuffer;
+    _PendingImageUploadMemory = uploadBufferMemory;
+    _PendingImageUpload = true;
+    _ImageUploadBatchState.Submitted(true);
+    uploadBuffer = VK_NULL_HANDLE;
+    uploadBufferMemory = VK_NULL_HANDLE;
 
     _ImageResourcesToLoad.erase(
         _ImageResourcesToLoad.begin(),
@@ -1443,6 +1702,9 @@ VulkanHook_t::VulkanHook_t():
     _VulkanImageCommandPool(VK_NULL_HANDLE),
     _VulkanImageCommandBuffer(VK_NULL_HANDLE),
     _VulkanImageFence(VK_NULL_HANDLE),
+    _PendingImageUploadBuffer(VK_NULL_HANDLE),
+    _PendingImageUploadMemory(VK_NULL_HANDLE),
+    _PendingImageUpload(false),
     _VulkanImageSampler(VK_NULL_HANDLE),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
@@ -1502,6 +1764,7 @@ VulkanHook_t::VulkanHook_t():
     _vkDestroyFramebuffer(nullptr),
     _vkCreateFence(nullptr),
     _vkWaitForFences(nullptr),
+    _vkGetFenceStatus(nullptr),
     _vkResetFences(nullptr),
     _vkDestroyFence(nullptr),
     _vkCreateDescriptorPool(nullptr),
@@ -1578,10 +1841,13 @@ std::weak_ptr<RendererTexture_t> VulkanHook_t::AllocImageResource()
     {
         if (handle != nullptr)
         {
-            _ReleaseDescriptor(handle->ImageDescriptorId);
-            _vkDestroyImageView(_VulkanDevice, handle->VulkanImageView, _VulkanAllocationCallbacks);
-            _vkFreeMemory(_VulkanDevice, handle->VulkanImageMemory, _VulkanAllocationCallbacks);
-            _vkDestroyImage(_VulkanDevice, handle->VulkanImage, _VulkanAllocationCallbacks);
+            if (_VulkanDevice != VK_NULL_HANDLE)
+            {
+                _ReleaseDescriptor(handle->ImageDescriptorId);
+                _vkDestroyImageView(_VulkanDevice, handle->VulkanImageView, _VulkanAllocationCallbacks);
+                _vkFreeMemory(_VulkanDevice, handle->VulkanImageMemory, _VulkanAllocationCallbacks);
+                _vkDestroyImage(_VulkanDevice, handle->VulkanImage, _VulkanAllocationCallbacks);
+            }
 
             delete handle;
         }

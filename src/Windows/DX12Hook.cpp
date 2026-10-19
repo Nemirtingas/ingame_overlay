@@ -22,6 +22,7 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <limits>
 #include <backends/imgui_impl_dx12.h>
 
 #include "ComDestructionNotifier.h"
@@ -33,6 +34,32 @@ struct DX12Texture_t : RendererTexture_t {
     ID3D12Resource* pTexture = nullptr;
     uint32_t Id = 0;
 };
+
+// A submitted upload without a completion proof cannot safely release its command objects or
+// resources. Keep these references for process lifetime when the owning hook is torn down.
+static void RetainAbandonedDX12Upload(
+    const std::vector<std::shared_ptr<RendererTexture_t>>& resources,
+    ID3D12Resource*& uploadBuffer,
+    ID3D12CommandQueue* commandQueue,
+    ID3D12CommandAllocator* commandAllocator,
+    ID3D12GraphicsCommandList* commandList,
+    ID3D12Fence* fence)
+{
+    static auto* retainedResources = new std::vector<std::shared_ptr<RendererTexture_t>>();
+    static auto* retainedObjects = new std::vector<IUnknown*>();
+
+    retainedResources->insert(retainedResources->end(), resources.begin(), resources.end());
+    IUnknown* objects[] = { uploadBuffer, commandQueue, commandAllocator, commandList, fence };
+    for (auto* object : objects)
+    {
+        if (object != nullptr)
+        {
+            object->AddRef();
+            retainedObjects->push_back(object);
+        }
+    }
+    uploadBuffer = nullptr;
+}
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
@@ -382,10 +409,6 @@ bool DX12Hook_t::_CreateImageObjects()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.NodeMask = 1;
 
-    _ImageEvent = CreateEventW(0, 0, 0, 0);
-    if (_ImageEvent == NULL)
-        goto on_fail;
-
     hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_ImageFence));
     if (!SUCCEEDED(hr))
         goto on_fail;
@@ -412,11 +435,6 @@ on_fail:
 
 void DX12Hook_t::_DestroyImageObjects()
 {
-    if (_ImageEvent != NULL)
-    {
-        CloseHandle(_ImageEvent);
-        _ImageEvent = NULL;
-    }
     SafeRelease(_ImageCommandList);
     SafeRelease(_ImageCommandAllocator);
     SafeRelease(_ImageCommandQueue);
@@ -481,6 +499,30 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     switch (state)
     {
         case OverlayHookState::Removing:
+            if (_ImageUploadBatchState.HasResources())
+            {
+                const UINT64 completedValue = _PendingImageFenceValid && _ImageFence != nullptr
+                    ? _ImageFence->GetCompletedValue()
+                    : UINT64_MAX;
+                if (!_PendingImageFenceValid || completedValue == UINT64_MAX || completedValue < _PendingImageFenceValue)
+                {
+                    RetainAbandonedDX12Upload(
+                        _ImageUploadBatchState.Resources(),
+                        _PendingImageUploadBuffer,
+                        _ImageCommandQueue,
+                        _ImageCommandAllocator,
+                        _ImageCommandList,
+                        _ImageFence);
+                }
+                else
+                {
+                    SafeRelease(_PendingImageUploadBuffer);
+                }
+                _ImageUploadBatchState.ClearResources();
+                _PendingImageFenceValue = 0;
+                _PendingImageFenceValid = false;
+            }
+            _ImageUploadBatchState.Reset();
             if (_SwapChainNotifier != nullptr)
             {
                 // The swapchain is still alive (resize failure, hook removal), stop watching it.
@@ -741,7 +783,52 @@ void DX12Hook_t::_LoadResources()
 {
     HRESULT hr;
 
-    if (_ImageResourcesToLoad.empty())
+    if (_ImageUploadBatchState.HasResources())
+    {
+        if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            return;
+        if (!_PendingImageFenceValid || _ImageFence == nullptr)
+        {
+            _ImageUploadBatchState.Fail();
+            return;
+        }
+
+        const UINT64 completedValue = _ImageFence->GetCompletedValue();
+        if (!_ImageUploadBatchState.Poll(completedValue >= _PendingImageFenceValue, completedValue == UINT64_MAX))
+        {
+            if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            {
+                for (auto& resource : _ImageUploadBatchState.Resources())
+                    resource->LoadStatus = RendererTextureStatus_e::Failed;
+            }
+            return;
+        }
+
+        for (auto& resource : _ImageUploadBatchState.Resources())
+            resource->LoadStatus = RendererTextureStatus_e::Loaded;
+        SafeRelease(_PendingImageUploadBuffer);
+        _ImageUploadBatchState.ClearResources();
+        _PendingImageFenceValue = 0;
+        _PendingImageFenceValid = false;
+        hr = _ImageCommandAllocator->Reset();
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            INGAMEOVERLAY_ERROR("Failed to reset the DirectX 12 image command allocator: {}", static_cast<long>(hr));
+            return;
+        }
+        hr = _ImageCommandList->Reset(_ImageCommandAllocator, nullptr);
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            INGAMEOVERLAY_ERROR("Failed to reset the DirectX 12 image command list: {}", static_cast<long>(hr));
+            return;
+        }
+
+        _ImageUploadBatchState.Reset();
+    }
+
+    if (!_ImageUploadBatchState.CanSubmit() || _ImageResourcesToLoad.empty())
         return;
 
     D3D12_HEAP_PROPERTIES defaultProps{};
@@ -769,6 +856,11 @@ void DX12Hook_t::_LoadResources()
         auto& param = _ImageResourcesToLoad[i];
         auto r = param.Resource.lock();
         if (!r) continue;
+        if (param.Data == nullptr || param.Width == 0 || param.Height == 0)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         validResources.push_back(ValidTexture_t{
             std::static_pointer_cast<DX12Texture_t>(r),
@@ -780,14 +872,35 @@ void DX12Hook_t::_LoadResources()
 
     if (!validResources.empty())
     {
+        auto failBatch = [this, loadParameterCount]()
+        {
+            for (size_t i = 0; i < loadParameterCount; ++i)
+            {
+                auto resource = _ImageResourcesToLoad[i].Resource.lock();
+                if (resource != nullptr)
+                    resource->LoadStatus = RendererTextureStatus_e::Failed;
+            }
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+        };
+
         UINT64 totalUploadSize = 0;
         std::vector<UINT> rowPitches;
         rowPitches.reserve(validResources.size());
         for (auto& tex : validResources)
         {
-            UINT pitch = (tex.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+            const UINT64 rowBytes = static_cast<UINT64>(tex.Width) * 4;
+            const UINT64 alignedPitch = (rowBytes + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) &
+                ~(static_cast<UINT64>(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) - 1u);
+            if (alignedPitch > (std::numeric_limits<UINT>::max)() ||
+                static_cast<UINT64>(tex.Height) > ((std::numeric_limits<UINT64>::max)() - totalUploadSize) / alignedPitch)
+            {
+                failBatch();
+                return;
+            }
+            const UINT pitch = static_cast<UINT>(alignedPitch);
             rowPitches.push_back(pitch);
-            totalUploadSize += tex.Height * pitch;
+            totalUploadSize += static_cast<UINT64>(tex.Height) * pitch;
         }
 
         D3D12_RESOURCE_DESC uploadDesc{};
@@ -804,12 +917,21 @@ void DX12Hook_t::_LoadResources()
         ID3D12Resource* uploadBuffer = nullptr;
         hr = _Device->CreateCommittedResource(&uploadProps, D3D12_HEAP_FLAG_NONE, &uploadDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || uploadBuffer == nullptr)
+        {
+            failBatch();
+            return;
+        }
 
         void* mapped = nullptr;
         D3D12_RANGE range{ 0, static_cast<SIZE_T>(totalUploadSize) };
         hr = uploadBuffer->Map(0, &range, &mapped);
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || mapped == nullptr)
+        {
+            SafeRelease(uploadBuffer);
+            failBatch();
+            return;
+        }
 
         UINT64 offset = 0;
         std::vector<D3D12_TEXTURE_COPY_LOCATION> srcLocations;
@@ -863,7 +985,24 @@ void DX12Hook_t::_LoadResources()
             ID3D12Resource* pTexture = nullptr;
             hr = _Device->CreateCommittedResource(&defaultProps, D3D12_HEAP_FLAG_NONE, &texDesc,
                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&pTexture));
-            IM_ASSERT(SUCCEEDED(hr));
+            if (FAILED(hr) || pTexture == nullptr)
+            {
+                if (SUCCEEDED(_ImageCommandList->Close()))
+                {
+                    if (FAILED(_ImageCommandAllocator->Reset()) ||
+                        FAILED(_ImageCommandList->Reset(_ImageCommandAllocator, nullptr)))
+                        _ImageUploadBatchState.Fail();
+                }
+                else
+                {
+                    _ImageUploadBatchState.Fail();
+                }
+                for (auto* createdTexture : createdTextures)
+                    SafeRelease(createdTexture);
+                SafeRelease(uploadBuffer);
+                failBatch();
+                return;
+            }
             createdTextures.push_back(pTexture);
 
             D3D12_TEXTURE_COPY_LOCATION dstLoc{};
@@ -892,26 +1031,50 @@ void DX12Hook_t::_LoadResources()
         }
 
         hr = _ImageCommandList->Close();
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            for (auto* createdTexture : createdTextures)
+                SafeRelease(createdTexture);
+            SafeRelease(uploadBuffer);
+            failBatch();
+            return;
+        }
         _ImageCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&_ImageCommandList);
 
         hr = _ImageCommandQueue->Signal(_ImageFence, ++_ImageFenceValue);
-        IM_ASSERT(SUCCEEDED(hr));
-        _ImageFence->SetEventOnCompletion(_ImageFenceValue, _ImageEvent);
-        WaitForSingleObject(_ImageEvent, INFINITE);
-
-        hr = _ImageCommandAllocator->Reset();
-        IM_ASSERT(SUCCEEDED(hr));
-        hr = _ImageCommandList->Reset(_ImageCommandAllocator, nullptr);
-        IM_ASSERT(SUCCEEDED(hr));
-
+        if (FAILED(hr))
+        {
+            INGAMEOVERLAY_ERROR("Failed to signal the DirectX 12 image upload fence: {}", static_cast<long>(hr));
+            for (size_t i = 0; i < validResources.size(); ++i)
+            {
+                validResources[i].Resource->pTexture = createdTextures[i];
+                validResources[i].Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(validResources[i].Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            uploadBuffer = nullptr;
+            _PendingImageFenceValue = _ImageFenceValue;
+            _PendingImageFenceValid = false;
+            _ImageUploadBatchState.Submitted(false);
+            failBatch();
+            return;
+        }
+        // Completion is polled on later render frames. This keeps the render thread nonblocking
+        // and the shared allocator/list unavailable until the queue has completed this batch.
         for (size_t i = 0; i < validResources.size(); ++i)
         {
             validResources[i].Resource->pTexture = createdTextures[i];
-            validResources[i].Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+            _ImageUploadBatchState.Retain(validResources[i].Resource);
         }
-
-        SafeRelease(uploadBuffer);
+        _PendingImageUploadBuffer = uploadBuffer;
+        uploadBuffer = nullptr;
+        _PendingImageFenceValue = _ImageFenceValue;
+        _PendingImageFenceValid = true;
+        _ImageUploadBatchState.Submitted(true);
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
+        return;
     }
 
     _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
@@ -925,6 +1088,7 @@ void DX12Hook_t::_ReleaseResources()
 
     for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
     {
+        auto texture = std::static_pointer_cast<DX12Texture_t>(it->Resource);
         if ((it->ReleaseFrame + _OverlayFrames.size()) < _CurrentFrame)
         {
             it = _ImageResourcesToRelease.erase(it);
@@ -1244,12 +1408,14 @@ DX12Hook_t::DX12Hook_t():
     _FrameFence(nullptr),
     _FrameFenceEvent(nullptr),
     _FrameFenceValue(0),
-    _ImageEvent(nullptr),
     _ImageFenceValue(0),
     _ImageFence(nullptr),
     _ImageCommandQueue(nullptr),
     _ImageCommandAllocator(nullptr),
     _ImageCommandList(nullptr),
+    _PendingImageUploadBuffer(nullptr),
+    _PendingImageFenceValue(0),
+    _PendingImageFenceValid(false),
     _ScreenshotEvent(nullptr),
     _ScreenshotFenceValue(0),
     _ScreenshotFence(nullptr),

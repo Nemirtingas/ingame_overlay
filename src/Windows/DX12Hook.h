@@ -20,6 +20,7 @@
 #pragma once
 
 #include "../RendererHookInternal.h"
+#include "../RendererUploadBatchState.h"
 
 #include <Windows.h>
 
@@ -165,7 +166,6 @@ private:
     HANDLE _FrameFenceEvent;
     UINT64 _FrameFenceValue;
 
-    HANDLE _ImageEvent;
     UINT64 _ImageFenceValue;
     ID3D12Fence* _ImageFence;
     ID3D12CommandQueue* _ImageCommandQueue;
@@ -174,6 +174,10 @@ private:
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
+    ID3D12Resource* _PendingImageUploadBuffer;
+    UINT64 _PendingImageFenceValue;
+    bool _PendingImageFenceValid;
+    RendererUploadBatchState_t<RendererTexture_t> _ImageUploadBatchState;
 
     HANDLE _ScreenshotEvent;
     UINT64 _ScreenshotFenceValue;

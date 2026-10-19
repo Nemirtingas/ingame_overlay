@@ -20,6 +20,7 @@
 #pragma once
 
 #include "../RendererHookInternal.h"
+#include "../RendererUploadBatchState.h"
 
 #include <filesystem>
 
@@ -98,6 +99,10 @@ private:
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
+    VkBuffer _PendingImageUploadBuffer;
+    VkDeviceMemory _PendingImageUploadMemory;
+    bool _PendingImageUpload;
+    RendererUploadBatchState_t<RendererTexture_t> _ImageUploadBatchState;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -208,6 +213,7 @@ private:
     decltype(::vkDestroyFramebuffer)                     *_vkDestroyFramebuffer;
     decltype(::vkCreateFence)                            *_vkCreateFence;
     decltype(::vkWaitForFences)                          *_vkWaitForFences;
+    decltype(::vkGetFenceStatus)                         *_vkGetFenceStatus;
     decltype(::vkResetFences)                            *_vkResetFences;
     decltype(::vkDestroyFence)                           *_vkDestroyFence;
     decltype(::vkCreateDescriptorPool)                   *_vkCreateDescriptorPool;

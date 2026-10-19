@@ -364,10 +364,19 @@ void DX10Hook_t::_LoadResources()
     }
 
     if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
         return;
+    }
 
     for (auto& tex : validResources)
     {
+        if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
         // Create texture
         D3D10_TEXTURE2D_DESC desc = {};
         desc.Width = tex.Width;
@@ -386,7 +395,11 @@ void DX10Hook_t::_LoadResources()
         subResource.SysMemPitch = tex.Width * 4;
         subResource.SysMemSlicePitch = 0;
         HRESULT hr = _Device->CreateTexture2D(&desc, &subResource, &pTexture);
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || pTexture == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         // Create texture view
         D3D10_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -397,9 +410,14 @@ void DX10Hook_t::_LoadResources()
 
         ID3D10ShaderResourceView* srv = nullptr;
         hr = _Device->CreateShaderResourceView(pTexture, &srvDesc, &srv);
-        IM_ASSERT(SUCCEEDED(hr));
         // Release Texure, the shader resource increases the reference count.
         pTexture->Release();
+
+        if (FAILED(hr) || srv == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(srv);
         tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;

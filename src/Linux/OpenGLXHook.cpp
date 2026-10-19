@@ -229,6 +229,12 @@ void OpenGLXHook_t::_LoadResources()
         {
             auto& tex = validResources[i];
 
+            if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0 || tex.Resource->ImGuiTextureId == 0)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                continue;
+            }
+
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex.Resource->ImGuiTextureId));
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

@@ -210,6 +210,12 @@ void MetalHook_t::_LoadResources()
         if (!resource)
             continue;
 
+        if (param.Data == nullptr || param.Width == 0 || param.Height == 0)
+        {
+            resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
+
         resource->LoadStatus =
             RendererTextureStatus_e::Loading;
 
@@ -247,7 +253,7 @@ void MetalHook_t::_LoadResources()
         if (texture == nil)
         {
             tex.Resource->LoadStatus =
-                RendererTextureStatus_e::NotLoaded;
+                RendererTextureStatus_e::Failed;
 
             continue;
         }

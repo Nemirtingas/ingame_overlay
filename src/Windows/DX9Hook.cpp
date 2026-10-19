@@ -311,8 +311,14 @@ void DX9Hook_t::_LoadResources()
         {
             auto& tex = validResources[i];
 
+            if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                continue;
+            }
+
             dx9Tex = nullptr;
-            _Device->CreateTexture(
+            hr = _Device->CreateTexture(
                 tex.Width,
                 tex.Height,
                 1,
@@ -323,7 +329,7 @@ void DX9Hook_t::_LoadResources()
                 nullptr
             );
 
-            if (dx9Tex != nullptr)
+            if (SUCCEEDED(hr) && dx9Tex != nullptr)
             {
                 D3DLOCKED_RECT rect;
                 if (SUCCEEDED(dx9Tex->LockRect(0, &rect, nullptr, D3DLOCK_DISCARD)))
@@ -351,6 +357,8 @@ void DX9Hook_t::_LoadResources()
 
                 SafeRelease(dx9Tex);
             }
+            if (tex.Resource->LoadStatus != RendererTextureStatus_e::Loaded)
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
         }
     }
 

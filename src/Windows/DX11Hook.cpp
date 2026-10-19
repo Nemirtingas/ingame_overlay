@@ -401,10 +401,19 @@ void DX11Hook_t::_LoadResources()
     }
 
     if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
         return;
+    }
 
     for (auto& tex : validResources)
     {
+        if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
@@ -422,7 +431,11 @@ void DX11Hook_t::_LoadResources()
 
         ID3D11Texture2D* texture = nullptr;
         HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || texture == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         // Create texture view
         D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -432,9 +445,14 @@ void DX11Hook_t::_LoadResources()
 
         ID3D11ShaderResourceView* srv = nullptr;
         hr = _Device->CreateShaderResourceView(texture, &srvDesc, &srv);
-        IM_ASSERT(SUCCEEDED(hr));
         // Release Texure, the shader resource increases the reference count.
         texture->Release();
+
+        if (FAILED(hr) || srv == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(srv);
         tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;

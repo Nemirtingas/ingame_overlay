@@ -50,6 +50,7 @@ public:
     ResourceState_t _OldRendererResource;
     ResourceState_t _RendererResource;
     const void* _Data;
+    bool _LoadFailed;
 
     RendererResourceInternal_t(RendererHookInternal_t* rendererHook) noexcept;
 
