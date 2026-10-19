@@ -19,10 +19,9 @@
 
 #pragma once
 
-#include "../RendererHookInternal.h"
-#include "../RendererUploadBatchState.h"
-
-#include <Windows.h>
+#include "RendererHookInternal.h"
+#include "RendererUploadBatchState.h"
+#include "WindowHook.h"
 
 #include <vulkan/vulkan.h>
 
@@ -77,10 +76,10 @@ private:
     std::filesystem::path LibraryPath;
 
     bool _Hooked;
-    bool _WindowsHooked;
+    bool _WindowHooked;
     bool _SentOutOfDate;
     OverlayHookState _HookState;
-    HWND _MainWindow;
+    NativeWindow_t _MainWindow;
 
     std::function<void* (const char*)> _VulkanLoader;
     VkAllocationCallbacks* _VulkanAllocationCallbacks;

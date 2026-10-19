@@ -40,7 +40,7 @@
 #include "DX10Hook.h"
 #include "DX9Hook.h"
 #include "OpenGLHook.h"
-#include "VulkanHook.h"
+#include "../VulkanHook.h"
 #include "DXVKDetector.h"
   
 #include "DirectXVTables.h"

@@ -17,15 +17,15 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#include "WindowHook.h"
 #include "VulkanHook.h"
-#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <limits>
 #include <imgui_internal.h>
 #include <backends/imgui_impl_vulkan.h>
 
-#include "../VulkanHelpers.h"
+#include "VulkanHelpers.h"
 
 namespace InGameOverlay {
 
@@ -97,7 +97,7 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
-        _WindowsHooked = true;
+        _WindowHooked = true;
 
         BeginHook();
         TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImageKHR);
@@ -832,16 +832,16 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
-        auto processWindows = WindowHook_t::Inst()->FindApplicationWindows();
-        if (processWindows.empty())
+        auto windows = WindowHook_t::Inst()->FindApplicationWindows();
+        if (windows.empty())
             return;
 
-        _MainWindow = processWindows[0].Window;
+        _MainWindow = windows[0];
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ _MainWindow }))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(_MainWindow))
             return;
 
         if (_VulkanQueue == nullptr)
@@ -910,9 +910,11 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
+        // The command buffer is recording and the fence has been reset: it must always be submitted,
+        // even if the overlay cannot render this frame, or the next vkWaitForFences will never return.
         auto canTakeScreenshot = false;
         auto screenshotType = _ScreenshotType();
-        if (ImGui_ImplVulkan_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ _MainWindow }))
+        if (ImGui_ImplVulkan_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(_MainWindow))
         {
             if (screenshotType == ScreenshotType_t::BeforeOverlay)
                 _HandleScreenshot(frame);
@@ -1689,12 +1691,11 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
     inst->_VkDestroyDevice(device, pAllocator);
 }
 
-VulkanHook_t::VulkanHook_t():
+VulkanHook_t::VulkanHook_t() :
     _Hooked(false),
-    _WindowsHooked(false),
+    _WindowHooked(false),
     _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
-    _MainWindow(nullptr),
     _VulkanLoader(nullptr),
     _VulkanAllocationCallbacks(nullptr),
     _VulkanInstance(VK_NULL_HANDLE),
@@ -1790,7 +1791,7 @@ VulkanHook_t::~VulkanHook_t()
 {
     INGAMEOVERLAY_INFO("VulkanHook_t Hook removed");
 
-    if (_WindowsHooked)
+    if (_WindowHooked)
         delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();

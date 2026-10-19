@@ -23,8 +23,6 @@
 
 #include "../Library.h"
 
-#undef Status
-
 #include <xcb/xinput.h>
 
 #include <imgui.h>

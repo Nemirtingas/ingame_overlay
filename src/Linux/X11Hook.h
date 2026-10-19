@@ -28,6 +28,7 @@
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
+#undef Status
 
 #include <xcb/xcb.h>
 #include <X11/keysym.h>

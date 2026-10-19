@@ -12,7 +12,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/DX11Hook.cpp
     src/Windows/DX12Hook.cpp
     src/Windows/OpenGLHook.cpp
-    src/Windows/VulkanHook.cpp
+    src/VulkanHook.cpp
     src/Windows/WindowsHook.cpp
   )
 
@@ -28,7 +28,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/DX11Hook.h
     src/Windows/DX12Hook.h
     src/Windows/OpenGLHook.h
-    src/Windows/VulkanHook.h
+    src/VulkanHook.h
     src/Windows/WindowsHook.h
     src/WindowHook.h
     src/Windows/WindowsHookEventQueue.h
@@ -91,7 +91,7 @@ elseif(UNIX)
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
-    src/Linux/VulkanHook.cpp
+    src/VulkanHook.cpp
     src/Linux/SafeXlibDisplay.cpp
   )
 
@@ -100,7 +100,7 @@ elseif(UNIX)
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
     src/WindowHook.h
-    src/Linux/VulkanHook.h
+    src/VulkanHook.h
     src/Linux/SafeXlibDisplay.h
   )
 
