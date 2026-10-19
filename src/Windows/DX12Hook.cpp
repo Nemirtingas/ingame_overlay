@@ -492,7 +492,11 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
 
             ImGui_ImplDX12_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
-            ImGui::DestroyContext();
+            if (_ImGuiContextOwned)
+            {
+                ImGui::DestroyContext();
+                _ImGuiContextOwned = false;
+            }
 
             _ImageResources.clear();
             _ImageResourcesToLoad.clear();
@@ -559,34 +563,56 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
             return;
         }
 
+        bool contextCreated = false;
+        bool backendInitialized = false;
+        auto cleanupInitialization = [&]()
+        {
+            if (backendInitialized)
+            {
+                ImGui_ImplDX12_Shutdown();
+                backendInitialized = false;
+            }
+            if (contextCreated)
+            {
+                ImGui::DestroyContext();
+                contextCreated = false;
+                _ImGuiContextOwned = false;
+            }
+            _DestroyImageObjects();
+            _DestroyScreenshotObjects();
+            _DestroyRenderTargets();
+            _ShaderResourceViewHeaps.clear();
+            _ShaderResourceViewHeapDescriptors.clear();
+            SafeRelease(_Device);
+        };
+
         if (!_AllocShaderRessourceViewHeap())
         {
-            _Device->Release();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
         if (!_CreateRenderTargets(pSwapChain))
         {
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
         if (!_CreateImageObjects())
         {
-            _DestroyRenderTargets();
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
         if (ImGui::GetCurrentContext() == nullptr)
+        {
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+            contextCreated = true;
+            _ImGuiContextOwned = true;
+        }
 
         ImGui_ImplDX12_InitInfo initInfo{};
         initInfo.CommandQueue = pCommandQueue;
@@ -612,17 +638,19 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
                 _this->_ReleaseShaderRessourceView(id);
         };
 
-        ImGui_ImplDX12_Init(&initInfo);
+        backendInitialized = ImGui_ImplDX12_Init(&initInfo);
+        if (!backendInitialized)
+        {
+            cleanupInitialization();
+            pSwapChain3->Release();
+            return;
+        }
 
         WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
 
         if (!ImGui_ImplDX12_CreateDeviceObjects())
         {
-            ImGui_ImplDX12_Shutdown();
-            _DestroyRenderTargets();
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
@@ -1228,6 +1256,7 @@ DX12Hook_t::DX12Hook_t():
     _ScreenshotCommandAllocator(nullptr),
     _ScreenshotCommandList(nullptr),
     _ImGuiFontAtlas(nullptr),
+    _ImGuiContextOwned(false),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),
     _IDXGISwapChainResizeTarget(nullptr),

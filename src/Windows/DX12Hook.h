@@ -182,6 +182,7 @@ private:
     ID3D12GraphicsCommandList* _ScreenshotCommandList;
 
     void* _ImGuiFontAtlas;
+    bool _ImGuiContextOwned;
 
     // Functions
     DX12Hook_t();
