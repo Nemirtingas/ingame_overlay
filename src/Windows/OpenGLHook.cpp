@@ -98,7 +98,10 @@ void OpenGLHook_t::_ResetRenderState(OverlayHookState state)
             break;
 
         case OverlayHookState::Removing:
-            ImGui_ImplOpenGL3_Shutdown();
+            // Without a current context the GL entry points cannot be reloaded or called.
+            // The application may have already destroyed its context during teardown.
+            if (wglGetCurrentContext() != nullptr)
+                ImGui_ImplOpenGL3_Shutdown();
             WindowsHook_t::Inst()->ResetRenderState(state);
             //ImGui::DestroyContext();
 
@@ -314,6 +317,7 @@ OpenGLHook_t::~OpenGLHook_t()
 {
     INGAMEOVERLAY_INFO("OpenGL Hook removed");
 
+    // The context may already be gone on the teardown thread; do not issue GL calls.
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
@@ -358,7 +362,8 @@ std::weak_ptr<RendererTexture_t> OpenGLHook_t::AllocImageResource()
         if (handle != nullptr)
         {
             auto resource = static_cast<GLuint>(handle->ImGuiTextureId);
-            glDeleteTextures(1, &resource);
+            if (wglGetCurrentContext() != nullptr)
+                glDeleteTextures(1, &resource);
             delete handle;
         }
     });
