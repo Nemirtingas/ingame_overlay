@@ -1580,7 +1580,7 @@ static inline void SetupSpdLog()
     {
         auto sinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
 
-#if defined(SYSTEM_OS_WINDOWS) && defined(_DEBUG)
+#if defined(INGAMEOVERLAY_OS_WINDOWS) && defined(_DEBUG)
         sinks->add_sink(std::make_shared<spdlog::sinks::msvc_sink_mt>());
 #endif
 
