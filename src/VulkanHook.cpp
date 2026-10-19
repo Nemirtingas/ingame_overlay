@@ -1489,6 +1489,8 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     VkImage dstImage = VK_NULL_HANDLE;
     VkDeviceMemory dstMemory = VK_NULL_HANDLE;
     VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+    VkFence copyFence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fenceInfo{};
 
     VkMemoryRequirements memReqs{};
     VkMemoryAllocateInfo allocInfo{};
@@ -1585,8 +1587,17 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
-    _vkQueueSubmit(_VulkanQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    _vkQueueWaitIdle(_VulkanQueue);
+    // Wait for this copy only, not for the whole queue
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (_vkCreateFence(_VulkanDevice, &fenceInfo, _VulkanAllocationCallbacks, &copyFence) != VK_SUCCESS)
+        goto cleanup;
+
+    if (_vkQueueSubmit(_VulkanQueue, 1, &submitInfo, copyFence) != VK_SUCCESS)
+        goto cleanup;
+
+    // Infinite wait: the command buffer and images are still in use by the GPU until this returns
+    if (_vkWaitForFences(_VulkanDevice, 1, &copyFence, VK_TRUE, ~0ull) != VK_SUCCESS)
+        goto cleanup;
 
     // 4. Map memory
     _vkGetImageSubresourceLayout(_VulkanDevice, dstImage, &subresource, &layout);
@@ -1610,6 +1621,9 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     result = true;
 
 cleanup:
+    if (copyFence != VK_NULL_HANDLE)
+        _vkDestroyFence(_VulkanDevice, copyFence, _VulkanAllocationCallbacks);
+
     if (dstImage != VK_NULL_HANDLE)
         _vkDestroyImage(_VulkanDevice, dstImage, nullptr);
 
