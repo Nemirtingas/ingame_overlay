@@ -264,10 +264,11 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             return;
         }
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow))
-            return;
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow))
+            return;
 
         ImGui_ImplDX10_Init(_Device);
 

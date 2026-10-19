@@ -126,11 +126,11 @@ void OpenGLHook_t::_PrepareForOverlay(HDC hDC)
             return;
         }
 
-        if (!WindowsHook_t::Inst()->SetInitialWindowSize(hWnd))
-            return;
-
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+
+        if (!WindowsHook_t::Inst()->SetInitialWindowSize(hWnd))
+            return;
 
         ImGui_ImplOpenGL3_Init();
 
