@@ -1567,6 +1567,17 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
+    // The swapchain image is in PRESENT_SRC_KHR, which is not a valid copy source layout
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.image = frame.BackBuffer;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+    _vkCmdPipelineBarrier(cmdBuffer,
+        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
     // Copy from src (swapchain) to dst (linear)
     imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     imageCopy.srcSubresource.layerCount = 1;
@@ -1577,9 +1588,19 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     imageCopy.extent.depth = 1;
 
     _vkCmdCopyImage(cmdBuffer,
-        frame.BackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        frame.BackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dstImage, VK_IMAGE_LAYOUT_GENERAL,
         1, &imageCopy);
+
+    // Give the swapchain image back to the present engine in its original layout
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = 0;
+
+    _vkCmdPipelineBarrier(cmdBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     _vkEndCommandBuffer(cmdBuffer);
 
