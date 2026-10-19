@@ -30,6 +30,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/OpenGLHook.h
     src/Windows/VulkanHook.h
     src/Windows/WindowsHook.h
+    src/Windows/WindowsHookEventQueue.h
   )
 
   set(IMGUI_SOURCES
@@ -279,6 +280,10 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
   target_link_libraries(dx12_screenshot_requests_test PRIVATE ingame_overlay)
 
   if(WIN32)
+    add_executable(windows_event_queue_test
+      tests/windows_event_queue_test.cpp
+    )
+
     if(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS)
       add_executable(windows_shaders
         tests/windows_shaders_precompile/shaders.h
@@ -407,6 +412,13 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     set_property(TARGET dx11_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+    add_executable(dx11_refcount_lifecycle_test
+      tests/dx11/refcount_lifecycle.cpp
+    )
+
+    target_include_directories(dx11_refcount_lifecycle_test PRIVATE src/Windows)
+    target_link_libraries(dx11_refcount_lifecycle_test PRIVATE ingame_overlay d3d11 dxgi)
 
     add_executable(dx12_app
       tests/dx12/main.cpp

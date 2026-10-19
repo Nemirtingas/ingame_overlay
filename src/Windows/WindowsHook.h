@@ -21,31 +21,24 @@
 
 #include "../RendererHookInternal.h"
 
-#include "../mpmc_bounded_queue.h"
+#include "WindowsHookEventQueue.h"
 
 #include  "SimpleWindowsGamingInput.h"
 
 #include <Windows.h>
 
 #include <filesystem>
+#include <atomic>
+#include <memory>
 
 #include <cstdint>
 
 namespace InGameOverlay {
 
-struct WindowsHookEvent_t
+struct WindowsHookKeyCombination_t
 {
-    HWND hWnd;
-    UINT msg;
-    WPARAM wParam;
-    LPARAM lParam;
-
-    inline WindowsHookEvent_t()
-    {}
-
-    inline WindowsHookEvent_t(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) :
-        hWnd(hWnd), msg(msg), wParam(wParam), lParam(lParam)
-    {}
+    std::function<void()> callback;
+    std::vector<int> keys;
 };
 
 class WindowsHook_t :
@@ -56,27 +49,41 @@ public:
 
 private:
     static WindowsHook_t* _inst;
+    static SRWLOCK _CallWndProcLock;
 
     // Variables
     bool _Hooked;
-    bool _Initialized;
-    HWND _GameHwnd;
-    POINT _SavedCursorPos;
-    RECT _SavedClipCursor;
+    HHOOK _CallWndProcHook;
+    DWORD _CallWndProcThreadId;
+    HWND _CallWndProcHwnd;
+    std::atomic<bool> _Initialized;
+    std::atomic<HWND> _GameHwnd;
+    std::atomic<LONG> _SavedCursorX;
+    std::atomic<LONG> _SavedCursorY;
+    std::atomic<LONG> _SavedClipLeft;
+    std::atomic<LONG> _SavedClipTop;
+    std::atomic<LONG> _SavedClipRight;
+    std::atomic<LONG> _SavedClipBottom;
     CONST RECT _DefaultClipCursor;
-    bool _ApplicationInputsHidden;
-    bool _OverlayInputsHidden;
+    std::atomic<bool> _ApplicationInputsHidden;
+    std::atomic<bool> _OverlayInputsHidden;
+    bool _OverlayInputsHiddenProcessed;
 
     // In (bool): Is toggle wanted
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
-    std::function<void()> _KeyCombinationCallback;
-    std::vector<int> _NativeKeyCombination;
-    bool _KeyCombinationPushed;
-    mpmc_bounded_queue<WindowsHookEvent_t> _WindowEvents;
+    std::shared_ptr<const WindowsHookKeyCombination_t> _KeyCombination;
+    std::atomic<bool> _KeyCombinationPushed;
+    WindowsHookEventQueue_t _WindowEvents;
 
     // Functions
     WindowsHook_t();
     void _AppendEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+    void _ProcessWindowEvents();
+    RECT _LoadSavedClipCursor() const;
+    void _StoreSavedClipCursor(const RECT& rect);
+    bool _InstallCallWndProcHook(HWND hWnd);
+    void _RemoveCallWndProcHook();
+    static LRESULT CALLBACK _CallWndProc(int nCode, WPARAM wParam, LPARAM lParam);
     void _RawEvent(RAWINPUT& raw);
     bool _HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     decltype(::TranslateMessage)* _TranslateMessage;
