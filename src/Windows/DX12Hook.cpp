@@ -516,6 +516,25 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     }
 }
 
+bool DX12Hook_t::_IsSwapChain(IUnknown* pSwapChain) const
+{
+    if (pSwapChain == nullptr || _SwapChain == nullptr)
+        return false;
+
+    IUnknown* swapChainIdentity = nullptr;
+    IUnknown* overlaySwapChainIdentity = nullptr;
+    const HRESULT swapChainResult = pSwapChain->QueryInterface(IID_PPV_ARGS(&swapChainIdentity));
+    const HRESULT overlaySwapChainResult = _SwapChain->QueryInterface(IID_PPV_ARGS(&overlaySwapChainIdentity));
+    const bool isSameSwapChain = SUCCEEDED(swapChainResult)
+        && SUCCEEDED(overlaySwapChainResult)
+        && swapChainIdentity == overlaySwapChainIdentity;
+
+    SafeRelease(swapChainIdentity);
+    SafeRelease(overlaySwapChainIdentity);
+
+    return isSameSwapChain;
+}
+
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags)
 {
@@ -1069,6 +1088,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
     INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
     auto inst = DX12Hook_t::Inst();
 
+    if (inst->_SwapChain != nullptr && !inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    if (inst->_SwapChain == nullptr && inst->_HookState != OverlayHookState::Removing)
+        return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
     if (pCommandQueue != nullptr)
         inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
@@ -1080,6 +1104,9 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -1102,6 +1129,9 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -1124,6 +1154,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain1::Present1");
     auto inst = DX12Hook_t::Inst();
+
+    if (inst->_SwapChain != nullptr && !inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    if (inst->_SwapChain == nullptr && inst->_HookState != OverlayHookState::Removing)
+        return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
     if (pCommandQueue != nullptr)
@@ -1136,6 +1171,9 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwap
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain3::ResizeBuffers1");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)

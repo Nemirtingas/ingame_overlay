@@ -202,6 +202,7 @@ private:
     bool _CreateScreenshotObjects();
     void _DestroyScreenshotObjects();
     void _ResetRenderState(OverlayHookState state);
+    bool _IsSwapChain(IUnknown* pSwapChain) const;
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
     void _LoadResources();
     void _ReleaseResources();
