@@ -67,16 +67,6 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DX
     }
 }
 
-static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
-{
-    HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
-
-    if (SUCCEEDED(ret))
-        (*ppDevice)->GetImmediateContext(ppContext);
-
-    return ret;
-}
-
 bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -131,51 +121,53 @@ void DX11Hook_t::_UpdateHookDeviceRefCount()
 {
     switch (_HookState)
     {
-        case OverlayHookState::Removing: _HookDeviceRefCount =
-            + 1 // ?
-
-            // _PrepareForOverlay
-            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
-
-            // ImGui_ImplDX11_Init
-            + 1 // ImGui ID3D11Device AddRef
-            ;
+        case OverlayHookState::Removing:
+            _HookDeviceRefCount = 1 // GetDevice held device
+                + 1; // ImGui backend device reference
             break;
-
-        case OverlayHookState::Ready: _HookDeviceRefCount =
-            + 1 // ?
-
-            // ImGui_ImplDX11_CreateDeviceObjects
-            + 1 // ID3D11BlendState (singleton per device)
-            + 1 // ID3D11RasterizerState (singleton per device)
-            + 1 // ID3D11DepthStencilState (singleton per device)
-            + 1 // ID3D11SamplerState (singleton per device)
-            + 1 // ID3D11SamplerState (singleton per device)
-
-            // _PrepareForOverlay
-            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
-
-            // _CreateRenderTargets
-            + 1 // _RenderTargetView
-
-            // ImGui_ImplDX11_Init
-            + 1 // ImGui ID3D11Device AddRef
-
-            // ImGui_ImplDX11_CreateDeviceObjects
-            + 1 // ImGui Vertex Shader
-            + 1 // ImGui Input Layout
-            + 1 // ImGui Constant Buffer
-            + 1 // ImGui Pixel Shader
-
-            // ImGui_ImplDX11_RenderDrawData
-            + 1 // ImGui Vertex Buffer
-            + 1 // ImGui Index Buffer
-            + 1 // ImGui Font Texture
-            + 1 // ImGui Font Shader View
-
-            + _ImageResourcesToRelease.size()
-            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
-            ;
+        case OverlayHookState::Ready:
+            _HookDeviceRefCount = 1 // pre-existing backend reference
+                + 1 // GetDevice held device
+                + 1 // ImGui device reference
+                + 1 // blend state singleton
+                + 1 // rasterizer state singleton
+                + 1 // depth stencil state singleton
+                + 1 // first sampler state singleton
+                + 1 // second sampler state singleton
+                + 1 // render target view
+                + 1 // vertex shader
+                + 1 // input layout
+                + 1 // constant buffer
+                + 1 // pixel shader
+                + 1 // vertex buffer
+                + 1 // index buffer
+                + 1 // font texture
+                + 1 // font shader view
+                + _ImageResourcesToRelease.size()
+                + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
+                    { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
+            break;
+        case OverlayHookState::Reset:
+            _HookDeviceRefCount = 1 // pre-existing backend reference
+                + 1 // GetDevice held device
+                + 1 // ImGui device reference
+                + 1 // blend state singleton
+                + 1 // rasterizer state singleton
+                + 1 // depth stencil state singleton
+                + 1 // first sampler state singleton
+                + 1 // second sampler state singleton
+                + 1 // vertex shader
+                + 1 // input layout
+                + 1 // constant buffer
+                + 1 // pixel shader
+                + 1 // vertex buffer
+                + 1 // index buffer
+                + 1 // font texture
+                + 1 // font shader view
+                + _ImageResourcesToRelease.size()
+                + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
+                    { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
+            break;
     }
 }
 
@@ -290,8 +282,10 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
     if (_HookState == OverlayHookState::Removing)
     {
-        if (FAILED(GetDeviceAndCtxFromSwapchain(pSwapChain, &_Device, &_DeviceContext)))
+        if (FAILED(pSwapChain->GetDevice(IID_PPV_ARGS(&_Device))))
             return;
+        _HookDeviceRefCount = 1;
+        _Device->GetImmediateContext(&_DeviceContext);
 
         if (!_CreateRenderTargets(pSwapChain))
         {
@@ -307,7 +301,9 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
         WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
-        if (!ImGui_ImplDX11_CreateDeviceObjects())
+        bool createDeviceObjects = false;
+        createDeviceObjects = ImGui_ImplDX11_CreateDeviceObjects();
+        if (!createDeviceObjects)
         {
             ImGui_ImplDX11_Shutdown();
             _DestroyRenderTargets();
@@ -463,6 +459,7 @@ void DX11Hook_t::_LoadResources()
         _ImageResourcesToLoad.begin() + loadParameterCount);
 
     _UpdateHookDeviceRefCount();
+
 }
 
 void DX11Hook_t::_ReleaseResources()

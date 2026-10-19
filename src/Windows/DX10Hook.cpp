@@ -122,7 +122,7 @@ void DX10Hook_t::_UpdateHookDeviceRefCount()
     switch (_HookState)
     {
         // 0 ref from ImGui
-        case OverlayHookState::Removing: _HookDeviceRefCount = 
+        case OverlayHookState::Removing: _HookDeviceRefCount =
             // _PrepareForOverlay
             + 1 // ID3D10Device   pSwapChain->GetDevice
 
@@ -292,7 +292,9 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         if (_ImGuiFontAtlas != nullptr)
         {
             const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+            {
+                ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
+            }
         }
 
         ++_CurrentFrame;
@@ -306,23 +308,25 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         ImGui::Render();
 
         {
-            struct RenderTargetState_t
             {
-                ID3D10RenderTargetView* RenderTargetViews[D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-                ID3D10DepthStencilView* DepthStencilView = nullptr;
-
-                ~RenderTargetState_t()
+                struct RenderTargetState_t
                 {
-                    for (auto*& renderTargetView : RenderTargetViews)
-                        SafeRelease(renderTargetView);
-                    SafeRelease(DepthStencilView);
-                }
-            } renderTargetState;
+                    ID3D10RenderTargetView* RenderTargetViews[D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+                    ID3D10DepthStencilView* DepthStencilView = nullptr;
 
-            _Device->OMGetRenderTargets(D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, &renderTargetState.DepthStencilView);
-            _Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
-            ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
-            _Device->OMSetRenderTargets(D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, renderTargetState.DepthStencilView);
+                    ~RenderTargetState_t()
+                    {
+                        for (auto*& renderTargetView : RenderTargetViews)
+                            SafeRelease(renderTargetView);
+                        SafeRelease(DepthStencilView);
+                    }
+                } renderTargetState;
+
+                _Device->OMGetRenderTargets(D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, &renderTargetState.DepthStencilView);
+                _Device->OMSetRenderTargets(1, &_RenderTargetView, nullptr);
+                ImGui_ImplDX10_RenderDrawData(ImGui::GetDrawData());
+                _Device->OMSetRenderTargets(D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, renderTargetState.DepthStencilView);
+            }
         }
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
@@ -426,7 +430,6 @@ void DX10Hook_t::_LoadResources()
     _ImageResourcesToLoad.erase(
         _ImageResourcesToLoad.begin(),
         _ImageResourcesToLoad.begin() + loadParameterCount);
-
     _UpdateHookDeviceRefCount();
 }
 
