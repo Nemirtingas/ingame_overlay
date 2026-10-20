@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "../RendererHookInternal.h"
+#include "../OpenGLHookCommon.h"
 
 #include <filesystem>
 
@@ -28,7 +28,7 @@
 namespace InGameOverlay {
 
 class OpenGLXHook_t :
-    public InGameOverlay::RendererHookInternal_t,
+    public OpenGLHookCommon_t,
     public BaseHook_t
 {
 private:
@@ -40,23 +40,20 @@ private:
 
     bool _Hooked;
     bool _X11Hooked;
-    bool _Initialized;
-    OverlayHookState _HookState;
     Display *_Display;
     //GLXContext _Context;
-    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
-    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
-    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
-    void* _ImGuiFontAtlas;
 
     // Functions
     OpenGLXHook_t();
 
-    void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(Display* display, GLXDrawable drawable);
-    void _LoadResources();
-    void _ReleaseResources();
-    void _HandleScreenshot();
+
+    virtual bool _ImGuiBackendInit() override;
+    virtual bool _ImGuiBackendNewFrame() override;
+    virtual void _ImGuiBackendRenderDrawData(ImDrawData* drawData) override;
+    virtual void _ImGuiBackendShutdown() override;
+    virtual void _ResetWindowHook(OverlayHookState state) override;
+    virtual void _ForgetWindow() override;
 
     // Hook to render functions
     decltype(::glXSwapBuffers)* _GLXSwapBuffers;
@@ -74,10 +71,6 @@ public:
     virtual const char* GetLibraryName() const override;
     virtual RendererHookType_t GetRendererHookType() const override;
     void LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers);
-
-    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
-    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;
-    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) override;
 
     virtual void SetLibraryPath(std::filesystem::path const& libraryPath) override;
 };
