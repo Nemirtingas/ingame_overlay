@@ -176,7 +176,9 @@ OpenGLHook_t::~OpenGLHook_t()
     if (_Initialized)
     {
         _ResetRenderState(OverlayHookState::Removing);
-        ImGui::DestroyContext();
+        // Without a current GL context the backend stays attached, and ImGui refuses to destroy the context.
+        if (ImGui::GetIO().BackendRendererUserData == nullptr)
+            ImGui::DestroyContext();
     }
 
     if (_NSViewHooked)
