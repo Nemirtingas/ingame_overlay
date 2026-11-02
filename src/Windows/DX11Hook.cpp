@@ -117,6 +117,23 @@ bool DX11Hook_t::IsStarted()
     return _Hooked;
 }
 
+// The ImGui backend creates these objects while rendering, not when it is initialized.
+void DX11Hook_t::_UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData)
+{
+    _BackendLazyDeviceRefCount = 0;
+
+    if (drawData->DisplaySize.x > 0.0f && drawData->DisplaySize.y > 0.0f)
+        _BackendLazyDeviceRefCount += 1 // vertex buffer
+            + 1; // index buffer
+
+    for (ImTextureData const* texture : ImGui::GetPlatformIO().Textures)
+    {
+        if (texture->TexID != ImTextureID_Invalid)
+            _BackendLazyDeviceRefCount += 1 // texture
+                + 1; // shader view
+    }
+}
+
 void DX11Hook_t::_UpdateHookDeviceRefCount()
 {
     switch (_HookState)
@@ -139,10 +156,7 @@ void DX11Hook_t::_UpdateHookDeviceRefCount()
                 + 1 // input layout
                 + 1 // constant buffer
                 + 1 // pixel shader
-                + 1 // vertex buffer
-                + 1 // index buffer
-                + 1 // font texture
-                + 1 // font shader view
+                + _BackendLazyDeviceRefCount
                 + _ImageResourcesToRelease.size()
                 + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
                     { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
@@ -160,10 +174,7 @@ void DX11Hook_t::_UpdateHookDeviceRefCount()
                 + 1 // input layout
                 + 1 // constant buffer
                 + 1 // pixel shader
-                + 1 // vertex buffer
-                + 1 // index buffer
-                + 1 // font texture
-                + 1 // font shader view
+                + _BackendLazyDeviceRefCount
                 + _ImageResourcesToRelease.size()
                 + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
                     { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
@@ -261,6 +272,7 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
             _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
+            _BackendLazyDeviceRefCount = 0;
             break;
 
         case OverlayHookState::Reset:
@@ -335,6 +347,9 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
         OverlayProc();
 
+        // These device releases are ours: the refcount can transiently be below the threshold.
+        ++_DeviceReleasing;
+
         _LoadResources();
         _ReleaseResources();
 
@@ -359,6 +374,11 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
             _DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, renderTargetState.DepthStencilView);
         }
+
+        _UpdateBackendLazyDeviceRefCount(ImGui::GetDrawData());
+        _UpdateHookDeviceRefCount();
+
+        --_DeviceReleasing;
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(pSwapChain);
@@ -631,6 +651,7 @@ DX11Hook_t::DX11Hook_t():
     _Device(nullptr),
     _SwapChainIdentity(0),
     _HookDeviceRefCount(0),
+    _BackendLazyDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _DeviceContext(nullptr),
     _RenderTargetView(nullptr),
