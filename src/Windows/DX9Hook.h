@@ -30,6 +30,8 @@
 #include <string>
 #include <vector>
 
+struct ImDrawData;
+
 namespace InGameOverlay {
 
 class DX9Hook_t :
@@ -50,6 +52,7 @@ private:
     uint32_t _DeviceReleasing;
     IDirect3DDevice9* _Device;
     ULONG _HookDeviceRefCount;
+    ULONG _BackendLazyDeviceRefCount;
     OverlayHookState _HookState;
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
@@ -59,6 +62,7 @@ private:
     // Functions
     DX9Hook_t();
 
+    void _UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData);
     void _UpdateHookDeviceRefCount();
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDirect3DDevice9* pDevice, HWND destWindow);

@@ -307,6 +307,16 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       )
     endif()
   
+    add_executable(dx9_refcount_no_host_test
+      tests/dx9/refcount_no_host.cpp
+    )
+
+    target_include_directories(dx9_refcount_no_host_test PRIVATE src/Windows)
+    target_link_libraries(dx9_refcount_no_host_test PRIVATE ingame_overlay d3d9)
+
+    set_property(TARGET dx9_refcount_no_host_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
     add_executable(dx9_app
       tests/dx9/main.cpp
       deps/ImGui/imgui.cpp
