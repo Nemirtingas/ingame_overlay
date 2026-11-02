@@ -284,6 +284,9 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
   )
   target_link_libraries(dx12_screenshot_requests_test PRIVATE ingame_overlay)
 
+  set_property(TARGET dx12_screenshot_requests_test PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
   if(WIN32)
     add_executable(windows_event_queue_test
       tests/windows_event_queue_test.cpp
@@ -424,6 +427,9 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     target_include_directories(dx11_refcount_lifecycle_test PRIVATE src/Windows)
     target_link_libraries(dx11_refcount_lifecycle_test PRIVATE ingame_overlay d3d11 dxgi)
+
+    set_property(TARGET dx11_refcount_lifecycle_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
     add_executable(dx12_app
       tests/dx12/main.cpp
