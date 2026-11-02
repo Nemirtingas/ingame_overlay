@@ -153,6 +153,7 @@ list(APPEND INGAMEOVERLAY_SOURCES
   src/Library.cpp
   src/Internal.cpp
   src/RendererHookInternal.cpp
+  src/OpenGLHookCommon.cpp
   src/RendererResourceInternal.cpp
 )
 
@@ -163,6 +164,7 @@ list(APPEND PRIVATE_INGAMEOVERLAY_HEADERS
   src/InternalIncludes.h
   src/BaseHook.h
   src/RendererHookInternal.h
+  src/OpenGLHookCommon.h
   src/RendererUploadBatchState.h
   src/RendererResourceInternal.h
 )

@@ -35,6 +35,8 @@ namespace InGameOverlay {
 using WindowHook_t = WindowsHook_t;
 #elif defined(INGAMEOVERLAY_OS_LINUX)
 using WindowHook_t = X11Hook_t;
+#elif defined(INGAMEOVERLAY_OS_APPLE)
+using WindowHook_t = NSViewHook_t;
 #endif
 
 } // namespace InGameOverlay

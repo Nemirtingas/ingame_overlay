@@ -21,11 +21,11 @@
 #include "NSViewHook.h"
 
 #include <imgui.h>
-#include <imgui_internal.h>
 #include <backends/imgui_impl_opengl2.h>
 #include <backends/imgui_impl_opengl3.h>
 
 #include <glad/gl.h>
+#include "../Library.h"
 
 namespace InGameOverlay {
 
@@ -46,6 +46,15 @@ bool OpenGLHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
 {
     if (!_Hooked)
     {
+        // Resolved at runtime: the library does not link the OpenGL framework.
+        LibraryWrapper libOpenGL(LibraryPath);
+        _GetCurrentContext = libOpenGL.IsValid() ? reinterpret_cast<void* (*)()>(libOpenGL.GetSymbol("CGLGetCurrentContext")) : nullptr;
+        if (_GetCurrentContext == nullptr)
+        {
+            INGAMEOVERLAY_ERROR("Failed to hook OpenGL: CGLGetCurrentContext missing.");
+            return false;
+        }
+
         if (_NSOpenGLContextFlushBufferMethod == nullptr && _CGLFlushDrawable == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook OpenGL: Rendering functions missing.");
@@ -96,22 +105,6 @@ bool OpenGLHook_t::IsStarted()
     return _Hooked;
 }
 
-void OpenGLHook_t::_ResetRenderState()
-{
-    if (_Initialized)
-    {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
-
-        _OpenGLDriver.ImGuiShutdown();
-        //NSViewHook_t::Inst()->_ResetRenderState();
-        //ImGui::DestroyContext();
-
-        _ImageResources.clear();
-
-        _Initialized = false;
-    }
-}
-
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void OpenGLHook_t::_PrepareForOverlay()
 {
@@ -142,161 +135,16 @@ void OpenGLHook_t::_PrepareForOverlay()
         if(ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        _OpenGLDriver.ImGuiInit();
+        _ImGuiBackendInit();
 
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (_OpenGLDriver.ImGuiNewFrame() && NSViewHook_t::Inst()->PrepareForOverlay())
+    if (_ImGuiBackendNewFrame() && NSViewHook_t::Inst()->PrepareForOverlay())
     {
-        auto screenshotType = _ScreenshotType();
-        if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot();
-
-        if (_ImGuiFontAtlas != nullptr)
-        {
-            const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
-        }
-
-        ++_CurrentFrame;
-        ImGui::NewFrame();
-
-        OverlayProc();
-
-        _LoadResources();
-        _ReleaseResources();
-
-        ImGui::Render();
-
-        _OpenGLDriver.ImGuiRenderDrawData(ImGui::GetDrawData());
-
-        if (screenshotType == ScreenshotType_t::AfterOverlay)
-            _HandleScreenshot();
+        _RenderOverlayFrame();
     }
-}
-
-void OpenGLHook_t::_LoadResources()
-{
-    if (_ImageResourcesToLoad.empty())
-        return;
-
-    // Save old texture id
-    GLint oldTex;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
-
-    struct ValidTexture_t
-    {
-        std::shared_ptr<RendererTexture_t> Resource;
-        const void* Data;
-        uint32_t Width;
-        uint32_t Height;
-    };
-
-    std::vector<ValidTexture_t> validResources;
-
-    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
-
-    for (size_t i = 0; i < loadParameterCount; ++i)
-    {
-        auto& param = _ImageResourcesToLoad[i];
-        auto r = param.Resource.lock();
-        if (!r) continue;
-
-        validResources.push_back(ValidTexture_t{
-            r,
-            param.Data,
-            param.Width,
-            param.Height
-        });
-    }
-
-    if (!validResources.empty())
-    {
-        for (size_t i = 0; i < validResources.size(); ++i)
-        {
-            auto& tex = validResources[i];
-
-            if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0 || tex.Resource->ImGuiTextureId == 0)
-            {
-                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
-                continue;
-            }
-
-            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex.Resource->ImGuiTextureId));
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-            // Upload pixels into texture
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex.Width, tex.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex.Data);
-
-            tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
-        }
-    }
-
-    glBindTexture(GL_TEXTURE_2D, oldTex);
-
-    _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
-        _ImageResourcesToLoad.begin() + loadParameterCount);
-}
-
-void OpenGLHook_t::_ReleaseResources()
-{
-    // Keep the resources released during this frame, the current draw data may still use them.
-    for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
-    {
-        if (it->ReleaseFrame < _CurrentFrame)
-        {
-            it = _ImageResourcesToRelease.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-}
-
-void OpenGLHook_t::_HandleScreenshot()
-{
-    int viewport[8];
-    int width, height;
-    glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
-    width = viewport[2];
-    height = viewport[3];
-
-    int bytesPerPixel = 4;
-
-    std::vector<uint8_t> buffer(width * height * bytesPerPixel);
-
-    GLboolean isDoubleBuffered = GL_FALSE;
-    glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
-
-    glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
-
-    std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
-
-    for (int i = 0; i < (height / 2); ++i)
-    {
-        uint8_t* topLine = buffer.data() + i * width * bytesPerPixel;
-        uint8_t* bottomLine = buffer.data() + (height - i - 1) * width * bytesPerPixel;
-
-        memcpy(lineBuffer.data(), topLine, width * bytesPerPixel);
-        memcpy(topLine, bottomLine, width * bytesPerPixel);
-        memcpy(bottomLine, lineBuffer.data(), width * bytesPerPixel);
-    }
-
-    ScreenshotCallbackParameter_t screenshot;
-    screenshot.Width = width;
-    screenshot.Height = height;
-    screenshot.Pitch = bytesPerPixel * width;
-    screenshot.Data = reinterpret_cast<void*>(buffer.data());
-    screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
-
-    _SendScreenshot(&screenshot);   
 }
 
 CGLError OpenGLHook_t::_MyNSOpenGLContextFlushBuffer(id self)
@@ -314,8 +162,6 @@ CGLError OpenGLHook_t::_MyCGLFlushDrawable(CGLContextObj glDrawable)
 OpenGLHook_t::OpenGLHook_t():
     _Hooked(false),
     _NSViewHooked(false),
-    _Initialized(false),
-    _ImGuiFontAtlas(nullptr),
     _NSOpenGLContextFlushBufferMethod(nullptr),
     _NSOpenGLContextflushBuffer(nullptr),
     _CGLFlushDrawable(nullptr)
@@ -327,14 +173,14 @@ OpenGLHook_t::~OpenGLHook_t()
 {
     INGAMEOVERLAY_INFO("OpenGL Hook removed");
 
-    if (_NSViewHooked)
-        delete NSViewHook_t::Inst();
-
     if (_Initialized)
     {
-        _OpenGLDriver.ImGuiShutdown();
+        _ResetRenderState(OverlayHookState::Removing);
         ImGui::DestroyContext();
     }
+
+    if (_NSViewHooked)
+        delete NSViewHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;
@@ -364,56 +210,39 @@ void OpenGLHook_t::LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLF
     _CGLFlushDrawable = pfnCGLFlushDrawable;
 }
 
-std::weak_ptr<RendererTexture_t> OpenGLHook_t::AllocImageResource()
-{
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    if (glGetError() != GL_NO_ERROR)
-        return std::weak_ptr<RendererTexture_t>{};
-
-    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
-    {
-        if (handle != nullptr)
-        {
-            auto resource = static_cast<GLuint>(handle->ImGuiTextureId);
-            glDeleteTextures(1, &resource);
-            delete handle;
-        }
-    });
-    ptr->ImGuiTextureId = static_cast<uint64_t>(texture);
-
-    _ImageResources.emplace(ptr);
-
-    return ptr;
-}
-
-void OpenGLHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
-{
-    _ImageResourcesToLoad.emplace_back(loadParameter);
-}
-
-void OpenGLHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
-{
-    auto ptr = resource.lock();
-    if (ptr)
-    {
-        auto it = _ImageResources.find(ptr);
-        if (it != _ImageResources.end())
-        {
-            _ImageResources.erase(it);
-            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
-            {
-                std::move(ptr),
-                _CurrentFrame
-            });
-        }
-    }
-}
-
 void OpenGLHook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
 {
     LibraryPath = libraryPath;
     LibraryName = LibraryPath.string();
+}
+
+bool OpenGLHook_t::_ImGuiBackendInit()
+{
+    return _OpenGLDriver.ImGuiInit();
+}
+
+bool OpenGLHook_t::_ImGuiBackendNewFrame()
+{
+    return _OpenGLDriver.ImGuiNewFrame();
+}
+
+void OpenGLHook_t::_ImGuiBackendRenderDrawData(ImDrawData* drawData)
+{
+    _OpenGLDriver.ImGuiRenderDrawData(drawData);
+}
+
+void OpenGLHook_t::_ImGuiBackendShutdown()
+{
+    _OpenGLDriver.ImGuiShutdown();
+}
+
+void OpenGLHook_t::_ResetWindowHook(OverlayHookState)
+{
+    NSViewHook_t::Inst()->ResetRenderState();
+}
+
+void OpenGLHook_t::_ForgetWindow()
+{
 }
 
 }// namespace InGameOverlay
