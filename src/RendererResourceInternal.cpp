@@ -122,7 +122,15 @@ uint32_t RendererResourceInternal_t::Height() const
 void RendererResourceInternal_t::AttachResource(const void* data, uint32_t width, uint32_t height)
 {
     if (IsLoaded())
+    {
+        UnloadOldResource();
         _OldRendererResource = _RendererResource;
+    }
+    else
+    {
+        // Nothing else references a texture that is not displayed yet, give it back to the hook.
+        _RendererHook->ReleaseImageResource(_RendererResource.RendererResource);
+    }
 
     _RendererResource.RendererResource.reset();
     _Data = data;
