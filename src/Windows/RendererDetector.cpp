@@ -940,6 +940,9 @@ public:
     {
         StopDetection();
 
+        DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
+        _DummyWindowHandle = nullptr;
+
         delete _DX9Hook;
         delete _DX10Hook;
         delete _DX11Hook;
@@ -1456,6 +1459,10 @@ private:
 
     bool _EnterDetection()
     {
+        // DetectRenderer is polled: keep the window of the detection in progress.
+        if (_DummyWindowHandle != nullptr)
+            return true;
+
         _DummyWindowClassName = CreateDummyHWND(&_DummyWindowHandle, &_DummyWindowAtom);
         return _DummyWindowHandle != nullptr;
     }
