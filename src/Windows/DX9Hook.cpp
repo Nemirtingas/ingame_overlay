@@ -223,7 +223,10 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
         if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ destWindow }))
+        {
+            SafeRelease(_Device);
             return;
+        }
 
         ImGui_ImplDX9_Init(pDevice);
 
