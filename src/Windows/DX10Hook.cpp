@@ -268,7 +268,11 @@ void DX10Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
         if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ desc.OutputWindow }))
+        {
+            _DestroyRenderTargets();
+            SafeRelease(_Device);
             return;
+        }
 
         ImGui_ImplDX10_Init(_Device);
 
