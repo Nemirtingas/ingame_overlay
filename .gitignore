@@ -1,3 +1,17 @@
 /deps/ImGui
 /deps/spdlog
 /OUT
+# Local AI agent setup: code indexes, MCP registrations, skills and module guides
+.cppindex/
+.cppindex.json
+*.cppindex-backup-*
+.rustindex/
+.mcp.json
+.vscode/mcp.json
+.agents/
+.claude/
+.codex/
+.gemini/
+GEMINI.md
+CLAUDE.local.md
+docs/modules/
