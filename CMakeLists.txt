@@ -384,6 +384,16 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     set_property(TARGET dx10_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
+    add_executable(dx10_refcount_no_host_test
+      tests/dx10/refcount_no_host.cpp
+    )
+
+    target_include_directories(dx10_refcount_no_host_test PRIVATE src/Windows)
+    target_link_libraries(dx10_refcount_no_host_test PRIVATE ingame_overlay d3d10 dxgi)
+
+    set_property(TARGET dx10_refcount_no_host_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
     add_executable(dx11_app
       tests/dx11/main.cpp
       deps/ImGui/imgui.cpp
