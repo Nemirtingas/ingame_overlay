@@ -119,6 +119,22 @@ bool DX9Hook_t::IsStarted()
     return _Hooked;
 }
 
+// The ImGui backend creates these objects while rendering, not when it is initialized.
+void DX9Hook_t::_UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData)
+{
+    _BackendLazyDeviceRefCount = 0;
+
+    if (drawData->DisplaySize.x > 0.0f && drawData->DisplaySize.y > 0.0f)
+        _BackendLazyDeviceRefCount += 1 // vertex buffer
+            + 1; // index buffer
+
+    for (ImTextureData const* texture : ImGui::GetPlatformIO().Textures)
+    {
+        if (texture->TexID != ImTextureID_Invalid)
+            _BackendLazyDeviceRefCount += 1; // texture
+    }
+}
+
 void DX9Hook_t::_UpdateHookDeviceRefCount()
 {
     switch (_HookState)
@@ -138,9 +154,7 @@ void DX9Hook_t::_UpdateHookDeviceRefCount()
         case OverlayHookState::Ready: _HookDeviceRefCount =
             + 1 // _Device->AddRef
             + 1 // ImGui IDirect3DDevice9*
-            + 1 // ImGui Vertex Buffer
-            + 1 // ImGui Index Buffer
-            + 1 // ImGui Font Texture
+            + _BackendLazyDeviceRefCount
             + _ImageResourcesToRelease.size()
             + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
             ;
@@ -167,6 +181,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             _ImageResources.clear();
             _ImageResourcesToLoad.clear();
             _ImageResourcesToRelease.clear();
+            _BackendLazyDeviceRefCount = 0;
             break;
 
         case OverlayHookState::Removing:
@@ -178,6 +193,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             _ImageResourcesToLoad.clear();
             _ImageResourcesToRelease.clear();
             SafeRelease(_Device);
+            _BackendLazyDeviceRefCount = 0;
 
             _LastWindow = nullptr;
     }
@@ -263,12 +279,20 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
 
         OverlayProc();
 
+        // These device releases are ours: the refcount can transiently be below the threshold.
+        ++_DeviceReleasing;
+
         _LoadResources();
         _ReleaseResources();
 
         ImGui::Render();
 
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        _UpdateBackendLazyDeviceRefCount(ImGui::GetDrawData());
+        _UpdateHookDeviceRefCount();
+
+        --_DeviceReleasing;
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot();
@@ -550,6 +574,7 @@ DX9Hook_t::DX9Hook_t():
     _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
+    _BackendLazyDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _ImGuiFontAtlas(nullptr),
     _IDirect3DDevice9Release(nullptr),
