@@ -90,7 +90,6 @@ private:
     VkCommandPool _VulkanImageCommandPool;
     VkCommandBuffer _VulkanImageCommandBuffer;
     VkFence _VulkanImageFence;
-    VkSampler _VulkanImageSampler;
     VkDescriptorSetLayout _VulkanImageDescriptorSetLayout;
     std::vector<VulkanFrame_t> _OverlayFrames;
     VkRenderPass _VulkanRenderPass;
@@ -137,9 +136,6 @@ private:
 
     bool _CreateImageFence();
     void _DestroyImageFence();
-
-    bool _CreateImageSampler();
-    void _DestroyImageSampler();
 
     bool _CreateImageDescriptorSetLayout();
     void _DestroyImageDescriptorSetLayout();
@@ -201,8 +197,6 @@ private:
     decltype(::vkDestroyCommandPool)                     *_vkDestroyCommandPool;
     decltype(::vkCreateImageView)                        *_vkCreateImageView;
     decltype(::vkDestroyImageView)                       *_vkDestroyImageView;
-    decltype(::vkCreateSampler)                          *_vkCreateSampler;
-    decltype(::vkDestroySampler)                         *_vkDestroySampler;
     decltype(::vkCreateImage)                            *_vkCreateImage;
     decltype(::vkDestroyImage)                           *_vkDestroyImage;
     decltype(::vkAllocateMemory)                         *_vkAllocateMemory;

@@ -137,9 +137,11 @@ bool VulkanHook_t::_AllocDescriptorPool()
 {    
     VkDescriptorPool vulkanDescriptorPool = VK_NULL_HANDLE;
 
+    // The ImGui Vulkan backend binds our descriptor sets as set 0, whose layout holds a SAMPLED_IMAGE
+    // (the sampler lives in the backend's own set 1), so the pool must hold that descriptor type.
     VkDescriptorPoolSize poolSizes[] =
     {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDescriptorCountPerPool },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MaxDescriptorCountPerPool },
     };
 
     VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
@@ -212,14 +214,14 @@ void VulkanHook_t::_DestroyDescriptorPools()
 void VulkanHook_t::_CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout)
 {
     VkDescriptorImageInfo descriptorImageInfo[1] = {};
-    descriptorImageInfo[0].sampler = _VulkanImageSampler;
+    // No sampler here: the backend samples with its own linear/nearest samplers.
     descriptorImageInfo[0].imageView = imageView;
     descriptorImageInfo[0].imageLayout = imageLayout;
     VkWriteDescriptorSet writeDescriptorSet[1] = {};
     writeDescriptorSet[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSet[0].dstSet = descriptorSet;
     writeDescriptorSet[0].descriptorCount = 1;
-    writeDescriptorSet[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSet[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     writeDescriptorSet[0].pImageInfo = descriptorImageInfo;
     _vkUpdateDescriptorSets(_VulkanDevice, 1, writeDescriptorSet, 0, nullptr);
 }
@@ -417,7 +419,6 @@ void VulkanHook_t::_FreeVulkanRessources()
         _PendingImageUpload = false;
         _ImageUploadBatchState.Fail();
         _DestroyImageDescriptorSetLayout();
-        _DestroyImageSampler();
     }
     else
     {
@@ -479,8 +480,6 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkDestroyCommandPool);
     LOAD_VULKAN_FUNCTION(vkCreateImageView);
     LOAD_VULKAN_FUNCTION(vkDestroyImageView);
-    LOAD_VULKAN_FUNCTION(vkCreateSampler);
-    LOAD_VULKAN_FUNCTION(vkDestroySampler);
     LOAD_VULKAN_FUNCTION(vkCreateImage);
     LOAD_VULKAN_FUNCTION(vkDestroyImage);
     LOAD_VULKAN_FUNCTION(vkAllocateMemory);
@@ -624,41 +623,15 @@ void VulkanHook_t::_DestroyImageFence()
     }
 }
 
-bool VulkanHook_t::_CreateImageSampler()
-{
-    if (_VulkanImageSampler != VK_NULL_HANDLE)
-        return true;
-
-    VkSamplerCreateInfo samplerInfo = {};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.minLod = -1000;
-    samplerInfo.maxLod = 1000;
-    samplerInfo.maxAnisotropy = 1.0f;
-    return _vkCreateSampler(_VulkanDevice, &samplerInfo, _VulkanAllocationCallbacks, &_VulkanImageSampler) == VkResult::VK_SUCCESS;
-}
-
-void VulkanHook_t::_DestroyImageSampler()
-{
-    if (_VulkanImageSampler != VK_NULL_HANDLE)
-    {
-        _vkDestroySampler(_VulkanDevice, _VulkanImageSampler, _VulkanAllocationCallbacks);
-        _VulkanImageSampler = VK_NULL_HANDLE;
-    }
-}
-
 bool VulkanHook_t::_CreateImageDescriptorSetLayout()
 {
     if (_VulkanImageDescriptorSetLayout != VK_NULL_HANDLE)
         return true;
 
+    // Must stay identical to the backend's set 0 layout (ImGui_ImplVulkan_CreateDescriptorSetLayout),
+    // which is what the overlay's pipeline layout expects at set 0.
     VkDescriptorSetLayoutBinding binding[1] = {};
-    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     binding[0].descriptorCount = 1;
     binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo info = {};
@@ -724,9 +697,6 @@ bool VulkanHook_t::_CreateImageDevices()
     if (!_CreateImageFence())
         return false;
 
-    if (!_CreateImageSampler())
-        return false;
-
     if (!_CreateImageDescriptorSetLayout())
         return false;
     
@@ -744,7 +714,6 @@ void VulkanHook_t::_DestroyImageDevices()
     _DestroyImageCommandBuffer();
     _DestroyImageCommandPool();
     _DestroyImageDescriptorSetLayout();
-    _DestroyImageSampler();
     _DestroyImageFence();
 }
 
@@ -1742,7 +1711,6 @@ VulkanHook_t::VulkanHook_t() :
     _PendingImageUploadBuffer(VK_NULL_HANDLE),
     _PendingImageUploadMemory(VK_NULL_HANDLE),
     _PendingImageUpload(false),
-    _VulkanImageSampler(VK_NULL_HANDLE),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
     _VulkanTargetFormat(VK_FORMAT_R8G8B8A8_UNORM),
@@ -1785,8 +1753,6 @@ VulkanHook_t::VulkanHook_t() :
     _vkDestroyCommandPool(nullptr),
     _vkCreateImageView(nullptr),
     _vkDestroyImageView(nullptr),
-    _vkCreateSampler(nullptr),
-    _vkDestroySampler(nullptr),
     _vkCreateImage(nullptr),
     _vkDestroyImage(nullptr),
     _vkAllocateMemory(nullptr),
