@@ -49,7 +49,9 @@ os.makedirs(out_dir, exist_ok=True)
 
 class Bridge_t:
     def __init__(self, name, pid):
-        arguments = [bridge_path, '--wait', '30', '--name', name]
+        # The example overlay opens its server once the renderer is detected, at the application's first frame: on
+        # GitHub's Intel macOS runners, that first frame can take more than 30 seconds.
+        arguments = [bridge_path, '--wait', '120', '--name', name]
         # The bootstrap services can't be listed on macOS.
         if sys.platform == 'darwin':
             arguments += ['--pid', str(pid)]
