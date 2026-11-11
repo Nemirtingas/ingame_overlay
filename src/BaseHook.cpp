@@ -42,12 +42,12 @@ void BaseHook_t::EndHook()
 bool BaseHook_t::HookFunc(std::pair<void**, void*> hook)
 {
     MiniDetour::Hook_t md_hook;
-    void* res = md_hook.HookFunction(*hook.first, hook.second);
-    if (res == nullptr)
+    // The original function pointer is set before the hook is written: another thread can enter the detour at once, and
+    // calling the hooked function from there would call the detour again until the stack overflows.
+    if (md_hook.HookFunction(*hook.first, hook.second, hook.first) == nullptr)
         return false;
 
     _HookedFunctions.emplace_back(std::move(md_hook));
-    *hook.first = res;
     return true;
 }
 
