@@ -16,6 +16,8 @@ concurrency:
 jobs:
   job:
     name: ${{ matrix.os }}-${{ matrix.platform }}-cmake-build
+    # develop and master are built by their push: their own pull requests (develop to master) don't build them again.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref != 'develop' && github.head_ref != 'master')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
