@@ -10,9 +10,16 @@ name: Windows GUI tests
 
 on:
   push:
-    branches: [develop, master, 'ci/**']
+    # Pull request branches are built by the pull_request event: building their pushes too ran everything twice.
+    # A branch without a pull request can still be built with workflow_dispatch (gh workflow run --ref).
+    branches: [develop, master]
   pull_request:
   workflow_dispatch:
+
+# A new push to a pull request cancels the run of its previous commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   MESA_VERSION: 26.2.6
