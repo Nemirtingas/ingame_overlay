@@ -73,7 +73,9 @@ SCENARIOS = {
 
 class Bridge_t:
     def __init__(self, bridge_path, name, pid):
-        self.process = subprocess.Popen([bridge_path, '--wait', '30', '--name', name, '--pid', str(pid)],
+        # The overlay opens its server at the application's first frame: on GitHub's Intel runners, with the API
+        # validation layer, it can take more than 30 seconds.
+        self.process = subprocess.Popen([bridge_path, '--wait', '120', '--name', name, '--pid', str(pid)],
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8')
         self.next_id = 1
         self.request('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'check_scenarios', 'version': '1'}})
