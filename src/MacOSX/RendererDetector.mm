@@ -27,6 +27,7 @@
 #include <string>
 #include <mutex>
 #include <cassert>
+#include <algorithm>
 
 #include <InGameOverlay/RendererDetector.h>
 
@@ -79,25 +80,15 @@ public:
     }
     
 private:
+    // A replaced commit of a Metal driver's command buffer class. These classes are private and differ
+    // on every GPU family (MTLIGAccelCommandBuffer, AGXG13XFamilyCommandBuffer, ...) and with the API
+    // validation layer (MTLDebugCommandBuffer), see _GetMetalCommandBufferClasses. Entries are never
+    // removed: a commit that entered the hook before it was restored still needs the original.
     struct MetalDriverHook_t
     {
-        // Hook definition
-        const char* CommandBufferClass;
-        const char* RenderCommandEncoderClass;
-        IMP HookCommandBufferCommit;
-
-        // ObjC runtime
-        void (*CommandBufferCommit)(id, SEL);
         Method CommandBufferCommitMethod;
-        Method CommandBufferRenderCommandWithDescriptorMethod;
-        Method CommandBufferPresentDrawableMethod;
-    };
-
-    enum
-    {
-        IntelDriver = 0,
-        NVidiaDriver = 1,
-        M1Driver = 2,
+        void (*CommandBufferCommit)(id, SEL);
+        bool Hooked;
     };
 
     std::recursive_mutex _RendererMutex;
@@ -124,12 +115,8 @@ private:
     CGLError (*_NSOpenGLContextFlushBuffer)(id self);
     decltype(::CGLFlushDrawable)* _CGLFlushDrawable;
 
-    std::array<MetalDriverHook_t, 3> _MetalDriversHooks = {
-        MetalDriverHook_t{ "MTLIGAccelCommandBuffer"   , "MTLIGAccelRenderCommandEncoder"    , (IMP)&_MyIGAccelCommandBufferCommit      , nullptr, nil, nil, nil }, // IGAccel => Intel Graphics Acceleration
-        MetalDriverHook_t{ "NVMTLCommandBuffer"        , "NVMTLRenderCommandEncoder_PASCAL_B", (IMP)&_MyNVMTLCommandBufferCommit        , nullptr, nil, nil, nil }, // NVMTL => NVidia WebDriver
-        MetalDriverHook_t{ "AGXG13XFamilyCommandBuffer", "AGXG13XFamilyRenderContext"        , (IMP)&_MyAGXG13XFamilyCommandBufferCommit, nullptr, nil, nil, nil }, // AGXG13XFamily => Mac M1 ??
-    };
-    
+    std::vector<MetalDriverHook_t> _MetalDriversHooks;
+
     bool _OpenGLHooked;
     bool _MetalHooked;
     
@@ -191,41 +178,79 @@ private:
         return res;
     }
     
-    void _FoundMetalRenderer(int driver, id self, SEL sel)
+    void _FoundMetalRenderer(id self, SEL sel)
     {
-        auto& driverHook = _MetalDriversHooks[driver];
-        driverHook.CommandBufferCommit(self, sel);
+        // The replaced commit is the one this command buffer's class resolves to.
+        const Method commitMethod = class_getInstanceMethod(object_getClass(self), sel);
+        const MetalDriverHook_t* driverHook = nullptr;
+        for (auto const& hook : _MetalDriversHooks)
+        {
+            if (hook.CommandBufferCommitMethod == commitMethod)
+            {
+                driverHook = &hook;
+                break;
+            }
+        }
+
+        if (driverHook == nullptr)
+        {
+            // Only the methods of _MetalDriversHooks are replaced.
+            INGAMEOVERLAY_ERROR("Metal detection: no original commit for {}.", class_getName(object_getClass(self)));
+            return;
+        }
+
+        driverHook->CommandBufferCommit(self, sel);
 
         if (!_DetectionStarted || _DetectionDone)
             return;
 
-        _MetalHook->LoadFunctions(driverHook.CommandBufferPresentDrawableMethod);
+        // The presentDrawable: of the class that was used.
+        const Method presentMethod = class_getInstanceMethod(object_getClass(self), @selector(presentDrawable:));
+        if (presentMethod == nil)
+            return;
+
+        _MetalHook->LoadFunctions(presentMethod);
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(_MetalHook);
         _MetalHook = nullptr;
         _StopHooks();
     }
 
-    static void _MyIGAccelCommandBufferCommit(id self, SEL sel)
+    static void _MyMTLCommandBufferCommit(id self, SEL sel)
     {
         auto inst = Inst();
         std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
-        inst->_FoundMetalRenderer(IntelDriver, self, sel);
+        inst->_FoundMetalRenderer(self, sel);
     }
 
-    static void _MyNVMTLCommandBufferCommit(id self, SEL sel)
+    // Reads the command buffer class of each Metal device. MTLCopyAllDevices doesn't switch a
+    // dual GPU Mac to its discrete GPU, creating a queue on that GPU might.
+    static std::vector<Class> _GetMetalCommandBufferClasses()
     {
-        auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
-        inst->_FoundMetalRenderer(NVidiaDriver, self, sel);
+        std::vector<Class> classes;
+        @autoreleasepool
+        {
+            NSArray<id<MTLDevice>>* devices = MTLCopyAllDevices();
+            for (id<MTLDevice> device in devices)
+            {
+                id<MTLCommandQueue> queue = [device newCommandQueue];
+                if (queue == nil)
+                    continue;
+
+                id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+                if (commandBuffer != nil)
+                {
+                    Class commandBufferClass = object_getClass(commandBuffer);
+                    INGAMEOVERLAY_INFO("Metal device {} uses {}.", [[device name] UTF8String], class_getName(commandBufferClass));
+                    if (std::find(classes.begin(), classes.end(), commandBufferClass) == classes.end())
+                        classes.emplace_back(commandBufferClass);
+                }
+                [queue release];
+            }
+            [devices release];
+        }
+        return classes;
     }
-    
-    static void _MyAGXG13XFamilyCommandBufferCommit(id self, SEL sel)
-    {
-        auto inst = Inst();
-        std::lock_guard<std::recursive_mutex> lk(inst->_RendererMutex);
-        inst->_FoundMetalRenderer(M1Driver, self, sel);
-    }
-    
+
     void _HookCGLFlushDrawable(decltype(::CGLFlushDrawable)* CGLFlushDrawable)
     {
         _CGLFlushDrawable = CGLFlushDrawable;
@@ -289,28 +314,26 @@ private:
 
             int hooked_count = 0;
 
-            Class metalClass;
-
-            for (auto& driverHook : _MetalDriversHooks)
+            for (Class commandBufferClass : _GetMetalCommandBufferClasses())
             {
-                metalClass = objc_getClass(driverHook.CommandBufferClass);
-                driverHook.CommandBufferCommitMethod = class_getInstanceMethod(metalClass, @selector(commit));
-                if (driverHook.CommandBufferCommitMethod == nil)
+                const Method commitMethod = class_getInstanceMethod(commandBufferClass, @selector(commit));
+                if (commitMethod == nil || class_getInstanceMethod(commandBufferClass, @selector(presentDrawable:)) == nil)
                     continue;
-                
-                driverHook.CommandBufferRenderCommandWithDescriptorMethod = class_getInstanceMethod(metalClass, @selector(renderCommandEncoderWithDescriptor:));
-                if (driverHook.CommandBufferRenderCommandWithDescriptorMethod == nil)
-                    continue;
-            
-                driverHook.CommandBufferPresentDrawableMethod = class_getInstanceMethod(metalClass, @selector(presentDrawable:));
-                if (driverHook.CommandBufferPresentDrawableMethod == nil)
-                    continue;
-                
-                metalClass = objc_getClass(driverHook.RenderCommandEncoderClass);
-                driverHook.CommandBufferCommit = (decltype(MetalDriverHook_t::CommandBufferCommit))method_setImplementation(driverHook.CommandBufferCommitMethod, driverHook.HookCommandBufferCommit);
-                if (driverHook.CommandBufferCommit == nil)
-                    continue;
-                
+
+                // Two classes may inherit the same commit: replace it once.
+                auto it = std::find_if(_MetalDriversHooks.begin(), _MetalDriversHooks.end(), [&](MetalDriverHook_t const& hook)
+                {
+                    return hook.CommandBufferCommitMethod == commitMethod;
+                });
+                if (it == _MetalDriversHooks.end())
+                    it = _MetalDriversHooks.insert(_MetalDriversHooks.end(), MetalDriverHook_t{ commitMethod, nullptr, false });
+
+                if (!it->Hooked)
+                {
+                    it->CommandBufferCommit = (decltype(MetalDriverHook_t::CommandBufferCommit))method_setImplementation(commitMethod, (IMP)&_MyMTLCommandBufferCommit);
+                    it->Hooked = true;
+                }
+
                 ++hooked_count;
             }
 
@@ -347,9 +370,10 @@ private:
             _MetalHooked = false;
             for (auto& driverHook : _MetalDriversHooks)
             {
-                if (driverHook.CommandBufferCommit != nullptr)
+                if (driverHook.Hooked)
                 {
                     method_setImplementation(driverHook.CommandBufferCommitMethod, (IMP)driverHook.CommandBufferCommit);
+                    driverHook.Hooked = false;
                 }
             }
         }
