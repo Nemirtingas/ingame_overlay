@@ -204,14 +204,12 @@ private:
         if (!_DetectionStarted || _DetectionDone)
             return;
 
-        // The methods of the class that was used.
-        const Class commandBufferClass = object_getClass(self);
-        const Method renderCommandEncoderMethod = class_getInstanceMethod(commandBufferClass, @selector(renderCommandEncoderWithDescriptor:));
-        const Method presentMethod = class_getInstanceMethod(commandBufferClass, @selector(presentDrawable:));
-        if (renderCommandEncoderMethod == nil || presentMethod == nil)
+        // The presentDrawable: of the class that was used.
+        const Method presentMethod = class_getInstanceMethod(object_getClass(self), @selector(presentDrawable:));
+        if (presentMethod == nil)
             return;
 
-        _MetalHook->LoadFunctions(renderCommandEncoderMethod, presentMethod);
+        _MetalHook->LoadFunctions(presentMethod);
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(_MetalHook);
         _MetalHook = nullptr;
         _StopHooks();
@@ -319,9 +317,7 @@ private:
             for (Class commandBufferClass : _GetMetalCommandBufferClasses())
             {
                 const Method commitMethod = class_getInstanceMethod(commandBufferClass, @selector(commit));
-                if (commitMethod == nil ||
-                    class_getInstanceMethod(commandBufferClass, @selector(renderCommandEncoderWithDescriptor:)) == nil ||
-                    class_getInstanceMethod(commandBufferClass, @selector(presentDrawable:)) == nil)
+                if (commitMethod == nil || class_getInstanceMethod(commandBufferClass, @selector(presentDrawable:)) == nil)
                     continue;
 
                 // Two classes may inherit the same commit: replace it once.

@@ -169,7 +169,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
     if (state == OverlayHookState::Removing)
         ++_DeviceReleasing;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
     _UpdateHookDeviceRefCount();
@@ -277,7 +277,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
 
         // These device releases are ours: the refcount can transiently be below the threshold.
         ++_DeviceReleasing;
