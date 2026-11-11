@@ -199,7 +199,7 @@ private:
         if (!_DetectionStarted || _DetectionDone)
             return;
 
-        _MetalHook->LoadFunctions(driverHook.CommandBufferRenderCommandWithDescriptorMethod, driverHook.CommandBufferPresentDrawableMethod);
+        _MetalHook->LoadFunctions(driverHook.CommandBufferPresentDrawableMethod);
         _RendererHook = static_cast<InGameOverlay::RendererHook_t*>(_MetalHook);
         _MetalHook = nullptr;
         _StopHooks();
