@@ -75,6 +75,10 @@ private:
     // Out(bool): Is the overlay visible, if true, inputs will be disabled
     std::shared_ptr<const WindowsHookKeyCombination_t> _KeyCombination;
     std::atomic<bool> _KeyCombinationPushed;
+    // Virtual keys of the key combination, from the moment it toggled the overlay until they are released:
+    // their auto-repeat, release and state are hidden from the application, which would otherwise get them
+    // once the overlay is closed. One bit per virtual key.
+    std::atomic<uint64_t> _LatchedKeys[4];
     WindowsHookEventQueue_t _WindowEvents;
 
     // Functions
@@ -109,6 +113,12 @@ private:
 
     static UINT  WINAPI _MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader);
     static UINT  WINAPI _MyGetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader);
+    void _LatchKey(UINT vk);
+    void _UnlatchKey(UINT vk);
+    bool _IsKeyLatched(UINT vk) const;
+    bool _AnyKeyLatched() const;
+    UINT _RemoveLatchedRawInput(PRAWINPUT pData, UINT count) const;
+
     static SHORT WINAPI _MyGetKeyState(int nVirtKey);
     static SHORT WINAPI _MyGetAsyncKeyState(int vKey);
     static BOOL  WINAPI _MyGetKeyboardState(PBYTE lpKeyState);

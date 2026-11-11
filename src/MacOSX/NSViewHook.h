@@ -63,7 +63,11 @@ private:
 public:
     std::function<void()> KeyCombinationCallback;
     std::vector<int> NativeKeyCombination;
-    bool KeyCombinationPushed;
+    // Key codes of the key combination, from the moment it toggled the overlay until they are released:
+    // their auto-repeat and release are hidden from the application, which would otherwise get them once
+    // the overlay is closed. Only used on the main thread, by the event monitor.
+    std::vector<int> _LatchedKeyCodes;
+bool KeyCombinationPushed;
     bool ApplicationInputsHidden;
     bool OverlayInputsHidden;
 

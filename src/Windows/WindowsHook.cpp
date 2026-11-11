@@ -603,6 +603,49 @@ void WindowsHook_t::_RawEvent(RAWINPUT& raw)
     }
 }
 
+// Same as NEXTRAWINPUTBLOCK, which relies on a QWORD type the Windows headers don't declare.
+static PRAWINPUT NextRawInputBlock(PRAWINPUT pRawInput)
+{
+    constexpr ULONG_PTR alignment = sizeof(ULONG_PTR);
+    const ULONG_PTR next = reinterpret_cast<ULONG_PTR>(pRawInput) + pRawInput->header.dwSize;
+    return reinterpret_cast<PRAWINPUT>((next + alignment - 1) & ~(alignment - 1));
+}
+
+void WindowsHook_t::_LatchKey(UINT vk)
+{
+    if (vk < 256)
+        _LatchedKeys[vk / 64].fetch_or(uint64_t(1) << (vk % 64), std::memory_order_acq_rel);
+}
+
+void WindowsHook_t::_UnlatchKey(UINT vk)
+{
+    if (vk < 256)
+        _LatchedKeys[vk / 64].fetch_and(~(uint64_t(1) << (vk % 64)), std::memory_order_acq_rel);
+}
+
+bool WindowsHook_t::_IsKeyLatched(UINT vk) const
+{
+    // The key combination uses the generic modifiers, the application may ask for the left or right one.
+    switch (vk)
+    {
+        case VK_LSHIFT: case VK_RSHIFT: vk = VK_SHIFT; break;
+        case VK_LCONTROL: case VK_RCONTROL: vk = VK_CONTROL; break;
+        case VK_LMENU: case VK_RMENU: vk = VK_MENU; break;
+    }
+
+    return vk < 256 && (_LatchedKeys[vk / 64].load(std::memory_order_acquire) & (uint64_t(1) << (vk % 64))) != 0;
+}
+
+bool WindowsHook_t::_AnyKeyLatched() const
+{
+    for (auto const& keys : _LatchedKeys)
+    {
+        if (keys.load(std::memory_order_acquire) != 0)
+            return true;
+    }
+    return false;
+}
+
 bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     const bool was_app_inputs_hidden = _ApplicationInputsHidden.load(std::memory_order_acquire);
@@ -628,6 +671,9 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                 bool expected = false;
                 if (_KeyCombinationPushed.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 {
+                    for (auto const& key : keyCombination->keys)
+                        _LatchKey(key);
+
                     keyCombination->callback();
                     const bool appInputsHiddenNow = _ApplicationInputsHidden.load(std::memory_order_acquire);
                     const bool overlayInputsHiddenNow = _OverlayInputsHidden.load(std::memory_order_acquire);
@@ -656,19 +702,45 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             _AppendEvent(hWnd, uMsg, wParam, lParam);
     
         if (hide_app_inputs && IgnoreMsg(uMsg))
+        {
+            if (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
+                _UnlatchKey(static_cast<UINT>(wParam));
             return true;
+        }
+
+        // The key combination's own messages, until each key is released.
+        if ((uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP) && _IsKeyLatched(static_cast<UINT>(wParam)))
+        {
+            if (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
+                _UnlatchKey(static_cast<UINT>(wParam));
+            return true;
+        }
     }
-    
+
     return false;
 }
 
-// Same as NEXTRAWINPUTBLOCK, which relies on a QWORD type the Windows headers don't declare.
-static PRAWINPUT NextRawInputBlock(PRAWINPUT pRawInput)
+UINT WindowsHook_t::_RemoveLatchedRawInput(PRAWINPUT pData, UINT count) const
 {
-    constexpr ULONG_PTR alignment = sizeof(ULONG_PTR);
-    const ULONG_PTR next = reinterpret_cast<ULONG_PTR>(pRawInput) + pRawInput->header.dwSize;
-    return reinterpret_cast<PRAWINPUT>((next + alignment - 1) & ~(alignment - 1));
+    // Blocks have a variable size and are pointer aligned: move the kept ones down.
+    PRAWINPUT read = pData;
+    PRAWINPUT write = pData;
+    UINT kept = 0;
+    for (UINT i = 0; i < count; ++i)
+    {
+        PRAWINPUT next = NextRawInputBlock(read);
+        if (read->header.dwType != RIM_TYPEKEYBOARD || !_IsKeyLatched(read->data.keyboard.VKey))
+        {
+            if (write != read)
+                memmove(write, read, read->header.dwSize);
+            write = NextRawInputBlock(write);
+            ++kept;
+        }
+        read = next;
+    }
+    return kept;
 }
+
 
 UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
 {
@@ -689,7 +761,11 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, 
     }
 
     if (!inst->_ApplicationInputsHidden)
+    {
+        if (res > 0 && pData != nullptr && inst->_AnyKeyLatched())
+            res = static_cast<int>(inst->_RemoveLatchedRawInput(pData, static_cast<UINT>(res)));
         return res;
+    }
 
     return 0;
 }
@@ -704,7 +780,12 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiComman
     if (!inst->_OverlayInputsHidden && uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         inst->_RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
-    if (!inst->_ApplicationInputsHidden)
+    // A keyboard RAWINPUT is smaller than sizeof(RAWINPUT), which is sized for the largest device data.
+    const bool latchedKey = uiCommand == RID_INPUT && res != static_cast<UINT>(-1) && res >= sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) &&
+        reinterpret_cast<RAWINPUT*>(pData)->header.dwType == RIM_TYPEKEYBOARD &&
+        inst->_IsKeyLatched(reinterpret_cast<RAWINPUT*>(pData)->data.keyboard.VKey);
+
+    if (!inst->_ApplicationInputsHidden && !latchedKey)
         return res;
 
     memset(pData, 0, *pcbSize);
@@ -716,7 +797,7 @@ SHORT WINAPI WindowsHook_t::_MyGetKeyState(int nVirtKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
-    if (inst->_Initialized && inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && (inst->_ApplicationInputsHidden || inst->_IsKeyLatched(static_cast<UINT>(nVirtKey))))
         return 0;
 
     return inst->_GetKeyState(nVirtKey);
@@ -726,7 +807,7 @@ SHORT WINAPI WindowsHook_t::_MyGetAsyncKeyState(int vKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
-    if (inst->_Initialized && inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && (inst->_ApplicationInputsHidden || inst->_IsKeyLatched(static_cast<UINT>(vKey))))
         return 0;
 
     return inst->_GetAsyncKeyState(vKey);
@@ -746,7 +827,16 @@ BOOL WINAPI WindowsHook_t::_MyGetKeyboardState(PBYTE lpKeyState)
         return TRUE;
     }
 
-    return inst->_GetKeyboardState(lpKeyState);
+    const BOOL res = inst->_GetKeyboardState(lpKeyState);
+    if (res && lpKeyState != nullptr && inst->_Initialized && inst->_AnyKeyLatched())
+    {
+        for (UINT vk = 0; vk < 256; ++vk)
+        {
+            if (inst->_IsKeyLatched(vk))
+                lpKeyState[vk] = 0;
+        }
+    }
+    return res;
 }
 
 BOOL  WINAPI WindowsHook_t::_MyGetCursorPos(LPPOINT lpPoint)
@@ -1070,6 +1160,7 @@ WindowsHook_t::WindowsHook_t() :
     _OverlayInputsHiddenProcessed(true),
     _KeyCombination(std::make_shared<WindowsHookKeyCombination_t>()),
     _KeyCombinationPushed(false),
+    _LatchedKeys{},
     _WindowEvents(512),
     _TranslateMessage(nullptr),
     _DefWindowProcA(nullptr),
