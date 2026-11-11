@@ -112,10 +112,19 @@ claude mcp add ingame-overlay -- <build>/ingame_overlay_mcp_bridge --wait 30
 - New source files must be added to the matching platform list in `CMakeLists.txt` (`INGAMEOVERLAY_SOURCES` / `PRIVATE_INGAMEOVERLAY_HEADERS`); globs are not used.
 - Keep public headers free of platform/graphics API includes; they must compile for consumers on every platform.
 - Changing anything in `include/InGameOverlay/` is an ABI/API change for downstream emulators — keep it minimal and backward compatible where possible.
+- Keep each file's line endings: most Windows sources use CRLF, some files mix CRLF and LF (`src/Windows/WindowsHook.cpp`). Check with `git diff | cat -A`.
+- Dear ImGui's Apple backends (`imgui_impl_metal.mm`, `imgui_impl_osx.mm`, ...) are ARC code: build any of them with `-fobjc-arc`, or they leak every frame. The hooks' own `.mm` files use manual retain/release.
+
+## Git and pull requests
+
+- One branch per bug or feature, always started from `develop`, never stacked on another branch: describe the expected conflicts with other pull requests instead.
+- Everything in English: branch names, commit messages, pull request titles and descriptions, documentation.
+- Push and open a pull request (towards `develop`) only when the developer asks. Never merge, never push to `develop` or `master`.
+- No AI attribution anywhere: no `Co-Authored-By` trailer, "Generated with ..." line or similar in commit messages, pull request descriptions, issues or comments.
+- Stage files explicitly: `git commit -a` also records a submodule pointer that only moved in the working tree.
+- In the pull request, say how the change was tested and what could not be tested.
 
 ## Do not
 
 - Edit vendored code (`src/glad2`, `src/VulkanSDK`, `tests/common/vulkansdk`, `tests/common/stb_image.h`) or submodule contents in `deps/` from this repository; changes to ImGui or mini_detour belong in their own repos.
 - Commit build output (`OUT/`, `build/`) or `deps/spdlog`.
-- Push to any remote (`git push`, opening pull requests, etc.). Work only in the local repository: create branches and commits locally, and leave pushing to the developer.
-- Add `Co-Authored-By` or any other AI attribution trailer to commit messages.
