@@ -28,6 +28,82 @@
 
 namespace InGameOverlay {
 
+// The application's pixel transfer state applies to our uploads and readbacks: a bound pixel buffer turns
+// our pointer into an offset into it, a row length, skip or alignment changes the layout, and a readback
+// may then write past our buffer. Use the defaults for our transfers and restore the application's state.
+class ScopedPixelTransferState_t
+{
+    static constexpr int ParameterCount = 4;
+
+    const bool _Pack;
+    GLint _Parameters[ParameterCount];
+    GLint _PixelBuffer;
+    GLint _ReadFramebuffer;
+    GLint _ReadBuffer;
+
+    const GLenum* _ParameterNames() const
+    {
+        static constexpr GLenum PackNames[ParameterCount] = { GL_PACK_ALIGNMENT, GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS };
+        static constexpr GLenum UnpackNames[ParameterCount] = { GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH, GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_PIXELS };
+        return _Pack ? PackNames : UnpackNames;
+    }
+
+public:
+    // pack: for glReadPixels, which also reads the default framebuffer's back buffer.
+    explicit ScopedPixelTransferState_t(bool pack):
+        _Pack(pack),
+        _Parameters{},
+        _PixelBuffer(0),
+        _ReadFramebuffer(0),
+        _ReadBuffer(0)
+    {
+        const GLenum* names = _ParameterNames();
+        for (int i = 0; i < ParameterCount; ++i)
+        {
+            glGetIntegerv(names[i], &_Parameters[i]);
+            glPixelStorei(names[i], i == 0 ? 4 : 0);
+        }
+
+        if (GLAD_GL_VERSION_2_1)
+        {
+            glGetIntegerv(_Pack ? GL_PIXEL_PACK_BUFFER_BINDING : GL_PIXEL_UNPACK_BUFFER_BINDING, &_PixelBuffer);
+            if (_PixelBuffer != 0)
+                glBindBuffer(_Pack ? GL_PIXEL_PACK_BUFFER : GL_PIXEL_UNPACK_BUFFER, 0);
+        }
+
+        if (_Pack)
+        {
+            if (GLAD_GL_VERSION_3_0)
+            {
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &_ReadFramebuffer);
+                if (_ReadFramebuffer != 0)
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            }
+            glGetIntegerv(GL_READ_BUFFER, &_ReadBuffer);
+        }
+    }
+
+    ~ScopedPixelTransferState_t()
+    {
+        if (_Pack)
+        {
+            glReadBuffer(static_cast<GLenum>(_ReadBuffer));
+            if (_ReadFramebuffer != 0)
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(_ReadFramebuffer));
+        }
+
+        if (_PixelBuffer != 0)
+            glBindBuffer(_Pack ? GL_PIXEL_PACK_BUFFER : GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(_PixelBuffer));
+
+        const GLenum* names = _ParameterNames();
+        for (int i = 0; i < ParameterCount; ++i)
+            glPixelStorei(names[i], _Parameters[i]);
+    }
+
+    ScopedPixelTransferState_t(ScopedPixelTransferState_t const&) = delete;
+    ScopedPixelTransferState_t& operator=(ScopedPixelTransferState_t const&) = delete;
+};
+
 OpenGLHookCommon_t::OpenGLHookCommon_t():
     _Initialized(false),
     _HookState(OverlayHookState::Removing),
@@ -88,7 +164,6 @@ void OpenGLHookCommon_t::_LoadResources()
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
             // Upload pixels into texture
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex.Width, tex.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex.Data);
 
             tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
@@ -119,21 +194,38 @@ void OpenGLHookCommon_t::_ReleaseResources()
 
 void OpenGLHookCommon_t::_HandleScreenshot()
 {
-    int viewport[8];
-    int width, height;
-    glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
-    width = viewport[2];
-    height = viewport[3];
+    // The default framebuffer's size, as the platform backend measured the window. The viewport is the
+    // one the application last used, which may be an offscreen pass of another size.
+    ImGuiIO& io = ImGui::GetIO();
+    int width = static_cast<int>(io.DisplaySize.x * io.DisplayFramebufferScale.x);
+    int height = static_cast<int>(io.DisplaySize.y * io.DisplayFramebufferScale.y);
+    if (width <= 0 || height <= 0)
+    {
+        GLint viewport[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        width = viewport[2];
+        height = viewport[3];
+    }
+
+    if (width <= 0 || height <= 0)
+    {
+        _SendScreenshot(nullptr);
+        return;
+    }
 
     int bytesPerPixel = 4;
 
-    std::vector<uint8_t> buffer(width * height * bytesPerPixel);
+    std::vector<uint8_t> buffer(static_cast<size_t>(width) * height * bytesPerPixel);
 
-    GLboolean isDoubleBuffered = GL_FALSE;
-    glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
+    {
+        ScopedPixelTransferState_t pixelTransferState(true);
 
-    glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+        GLboolean isDoubleBuffered = GL_FALSE;
+        glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
+
+        glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+    }
 
     std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
 
@@ -147,7 +239,7 @@ void OpenGLHookCommon_t::_HandleScreenshot()
         memcpy(bottomLine, lineBuffer.data(), width * bytesPerPixel);
     }
 
-    ScreenshotCallbackParameter_t screenshot;
+    ScreenshotCallbackParameter_t screenshot{};
     screenshot.Width = width;
     screenshot.Height = height;
     screenshot.Pitch = bytesPerPixel * width;
@@ -259,12 +351,17 @@ void OpenGLHookCommon_t::_RenderOverlayFrame()
 
     OverlayProc();
 
-    _LoadResources();
-    _ReleaseResources();
+    {
+        // Our texture uploads and the backend's (it updates the font atlas while rendering).
+        ScopedPixelTransferState_t pixelTransferState(false);
 
-    ImGui::Render();
+        _LoadResources();
+        _ReleaseResources();
 
-    _ImGuiBackendRenderDrawData(ImGui::GetDrawData());
+        ImGui::Render();
+
+        _ImGuiBackendRenderDrawData(ImGui::GetDrawData());
+    }
 
     if (screenshotType == ScreenshotType_t::AfterOverlay)
         _HandleScreenshot();
