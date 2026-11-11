@@ -646,7 +646,7 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
         return;
     
     _HookState = state;
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     switch (state)
     {
@@ -909,7 +909,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
 
         _LoadResources();
         _ReleaseResources();

@@ -309,7 +309,7 @@ void OpenGLHookCommon_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
 
@@ -350,7 +350,7 @@ void OpenGLHookCommon_t::_RenderOverlayFrame()
     ++_CurrentFrame;
     ImGui::NewFrame();
 
-    OverlayProc();
+    _OverlayProc();
 
     {
         // Our texture uploads and the backend's (it updates the font atlas while rendering).

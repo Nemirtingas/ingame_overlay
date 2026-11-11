@@ -111,7 +111,7 @@ void MetalHook_t::_ResetRenderState()
 {
     if (_Initialized)
     {
-        OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
+        _OverlayHookReady(InGameOverlay::OverlayHookState::Removing);
 
         ImGui_ImplMetal_Shutdown();
         //NSViewHook_t::Inst()->_ResetRenderState();
@@ -138,7 +138,7 @@ void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> te
         ImGui_ImplMetal_Init(_MetalDevice);
         
         _Initialized = true;
-        OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
+        _OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
     
     MTLRenderPassDescriptor* overlayDescriptor = [[MTLRenderPassDescriptor alloc] init];
@@ -162,7 +162,7 @@ void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> te
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
 
         _LoadResources();
         _ReleaseResources();

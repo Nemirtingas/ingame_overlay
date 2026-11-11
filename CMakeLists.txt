@@ -131,6 +131,7 @@ option(INGAMEOVERLAY_DYNAMIC_RUNTIME "Link against dynamic runtime (Windows)" ON
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
+option(INGAMEOVERLAY_BUILD_MCP "Build the MCP server used to test and control the overlay, not meant to be shipped." ${INGAMEOVERLAY_BUILD_TESTS})
 
 if(WIN32)
 option(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS "Build Windows shaders." OFF)
@@ -277,7 +278,75 @@ target_compile_definitions(ingame_overlay
 add_library(Nemirtingas::InGameOverlay ALIAS ingame_overlay)
 set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
+if(${INGAMEOVERLAY_BUILD_MCP})
+
+  if(WIN32)
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportWindows.cpp)
+  elseif(APPLE)
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportMach.cpp)
+  else()
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportPosix.cpp)
+  endif()
+
+  # RendererHook_t::StartMcpServer fails without them. The server reads the UI through the ImGui test engine hooks,
+  # inert until it installs its listener.
+  target_sources(ingame_overlay
+    PRIVATE
+    src/Mcp/McpImGuiHooks.cpp
+    src/Mcp/McpImGuiHooks.h
+    src/Mcp/McpImGuiInspector.cpp
+    src/Mcp/McpImGuiInspector.h
+    src/Mcp/McpJson.cpp
+    src/Mcp/McpJson.h
+    src/Mcp/McpPng.cpp
+    src/Mcp/McpPng.h
+    src/Mcp/McpServer.cpp
+    src/Mcp/McpServerInternal.h
+    src/Mcp/McpTransport.h
+    ${INGAMEOVERLAY_MCP_TRANSPORT_SOURCES}
+  )
+
+  target_compile_definitions(ingame_overlay
+    PRIVATE
+    INGAMEOVERLAY_HAS_MCP
+    IMGUI_ENABLE_TEST_ENGINE
+  )
+
+  target_link_libraries(ingame_overlay
+    PUBLIC
+    Threads::Threads
+    $<$<BOOL:${APPLE}>:bsm>
+    $<$<BOOL:${WIN32}>:advapi32>
+  )
+
+  # It doesn't need the overlay, only the transport.
+  add_executable(ingame_overlay_mcp_bridge
+    tests/mcp_bridge/main.cpp
+    ${INGAMEOVERLAY_MCP_TRANSPORT_SOURCES}
+  )
+
+  target_include_directories(ingame_overlay_mcp_bridge PRIVATE src/Mcp)
+  target_link_libraries(ingame_overlay_mcp_bridge PRIVATE Threads::Threads $<$<BOOL:${APPLE}>:bsm> $<$<BOOL:${WIN32}>:advapi32>)
+
+  set_property(TARGET ingame_overlay_mcp_bridge PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+endif()
+
 if(${INGAMEOVERLAY_BUILD_TESTS})
+
+  if(${INGAMEOVERLAY_BUILD_MCP})
+    add_executable(mcp_server_test
+      tests/mcp_server/main.cpp
+    )
+
+    target_include_directories(mcp_server_test PRIVATE src/Mcp)
+    target_link_libraries(mcp_server_test PRIVATE ingame_overlay)
+    target_compile_definitions(mcp_server_test PRIVATE ${IMGUI_USER_CONFIG_VALUE})
+
+    set_property(TARGET mcp_server_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+  endif()
 
   add_executable(dx12_screenshot_requests_test
     tests/dx12_screenshot_requests/main.cpp
