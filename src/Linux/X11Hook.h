@@ -106,7 +106,14 @@ private:
     std::vector<ToggleKey> _OverlayToggleKeys;
     std::vector<uint32_t> _NativeKeyCombination;
     std::vector<uint32_t> _PressedKeycodes;
-    uint32_t _GameWnd;
+    // Keycodes of the key combination, from the moment it toggled the overlay until they are released:
+    // their auto-repeat and release are hidden from the application, which would otherwise get them once
+    // the overlay is closed.
+    std::vector<uint32_t> _LatchedKeycodes;
+    void _LatchKeycode(uint32_t keycode);
+    void _UnlatchKeycode(uint32_t keycode);
+    bool _IsKeycodeLatched(uint32_t keycode) const;
+uint32_t _GameWnd;
     bool _HasSavedCursor;
     uint32_t _SavedRoot;
     uint32_t _SavedChild;

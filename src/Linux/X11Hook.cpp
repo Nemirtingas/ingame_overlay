@@ -869,6 +869,24 @@ static bool XCBIgnoreEvent(const xcb_generic_event_t* event, uint8_t xinputOpcod
     return false;
 }
 
+void X11Hook_t::_LatchKeycode(uint32_t keycode)
+{
+    if (keycode != 0 && !_IsKeycodeLatched(keycode))
+        _LatchedKeycodes.emplace_back(keycode);
+}
+
+void X11Hook_t::_UnlatchKeycode(uint32_t keycode)
+{
+    auto it = std::find(_LatchedKeycodes.begin(), _LatchedKeycodes.end(), keycode);
+    if (it != _LatchedKeycodes.end())
+        _LatchedKeycodes.erase(it);
+}
+
+bool X11Hook_t::_IsKeycodeLatched(uint32_t keycode) const
+{
+    return std::find(_LatchedKeycodes.begin(), _LatchedKeycodes.end(), keycode) != _LatchedKeycodes.end();
+}
+
 int X11Hook_t::_XlibCheckForOverlay(Display *d, int num_events)
 {
     char szKey[32];
@@ -898,6 +916,8 @@ int X11Hook_t::_XlibCheckForOverlay(Display *d, int num_events)
                 pNextEvent = nullptr;
             }
 
+            bool latchedKeyEvent = false;
+
             // Is the event is a key press
             if (event.type == KeyPress || event.type == KeyRelease)
             {
@@ -913,6 +933,9 @@ int X11Hook_t::_XlibCheckForOverlay(Display *d, int num_events)
                 {// All shortcut keys are pressed
                     if (!_KeyCombinationPushed)
                     {
+                        for (auto const& key : _NativeKeyCombination)
+                            _LatchKeycode(XKeysymToKeycode(d, key));
+
                         _KeyCombinationCallback();
 
                         if (_OverlayInputsHidden)
@@ -940,6 +963,16 @@ int X11Hook_t::_XlibCheckForOverlay(Display *d, int num_events)
                 {
                     _KeyCombinationPushed = false;
                 }
+
+                // The key combination's own events, until each key is released.
+                const uint32_t keycode = event.xkey.keycode;
+                if (_IsKeycodeLatched(keycode))
+                {
+                    latchedKeyEvent = true;
+                    // An auto-repeat's release comes while the key is still down.
+                    if (event.type == KeyRelease && (szKey[keycode / 8] & (1 << (keycode % 8))) == 0)
+                        _UnlatchKeycode(keycode);
+                }
             }
 
             if (event.type == FocusIn || event.type == FocusOut)
@@ -952,7 +985,7 @@ int X11Hook_t::_XlibCheckForOverlay(Display *d, int num_events)
                 ImGui_ImplX11_EventHandler(event, pNextEvent);
             }
 
-            if (!hide_app_inputs || !XlibIgnoreEvent(event))
+            if ((!hide_app_inputs || !XlibIgnoreEvent(event)) && !latchedKeyEvent)
             {
                 if(num_events)
                     num_events = 1;
@@ -979,6 +1012,8 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
     bool hide_app_inputs = _ApplicationInputsHidden;
 
     bool hide_overlay_inputs = _OverlayInputsHidden;
+
+    bool latchedKeyEvent = false;
 
     if (type == XCB_KEY_PRESS)
     {
@@ -1033,6 +1068,14 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
             isAutoRepeat =
                 nextKeyEvent->detail == keyEvent->detail &&
                 nextKeyEvent->time == keyEvent->time;
+        }
+
+        // The key combination's own release, which stays hidden until the key is really released.
+        if (_IsKeycodeLatched(keycode))
+        {
+            latchedKeyEvent = true;
+            if (!isAutoRepeat)
+                _UnlatchKeycode(keycode);
         }
 
         if (!isAutoRepeat)
@@ -1097,6 +1140,9 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
             {
                 INGAMEOVERLAY_DEBUG("Key combination pressed");
 
+                for (auto const& keycode : _NativeKeyCombination)
+                    _LatchKeycode(keycode);
+
                 _KeyCombinationCallback();
 
                 if (_OverlayInputsHidden)
@@ -1115,6 +1161,10 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
         {
             _KeyCombinationPushed = false;
         }
+
+        // The key combination's own presses, auto-repeat included, until each key is released.
+        if (type == XCB_KEY_PRESS && _IsKeycodeLatched(reinterpret_cast<xcb_key_press_event_t*>(event)->detail))
+            latchedKeyEvent = true;
     }
 
     if (!hide_overlay_inputs)
@@ -1123,7 +1173,7 @@ X11Hook_t::XCBEventDecision_t X11Hook_t::_XCBCheckForOverlay(
     }
 
     return {
-        hide_app_inputs && XCBIgnoreEvent(event, _XCBXInputOpcode), // consume
+        (hide_app_inputs && XCBIgnoreEvent(event, _XCBXInputOpcode)) || latchedKeyEvent, // consume
         false, // needsNextEvent
     };
 }
