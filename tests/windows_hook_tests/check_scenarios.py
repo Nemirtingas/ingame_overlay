@@ -172,6 +172,15 @@ class App_t:
         self.interactive = interactive
         self.process = subprocess.Popen([os.path.join(directory, APP), OVERLAY], cwd=directory, env=env,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.bridge = None
+        try:
+            self._start(directory, mcp_name, interactive)
+        except BaseException:
+            # The scenario never gets the application: don't leave it running.
+            self.close()
+            raise
+
+    def _start(self, directory, mcp_name, interactive):
         self.bridge = Bridge_t(os.path.join(directory, 'ingame_overlay_mcp_bridge.exe'), mcp_name, self.process.pid)
         start = time.time()
         while time.time() - start < 30:
@@ -224,7 +233,8 @@ class App_t:
         return result
 
     def close(self):
-        self.bridge.close()
+        if self.bridge is not None:
+            self.bridge.close()
         self.process.terminate()
         try:
             self.process.wait(10)
