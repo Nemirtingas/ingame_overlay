@@ -159,9 +159,10 @@ void OpenGLHookCommon_t::_HandleScreenshot()
 
 std::weak_ptr<RendererTexture_t> OpenGLHookCommon_t::AllocImageResource()
 {
+    // glGetError would also return the errors the application left.
     GLuint texture = 0;
     glGenTextures(1, &texture);
-    if (glGetError() != GL_NO_ERROR)
+    if (texture == 0)
         return std::weak_ptr<RendererTexture_t>{};
 
     // Resources may outlive the hook, so the deleter captures the context getter, not this.
