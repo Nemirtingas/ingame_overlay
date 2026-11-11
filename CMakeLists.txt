@@ -85,6 +85,17 @@ elseif(APPLE)
     deps/ImGui/backends/imgui_impl_osx.mm
   )
 
+  # Dear ImGui's Apple backends are written for ARC: built without it, the Metal backend leaks its
+  # buffers and pipeline objects every frame. The i386 Objective-C runtime has no ARC.
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set_source_files_properties(
+      deps/ImGui/backends/imgui_impl_metal.mm
+      deps/ImGui/backends/imgui_impl_osx.mm
+      tests/common/imgui_impl_osx.mm
+      PROPERTIES COMPILE_OPTIONS -fobjc-arc
+    )
+  endif()
+
 elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
