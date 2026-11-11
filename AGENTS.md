@@ -65,6 +65,7 @@ CMake options:
 | `INGAMEOVERLAY_DYNAMIC_RUNTIME` | ON | MSVC `/MD` vs `/MT` |
 | `INGAMEOVERLAY_USE_SYSTEM_LIBRARIES` | OFF | `find_package` spdlog/MiniDetour instead of `deps/` |
 | `INGAMEOVERLAY_BUILD_WINDOWS_SHADERS` | OFF | Build the shader precompiler (Windows only) |
+| `INGAMEOVERLAY_BUILD_MCP` | Same as `INGAMEOVERLAY_BUILD_TESTS` | Build the MCP server into `ingame_overlay` (`RendererHook_t::StartMcpServer` fails without it) and `ingame_overlay_mcp_bridge`. Never ship it |
 
 There is no automated test suite. "Testing" means the CI build succeeds on Windows (x86/x64), Linux (x86/x64) and macOS (x64), plus manual runs of a host app with an overlay injected. When you cannot run a platform locally, say so instead of claiming it works.
 
@@ -76,6 +77,25 @@ There is no automated test suite. "Testing" means the CI build succeeds on Windo
 - **Resources**: textures are loaded on the render thread, in batches (`SetAutoLoadBatchSize`, default 10) and released with a frame delay (`RendererTextureReleaseParameter_t::ReleaseFrame`) so in-flight frames are not affected. `RendererResource_t` does not own attached pixel data.
 - **Device ref counts**: hooks track how many references they themselves hold on the app's device (e.g. `DX11Hook_t::_UpdateHookDeviceRefCount`) to detect when the application really releases it. Any change that adds/removes a `Get*`/`AddRef`/`Release` on the device must update this accounting.
 - Symbol visibility is hidden by default; the library is meant to be linked into an injected module and must not pollute the host process.
+
+## Testing through MCP
+
+`overlay_example` opens an MCP server when the `INGAMEOVERLAY_MCP` environment variable is set: Unix socket on Linux, named pipe on Windows, bootstrap service on macOS, restricted to the current user. Use it to check the hooks without a human in front of the window:
+
+```bash
+INGAMEOVERLAY_MCP=1 ./linux_opengl_app liboverlay_example.so
+claude mcp add ingame-overlay -- <build>/ingame_overlay_mcp_bridge --wait 30
+```
+
+- MCP clients only launch stdio servers, so `ingame_overlay_mcp_bridge` forwards stdio to the endpoint. It selects the only running overlay, otherwise use `--pid` and/or `--name` (`--pid` is always needed on macOS, which cannot list services; `--list` prints the running ones). Through `ssh <host> <bridge>` it reaches another machine.
+- Endpoints are per process and per name: several overlays in one process (Steam, Epic, GOG emulators...) each call `RendererHook_t::StartMcpServer` on their own hook with their own name (letters, digits, `-`, `_`, up to 32 characters; empty is the default endpoint). `overlay_example` takes it from `INGAMEOVERLAY_MCP_NAME`, and `overlay_status` reports it.
+- Tools: `overlay_status`, `overlay_wait_frames`, `overlay_windows`, `overlay_screenshot`, `overlay_mouse`, `overlay_key`, `overlay_text`, `overlay_input_policy`, `overlay_set_visible`.
+- ImGui tools: `imgui_tree` (windows and items as trees: widget type, id, label, value, displayed text, rect, state), `imgui_find`, `imgui_item` (click, activate, check, open, `set_value`, `set_text`...), `imgui_window` (focus, collapse, move, resize, scroll, close), `imgui_state` (focus, active/hovered items, popups, edited text) and `imgui_debug_log`.
+- The ImGui tools read the UI through the ImGui test engine hooks (`src/Mcp/McpImGuiHooks.*`, compiled into `ingame_overlay` with `IMGUI_ENABLE_TEST_ENGINE` only when `INGAMEOVERLAY_BUILD_MCP` is on) plus two hooks of our ImGui fork, `ImGuiTestEngineHook_ItemValue` and `ImGuiTestEngineHook_ItemText` (`IMGUI_TEST_ENGINE_ITEM_WIDGET/VALUE/EDIT/TEXT` in `deps/ImGui`). Changing those hooks is done in the fork, on its own branch; a widget without them still shows up, but without its type and value. Items scrolled out of an `ImGuiListClipper` are not submitted, so they can't be seen.
+- Inputs are sent to ImGui, the application never sees them, so the path through the window hook is not exercised. Check that one manually.
+- Another overlay opts in by calling `RendererHook_t::StartMcpServer`; the server lives until `StopMcpServer` or `Release`. Starting and stopping it is not thread safe, like the rest of the hook API. The hook feeds it itself (`RendererHookInternal_t::_McpServer`, a `McpServerInternal_t`): every hook calls `_OverlayProc` and `_OverlayHookReady` instead of the user callbacks, and the screenshots a MCP client asked for never reach the application's callback.
+- Without the endpoint, `StartMcpServerWithTransport` lets the application carry the messages with its own protocol: it gives the client's JSON-RPC messages to `PushMcpMessage` (queued, handled in order on the server thread) and sends the answers from `McpServerTransport_t::Send`. Same tools, same server.
+- `RendererHook_t`'s destructor is protected: the application destroys the hook with `Release()`, which stops the MCP server while the derived hook still exists (its thread calls the hook).
 
 ## Code conventions
 

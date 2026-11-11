@@ -20,7 +20,9 @@
 #pragma once
 
 #include <functional>
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include "RendererResource.h"
 
@@ -114,6 +116,35 @@ struct ScreenshotCallbackParameter_t
 
 typedef void (*ScreenshotCallback_t)(ScreenshotCallbackParameter_t const* screenshot, void* userParameter);
 
+typedef bool (*McpIsOverlayVisibleCallback_t)(void* userParameter);
+typedef void (*McpSetOverlayVisibleCallback_t)(bool visible, void* userParameter);
+
+/// <summary>
+///   Optional callbacks letting the MCP client control what only the application knows about. They run on the render thread,
+///   before OverlayProc, and receive UserParameter.
+/// </summary>
+struct McpServerCallbacks_t
+{
+    McpIsOverlayVisibleCallback_t IsOverlayVisible = nullptr;
+    McpSetOverlayVisibleCallback_t SetOverlayVisible = nullptr;
+    void* UserParameter = nullptr;
+};
+
+typedef void (*McpSendMessageCallback_t)(const char* message, size_t size, void* userParameter);
+
+/// <summary>
+///   The application's own transport for a MCP server started with StartMcpServerWithTransport.
+/// </summary>
+struct McpServerTransport_t
+{
+    /// <summary>
+    ///   Required. Receives each message for the client: one JSON-RPC message in UTF-8, without newline, not null terminated. Called on
+    ///   the server thread, one message at a time; it may call PushMcpMessage.
+    /// </summary>
+    McpSendMessageCallback_t Send = nullptr;
+    void* UserParameter = nullptr;
+};
+
 /// <summary>
 ///   The renderer hook.
 ///     ResourceAutoLoad_t: Default value is ResourceAutoLoad_t::Batch
@@ -121,9 +152,16 @@ typedef void (*ScreenshotCallback_t)(ScreenshotCallbackParameter_t const* screen
 /// </summary>
 class RendererHook_t
 {
+protected:
+    // Use Release: the MCP server must stop before the hook is destroyed.
+    virtual ~RendererHook_t() {}
 
 public:
-    virtual ~RendererHook_t() {}
+    /// <summary>
+    ///   Stops the MCP server and destroys the renderer hook. Don't call this while holding the Windows loader lock during a FreeLibrary
+    ///   if a MCP server runs: it waits for its thread.
+    /// </summary>
+    virtual void Release() = 0;
 
     // TODO: Deprecated direct use of thoses and use either a setter or plain C function pointers with void* user parameter.
     std::function<void()> OverlayProc;
@@ -218,6 +256,53 @@ public:
     virtual RendererResource_t* CreateAndAttachResource(const void* image_data, uint32_t width, uint32_t height) = 0;
 
     virtual void TakeScreenshot(ScreenshotType_t type) = 0;
+
+    /// <summary>
+    ///   Starts a Model Context Protocol server to test and control this overlay from an agent, one client at a time. The renderer hook
+    ///   feeds it with its frames, its state and the screenshots the client asks for (your screenshot callback doesn't get them).
+    ///   It runs until StopMcpServer or Release. Do not ship it: whoever reaches the endpoint controls the overlay.
+    ///   Endpoints, only accepting the user running the process:
+    ///     Linux:   Unix socket $XDG_RUNTIME_DIR/ingame_overlay/mcp-(pid).sock, or mcp-(pid)-(name).sock
+    ///     Windows: named pipe \\.\pipe\ingame_overlay_mcp_(pid), or ingame_overlay_mcp_(pid)_(name)
+    ///     macOS:   bootstrap service com.nemirtingas.ingame_overlay.mcp.(pid), or com.nemirtingas.ingame_overlay.mcp.(pid).(name)
+    ///   Messages are newline delimited JSON-RPC, use ingame_overlay_mcp_bridge to expose them on stdio to a MCP client.
+    /// </summary>
+    /// <param name="name">
+    ///   Tells apart the overlays of a same process, each one needs its own. Up to 32 letters, digits, '-' or '_'.
+    ///   Empty for the default endpoint of the process.
+    /// </param>
+    /// <param name="callbacks">
+    ///   Lets the MCP client show or hide the overlay.
+    /// </param>
+    /// <returns>
+    ///   false if the library was built without INGAMEOVERLAY_BUILD_MCP, if a server already runs, if the name is invalid, or if the
+    ///   endpoint can't be created (already used by another overlay of the process).
+    /// </returns>
+    virtual bool StartMcpServer(std::string const& name = std::string(), McpServerCallbacks_t callbacks = {}) = 0;
+
+    /// <summary>
+    ///   Starts the same MCP server without its endpoint: the application carries the messages with its own protocol, giving the
+    ///   client's messages to PushMcpMessage and sending the server's ones from transport.Send.
+    /// </summary>
+    /// <returns>
+    ///   false if the library was built without INGAMEOVERLAY_BUILD_MCP, if a server already runs, or if transport.Send is null.
+    /// </returns>
+    virtual bool StartMcpServerWithTransport(McpServerTransport_t transport, McpServerCallbacks_t callbacks = {}) = 0;
+
+    /// <summary>
+    ///   Gives a message of the client to the MCP server started with StartMcpServerWithTransport: one JSON-RPC message in UTF-8, up to
+    ///   1 MiB. It is queued and handled on the server thread, in order; the answer, if any, goes to transport.Send.
+    ///   Don't call it from the render thread and wait for the answer there: tools wait for the next frames.
+    /// </summary>
+    /// <returns>
+    ///   false if no server runs with a transport, if the message is empty or too large, or if too many messages are waiting.
+    /// </returns>
+    virtual bool PushMcpMessage(const char* message, size_t size) = 0;
+
+    /// <summary>
+    ///   Stops the MCP server, if any, and waits for its thread. The messages it hasn't handled yet are dropped.
+    /// </summary>
+    virtual void StopMcpServer() = 0;
 };
 
 }
