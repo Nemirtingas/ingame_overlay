@@ -21,7 +21,9 @@
 
 #include "../OpenGLHookCommon.h"
 
+#include <chrono>
 #include <filesystem>
+#include <unordered_map>
 
 #include <GL/glx.h>
 
@@ -42,10 +44,16 @@ private:
     bool _X11Hooked;
     Display *_Display;
     //GLXContext _Context;
+    // The X window of each presented drawable: GLFW and others present a GLXWindow (glXCreateWindow),
+    // which is not a core X window and can't be used with the window hook.
+    std::unordered_map<GLXDrawable, Window> _DrawableWindows;
+    std::chrono::steady_clock::time_point _NextWindowSearch;
+    decltype(::glXQueryDrawable)* _GLXQueryDrawable;
 
     // Functions
     OpenGLXHook_t();
 
+    Window _GetDrawableWindow(Display* display, GLXDrawable drawable);
     void _PrepareForOverlay(Display* display, GLXDrawable drawable);
 
     virtual bool _ImGuiBackendInit() override;
