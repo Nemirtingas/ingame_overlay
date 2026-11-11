@@ -690,6 +690,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_link_libraries(macos_metal_app
       PRIVATE
       dl
+      "-framework QuartzCore"
     )
 
     target_compile_definitions(macos_metal_app

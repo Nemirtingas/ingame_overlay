@@ -16,6 +16,7 @@
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <imgui.h>
 #include <backends/imgui_impl_metal.h>
@@ -33,10 +34,173 @@
 #include <dlfcn.h>
 
 #include <string>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <unistd.h>
 
 #include <objc/runtime.h>
 
 static const char* ingame_overlay_test_library = "liboverlay_example.dylib";
+
+//-----------------------------------------------------------------------------------
+// Test scenarios, chosen with environment variables. tests/macos_metal/check_scenarios.py runs them
+// and checks the overlay through its MCP server.
+//
+// METAL_TEST_PRESENT             How the drawable is presented:
+//     drawable (default)             -[MTLCommandBuffer presentDrawable:]
+//     drawable_at_time               -[MTLCommandBuffer presentDrawable:atTime:]
+//     drawable_min_duration          -[MTLCommandBuffer presentDrawable:afterMinimumDuration:]
+//     scheduled                      -[MTLDrawable present] from a scheduled handler, like MoltenVK
+//     scheduled_at_time              -[MTLDrawable presentAtTime:] from a scheduled handler, like MoltenVK with a present time
+//     after_scheduled                -[MTLDrawable present] after waitUntilScheduled
+// METAL_TEST_OFFSCREEN_FIRST=1   Encode an offscreen render pass before the scene, like a shadow or G-buffer pass.
+// METAL_TEST_DRAWABLE_SIZE=WxH   Fixed drawable size, different from the view's (lower resolution rendering).
+// METAL_TEST_SAMPLE_COUNT=N      Multisampled scene, resolved into the drawable.
+// METAL_TEST_FRAMEBUFFER_ONLY=0  Copyable drawables (MTKView's default is framebufferOnly).
+// METAL_TEST_UNRETAINED=1        Command buffers from commandBufferWithUnretainedReferences.
+// METAL_TEST_RENDER_THREAD=1     Render on a secondary thread, like most engines. The application's own
+//                                ImGui isn't drawn then: its backend isn't thread safe either.
+// METAL_TEST_EVENT_STORM=1       Post mouse events to the application continuously, to exercise the input
+//                                path while the overlay renders.
+//-----------------------------------------------------------------------------------
+
+enum class TestPresentMode_t
+{
+    Drawable,
+    DrawableAtTime,
+    DrawableAfterMinimumDuration,
+    ScheduledHandler,
+    ScheduledHandlerAtTime,
+    AfterScheduled,
+};
+
+struct TestOptions_t
+{
+    TestPresentMode_t Present = TestPresentMode_t::Drawable;
+    bool OffscreenFirst = false;
+    unsigned DrawableWidth = 0;
+    unsigned DrawableHeight = 0;
+    unsigned SampleCount = 1;
+    int FramebufferOnly = -1;
+    bool Unretained = false;
+    bool RenderThread = false;
+    bool EventStorm = false;
+};
+
+static TestOptions_t g_Test;
+
+static bool TestFlag(const char* name)
+{
+    const char* value = getenv(name);
+    return value != nullptr && strcmp(value, "0") != 0 && value[0] != '\0';
+}
+
+static void LoadTestOptions()
+{
+    struct { const char* Name; TestPresentMode_t Mode; } const presentModes[] = {
+        { "drawable"             , TestPresentMode_t::Drawable                     },
+        { "drawable_at_time"     , TestPresentMode_t::DrawableAtTime               },
+        { "drawable_min_duration", TestPresentMode_t::DrawableAfterMinimumDuration },
+        { "scheduled"            , TestPresentMode_t::ScheduledHandler             },
+        { "scheduled_at_time"    , TestPresentMode_t::ScheduledHandlerAtTime       },
+        { "after_scheduled"      , TestPresentMode_t::AfterScheduled               },
+    };
+
+    if (const char* present = getenv("METAL_TEST_PRESENT"))
+    {
+        bool found = false;
+        for (auto const& mode : presentModes)
+        {
+            if (strcmp(present, mode.Name) == 0)
+            {
+                g_Test.Present = mode.Mode;
+                found = true;
+            }
+        }
+        if (!found)
+            printf("Unknown METAL_TEST_PRESENT %s, using drawable\n", present);
+    }
+
+    g_Test.OffscreenFirst = TestFlag("METAL_TEST_OFFSCREEN_FIRST");
+    if (const char* size = getenv("METAL_TEST_DRAWABLE_SIZE"))
+        sscanf(size, "%ux%u", &g_Test.DrawableWidth, &g_Test.DrawableHeight);
+    if (const char* sampleCount = getenv("METAL_TEST_SAMPLE_COUNT"))
+        g_Test.SampleCount = (unsigned)atoi(sampleCount);
+    if (const char* framebufferOnly = getenv("METAL_TEST_FRAMEBUFFER_ONLY"))
+        g_Test.FramebufferOnly = atoi(framebufferOnly) != 0 ? 1 : 0;
+    g_Test.Unretained = TestFlag("METAL_TEST_UNRETAINED");
+    g_Test.RenderThread = TestFlag("METAL_TEST_RENDER_THREAD");
+    g_Test.EventStorm = TestFlag("METAL_TEST_EVENT_STORM");
+}
+
+static id<MTLCommandBuffer> NewTestCommandBuffer(id<MTLCommandQueue> commandQueue)
+{
+    return g_Test.Unretained ? [commandQueue commandBufferWithUnretainedReferences] : [commandQueue commandBuffer];
+}
+
+// A pass into a texture that is never presented: the overlay must not end up there.
+static void EncodeOffscreenPass(id<MTLCommandBuffer> commandBuffer)
+{
+    static id<MTLTexture> offscreen = nil;
+    if (offscreen == nil)
+    {
+        MTLTextureDescriptor* descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:256 height:256 mipmapped:NO];
+        descriptor.usage = MTLTextureUsageRenderTarget;
+        descriptor.storageMode = MTLStorageModePrivate;
+        offscreen = [commandBuffer.device newTextureWithDescriptor:descriptor];
+    }
+
+    MTLRenderPassDescriptor* renderPass = [MTLRenderPassDescriptor renderPassDescriptor];
+    renderPass.colorAttachments[0].texture = offscreen;
+    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    renderPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    renderPass.colorAttachments[0].clearColor = MTLClearColorMake(1.0, 0.0, 0.0, 1.0);
+    [[commandBuffer renderCommandEncoderWithDescriptor:renderPass] endEncoding];
+}
+
+static void PresentAndCommit(id<MTLCommandBuffer> commandBuffer, id<CAMetalDrawable> drawable)
+{
+    if (drawable == nil)
+    {
+        [commandBuffer commit];
+        return;
+    }
+
+    switch (g_Test.Present)
+    {
+        case TestPresentMode_t::Drawable:
+            [commandBuffer presentDrawable:drawable];
+            [commandBuffer commit];
+            break;
+
+        case TestPresentMode_t::DrawableAtTime:
+            [commandBuffer presentDrawable:drawable atTime:CACurrentMediaTime()];
+            [commandBuffer commit];
+            break;
+
+        case TestPresentMode_t::DrawableAfterMinimumDuration:
+            [commandBuffer presentDrawable:drawable afterMinimumDuration:1.0 / 120.0];
+            [commandBuffer commit];
+            break;
+
+        case TestPresentMode_t::ScheduledHandler:
+            [commandBuffer addScheduledHandler:^(id<MTLCommandBuffer>) { [drawable present]; }];
+            [commandBuffer commit];
+            break;
+
+        case TestPresentMode_t::ScheduledHandlerAtTime:
+            [commandBuffer addScheduledHandler:^(id<MTLCommandBuffer>) { [drawable presentAtTime:CACurrentMediaTime()]; }];
+            [commandBuffer commit];
+            break;
+
+        case TestPresentMode_t::AfterScheduled:
+            [commandBuffer commit];
+            [commandBuffer waitUntilScheduled];
+            [drawable present];
+            break;
+    }
+}
 
 @interface AppViewController () <MTKViewDelegate>
 @property (nonatomic, readonly) MTKView *mtkView;
@@ -231,6 +395,8 @@ static void DumpBaseObjectChain(id object)
 {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
 
+    LoadTestOptions();
+
     _device = MTLCreateSystemDefaultDevice();
     _commandQueue = [_device newCommandQueue];
 
@@ -298,6 +464,37 @@ static void DumpBaseObjectChain(id object)
     self.mtkView.device = self.device;
     self.mtkView.delegate = self;
 
+    if (g_Test.DrawableWidth > 0 && g_Test.DrawableHeight > 0)
+    {
+        self.mtkView.autoResizeDrawable = NO;
+        self.mtkView.drawableSize = CGSizeMake(g_Test.DrawableWidth, g_Test.DrawableHeight);
+    }
+    if (g_Test.SampleCount > 1)
+        self.mtkView.sampleCount = g_Test.SampleCount;
+    if (g_Test.FramebufferOnly >= 0)
+        self.mtkView.framebufferOnly = g_Test.FramebufferOnly != 0;
+
+    if (g_Test.RenderThread)
+    {
+        self.mtkView.paused = YES;
+        self.mtkView.enableSetNeedsDisplay = NO;
+
+        // Present from the layer: MTKView keeps its current drawable until -draw, which runs on the main thread.
+        CAMetalLayer* layer = (CAMetalLayer*)self.mtkView.layer;
+        [NSThread detachNewThreadWithBlock:^{
+            for (;;)
+            {
+                @autoreleasepool
+                {
+                    [self renderThreadFrame:layer];
+                }
+            }
+        }];
+    }
+
+    if (g_Test.EventStorm)
+        [self startEventStorm];
+
 #if TARGET_OS_OSX
     ImGui_ImplOSX_Init(self.view);
     [NSApp activateIgnoringOtherApps:YES];
@@ -317,7 +514,9 @@ static void DumpBaseObjectChain(id object)
 #endif
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
 
-    id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
+    id<MTLCommandBuffer> commandBuffer = NewTestCommandBuffer(self.commandQueue);
+    if (g_Test.OffscreenFirst)
+        EncodeOffscreenPass(commandBuffer);
 
     MTLRenderPassDescriptor* renderPassDescriptor = view.currentRenderPassDescriptor;
     if (renderPassDescriptor == nil)
@@ -331,6 +530,9 @@ static void DumpBaseObjectChain(id object)
 #if TARGET_OS_OSX
     ImGui_ImplOSX_NewFrame(view);
 #endif
+    // The drawable may not follow the view (METAL_TEST_DRAWABLE_SIZE): after the OSX backend, which sets the screen's scale.
+    if (view.bounds.size.width > 0 && view.bounds.size.height > 0)
+        io.DisplayFramebufferScale = ImVec2(view.drawableSize.width / view.bounds.size.width, view.drawableSize.height / view.bounds.size.height);
     ImGui::NewFrame();
 
     // Our state (make them static = more or less global) as a convenience to keep the example terse.
@@ -391,8 +593,60 @@ static void DumpBaseObjectChain(id object)
     [renderEncoder endEncoding];
 
     // Present
-    [commandBuffer presentDrawable:view.currentDrawable];
-    [commandBuffer commit];
+    PresentAndCommit(commandBuffer, view.currentDrawable);
+}
+
+// METAL_TEST_RENDER_THREAD: a clear and a present, on a secondary thread.
+-(void)renderThreadFrame:(CAMetalLayer*)layer
+{
+    id<CAMetalDrawable> drawable = [layer nextDrawable];
+    if (drawable == nil)
+    {
+        usleep(1000);
+        return;
+    }
+
+    id<MTLCommandBuffer> commandBuffer = NewTestCommandBuffer(self.commandQueue);
+    if (g_Test.OffscreenFirst)
+        EncodeOffscreenPass(commandBuffer);
+
+    MTLRenderPassDescriptor* renderPass = [MTLRenderPassDescriptor renderPassDescriptor];
+    renderPass.colorAttachments[0].texture = drawable.texture;
+    renderPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    renderPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    renderPass.colorAttachments[0].clearColor = MTLClearColorMake(0.45, 0.55, 0.60, 1.0);
+    [[commandBuffer renderCommandEncoderWithDescriptor:renderPass] endEncoding];
+
+    PresentAndCommit(commandBuffer, drawable);
+}
+
+// METAL_TEST_EVENT_STORM: mouse moves and wheel events over the view, posted to the application's queue so
+// that its local event monitors (the overlay's one included) see them.
+-(void)startEventStorm
+{
+    [NSTimer scheduledTimerWithTimeInterval:0.002 repeats:YES block:^(NSTimer*) {
+        NSWindow* window = self.view.window;
+        if (window == nil)
+            return;
+
+        const NSRect bounds = self.view.bounds;
+        for (int i = 0; i < 4; ++i)
+        {
+            const NSPoint location = NSMakePoint(bounds.size.width * (arc4random_uniform(1000) / 1000.0), bounds.size.height * (arc4random_uniform(1000) / 1000.0));
+            NSEvent* move = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:location modifierFlags:0 timestamp:[NSProcessInfo processInfo].systemUptime
+                                           windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:0 pressure:0];
+            [NSApp postEvent:move atStart:NO];
+        }
+
+        CGEventRef wheel = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine, 1, (int32_t)arc4random_uniform(3) - 1);
+        if (wheel != nullptr)
+        {
+            NSEvent* scroll = [NSEvent eventWithCGEvent:wheel];
+            if (scroll != nil)
+                [NSApp postEvent:scroll atStart:NO];
+            CFRelease(wheel);
+        }
+    }];
 }
 
 -(void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size
