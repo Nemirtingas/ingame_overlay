@@ -780,7 +780,8 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiComman
     if (!inst->_OverlayInputsHidden && uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         inst->_RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
-    const bool latchedKey = uiCommand == RID_INPUT && res == sizeof(RAWINPUT) &&
+    // A keyboard RAWINPUT is smaller than sizeof(RAWINPUT), which is sized for the largest device data.
+    const bool latchedKey = uiCommand == RID_INPUT && res != static_cast<UINT>(-1) && res >= sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) &&
         reinterpret_cast<RAWINPUT*>(pData)->header.dwType == RIM_TYPEKEYBOARD &&
         inst->_IsKeyLatched(reinterpret_cast<RAWINPUT*>(pData)->data.keyboard.VKey);
 
