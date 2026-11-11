@@ -368,7 +368,7 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
     switch (state)
@@ -897,7 +897,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             ++_CurrentFrame;
             ImGui::NewFrame();
 
-            OverlayProc();
+            _OverlayProc();
 
             _LoadResources();
             _ReleaseResources();

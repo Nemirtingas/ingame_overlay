@@ -104,7 +104,9 @@ void shared_library_unload(void* hmodule)
         if (OverlayData->Worker.joinable())
             OverlayData->Worker.join();
 
-        delete OverlayData->Renderer; OverlayData->Renderer = nullptr;
+        if (OverlayData->Renderer != nullptr)
+            OverlayData->Renderer->Release();
+        OverlayData->Renderer = nullptr;
     }
     delete OverlayData;
 }
