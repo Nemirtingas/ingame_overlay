@@ -45,6 +45,9 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(MT
         case MTLPixelFormatRGB10A2Unorm:
             return InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2;
 
+        case MTLPixelFormatBGR10A2Unorm:
+            return InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10;
+
         // 16-bit
         case MTLPixelFormatRGBA16Unorm:
             return InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM;
@@ -58,6 +61,28 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(MT
 
         default:
             return InGameOverlay::ScreenshotDataFormat_t::Unknown;
+    }
+}
+
+static uint32_t ScreenshotFormatPixelSize(InGameOverlay::ScreenshotDataFormat_t format)
+{
+    switch (format)
+    {
+        case InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8:
+        case InGameOverlay::ScreenshotDataFormat_t::B8G8R8A8:
+        case InGameOverlay::ScreenshotDataFormat_t::R10G10B10A2:
+        case InGameOverlay::ScreenshotDataFormat_t::A2R10G10B10:
+            return 4;
+
+        case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_UNORM:
+        case InGameOverlay::ScreenshotDataFormat_t::R16G16B16A16_FLOAT:
+            return 8;
+
+        case InGameOverlay::ScreenshotDataFormat_t::R32G32B32A32_FLOAT:
+            return 16;
+
+        default:
+            return 0;
     }
 }
 
@@ -116,6 +141,8 @@ void MetalHook_t::_ResetRenderState()
         //NSViewHook_t::Inst()->_ResetRenderState();
         //ImGui::DestroyContext();
 
+        _ReleasePendingScreenshot();
+        _RestoreScreenshotLayer();
         _ImageResources.clear();
 
         _MetalDevice = nil;
@@ -139,7 +166,9 @@ void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> te
         _Initialized = true;
         _OverlayHookReady(InGameOverlay::OverlayHookState::Ready);
     }
-    
+
+    _SendPendingScreenshot();
+
     MTLRenderPassDescriptor* overlayDescriptor = [[MTLRenderPassDescriptor alloc] init];
     
     overlayDescriptor.colorAttachments[0].texture = texture;
@@ -313,7 +342,147 @@ void MetalHook_t::_ReleaseResources()
 
 void MetalHook_t::_HandleScreenshot(id<MTLCommandBuffer> commandBuffer, id<MTLDrawable> drawable)
 {
-    _SendScreenshot(nullptr);
+    // Frames to wait for a drawable that can be copied, after turning off the layer's framebufferOnly.
+    constexpr uint32_t MaxFramebufferOnlyFrames = 10;
+
+    // The previous capture is still on the GPU, take this one when it is sent.
+    if (_PendingScreenshot.CommandBuffer != nil)
+        return;
+
+    const uint64_t requestId = _ScreenshotRequestId();
+    if (requestId != _ScreenshotWaitRequestId)
+    {
+        _ScreenshotWaitRequestId = requestId;
+        _ScreenshotWaitFrames = 0;
+    }
+
+    id<CAMetalDrawable> metalDrawable = nil;
+    if (drawable != nil && [drawable conformsToProtocol:@protocol(CAMetalDrawable)])
+        metalDrawable = (id<CAMetalDrawable>)drawable;
+
+    id<MTLTexture> texture = metalDrawable != nil ? metalDrawable.texture : nil;
+    if (texture == nil || texture.textureType != MTLTextureType2D)
+    {
+        INGAMEOVERLAY_ERROR("Failed to take a screenshot: the presented drawable has no 2D texture.");
+        _SendScreenshotForRequest(requestId, nullptr);
+        return;
+    }
+
+    const auto format = RendererFormatToScreenshotFormat(texture.pixelFormat);
+    const uint32_t pixelSize = ScreenshotFormatPixelSize(format);
+    if (pixelSize == 0)
+    {
+        INGAMEOVERLAY_ERROR("Failed to take a screenshot: unsupported drawable format {}.", (unsigned)texture.pixelFormat);
+        _SendScreenshotForRequest(requestId, nullptr);
+        return;
+    }
+
+    // The drawables of a framebufferOnly layer (MTKView's default) can't be copied: ask the layer for
+    // copyable drawables, take the screenshot from one of the next frames and restore the layer then.
+    if (texture.framebufferOnly)
+    {
+        CAMetalLayer* layer = metalDrawable.layer;
+        if (layer != nil && layer.framebufferOnly && _ScreenshotLayer == nil)
+        {
+            _ScreenshotLayer = [layer retain];
+            layer.framebufferOnly = NO;
+        }
+
+        if (layer == nil || ++_ScreenshotWaitFrames > MaxFramebufferOnlyFrames)
+        {
+            INGAMEOVERLAY_ERROR("Failed to take a screenshot: the drawable is framebufferOnly.");
+            _RestoreScreenshotLayer();
+            _SendScreenshotForRequest(requestId, nullptr);
+        }
+        return;
+    }
+
+    const uint32_t width = static_cast<uint32_t>(texture.width);
+    const uint32_t height = static_cast<uint32_t>(texture.height);
+    const uint32_t pitch = (width * pixelSize + 255) & ~uint32_t(255);
+
+    id<MTLBuffer> buffer = [[commandBuffer device] newBufferWithLength:static_cast<NSUInteger>(pitch) * height options:MTLResourceStorageModeShared];
+    id<MTLBlitCommandEncoder> blitEncoder = buffer != nil ? [commandBuffer blitCommandEncoder] : nil;
+    if (blitEncoder == nil)
+    {
+        INGAMEOVERLAY_ERROR("Failed to take a screenshot: can't copy the drawable.");
+        [buffer release];
+        _RestoreScreenshotLayer();
+        _SendScreenshotForRequest(requestId, nullptr);
+        return;
+    }
+
+    [blitEncoder copyFromTexture:texture
+                     sourceSlice:0
+                     sourceLevel:0
+                    sourceOrigin:MTLOriginMake(0, 0, 0)
+                      sourceSize:MTLSizeMake(width, height, 1)
+                        toBuffer:buffer
+               destinationOffset:0
+          destinationBytesPerRow:pitch
+        destinationBytesPerImage:static_cast<NSUInteger>(pitch) * height];
+    [blitEncoder endEncoding];
+
+    // presentDrawable: comes before commit, the copy runs with the application's frame.
+    _PendingScreenshot.CommandBuffer = [commandBuffer retain];
+    _PendingScreenshot.Buffer = buffer;
+    _PendingScreenshot.Width = width;
+    _PendingScreenshot.Height = height;
+    _PendingScreenshot.Pitch = pitch;
+    _PendingScreenshot.Format = texture.pixelFormat;
+    _PendingScreenshot.RequestId = requestId;
+
+    _RestoreScreenshotLayer();
+}
+
+void MetalHook_t::_SendPendingScreenshot()
+{
+    if (_PendingScreenshot.CommandBuffer == nil)
+        return;
+
+    const MTLCommandBufferStatus status = _PendingScreenshot.CommandBuffer.status;
+    if (status != MTLCommandBufferStatusCompleted && status != MTLCommandBufferStatusError)
+        return;
+
+    PendingScreenshot_t pending = _PendingScreenshot;
+    _PendingScreenshot = {};
+
+    if (status == MTLCommandBufferStatusCompleted)
+    {
+        ScreenshotCallbackParameter_t screenshot{};
+        screenshot.Width = pending.Width;
+        screenshot.Height = pending.Height;
+        screenshot.Pitch = pending.Pitch;
+        screenshot.Data = pending.Buffer.contents;
+        screenshot.Format = RendererFormatToScreenshotFormat(pending.Format);
+
+        _SendScreenshotForRequest(pending.RequestId, &screenshot);
+    }
+    else
+    {
+        INGAMEOVERLAY_ERROR("Failed to take a screenshot: the command buffer failed.");
+        _SendScreenshotForRequest(pending.RequestId, nullptr);
+    }
+
+    [pending.Buffer release];
+    [pending.CommandBuffer release];
+}
+
+void MetalHook_t::_ReleasePendingScreenshot()
+{
+    [_PendingScreenshot.Buffer release];
+    [_PendingScreenshot.CommandBuffer release];
+    _PendingScreenshot = {};
+}
+
+void MetalHook_t::_RestoreScreenshotLayer()
+{
+    if (_ScreenshotLayer == nil)
+        return;
+
+    _ScreenshotLayer.framebufferOnly = YES;
+    [_ScreenshotLayer release];
+    _ScreenshotLayer = nil;
 }
 
 void MetalHook_t::MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable)
@@ -342,6 +511,10 @@ MetalHook_t::MetalHook_t():
     _NSViewHooked(false),
     _ImGuiFontAtlas(nullptr),
     _MetalDevice(nil),
+    _PendingScreenshot{},
+    _ScreenshotLayer(nil),
+    _ScreenshotWaitRequestId(0),
+    _ScreenshotWaitFrames(0),
     _MTLCommandBufferPresentDrawableMethod(nil),
     _MTLCommandBufferPresentDrawable(nullptr)
 {
@@ -360,6 +533,9 @@ MetalHook_t::~MetalHook_t()
         method_setImplementation(_MTLCommandBufferPresentDrawableMethod, (IMP)_MTLCommandBufferPresentDrawable);
         _MTLCommandBufferPresentDrawable = nullptr;
     }
+
+    _ReleasePendingScreenshot();
+    _RestoreScreenshotLayer();
 
     if (_Initialized)
     {

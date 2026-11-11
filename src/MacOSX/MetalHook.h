@@ -42,6 +42,18 @@ class MetalHook_t :
 private:
     static MetalHook_t* _Instance;
 
+    // A drawable copied into a buffer by the application's command buffer, sent once the GPU is done.
+    struct PendingScreenshot_t
+    {
+        id<MTLCommandBuffer> CommandBuffer;
+        id<MTLBuffer> Buffer;
+        uint32_t Width;
+        uint32_t Height;
+        uint32_t Pitch;
+        MTLPixelFormat Format;
+        uint64_t RequestId;
+    };
+
     // Variables
     std::string LibraryName;
     std::filesystem::path LibraryPath;
@@ -53,6 +65,11 @@ private:
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     id<MTLDevice> _MetalDevice;
+    PendingScreenshot_t _PendingScreenshot;
+    // Layer whose framebufferOnly we turned off to be able to copy its drawables.
+    CAMetalLayer* _ScreenshotLayer;
+    uint64_t _ScreenshotWaitRequestId;
+    uint32_t _ScreenshotWaitFrames;
 
     void* _ImGuiFontAtlas;
 
@@ -64,6 +81,9 @@ private:
     void _LoadResources();
     void _ReleaseResources();
     void _HandleScreenshot(id<MTLCommandBuffer> commandBuffer, id<MTLDrawable> drawable);
+    void _SendPendingScreenshot();
+    void _ReleasePendingScreenshot();
+    void _RestoreScreenshotLayer();
 
     // Hook to render functions
     Method _MTLCommandBufferPresentDrawableMethod;
