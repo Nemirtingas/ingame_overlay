@@ -2,11 +2,16 @@ name: CI
 
 on:
   push:
-    # on any push
+    # Pull request branches are built by the pull_request event: building their pushes too ran everything twice.
+    # A branch without a pull request can still be built with workflow_dispatch (gh workflow run --ref).
+    branches: [develop, master]
   pull_request:
-    # on pull request
   workflow_dispatch:
-    # allows manual trigger
+
+# A new push to a pull request cancels the run of its previous commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   job:
