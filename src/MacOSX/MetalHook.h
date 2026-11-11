@@ -42,57 +42,6 @@ class MetalHook_t :
 private:
     static MetalHook_t* _Instance;
 
-    struct RenderPass_t
-    {
-        MTLRenderPassDescriptor* Descriptor;
-        id<MTLCommandBuffer> CommandBuffer;
-
-        RenderPass_t(
-            MTLRenderPassDescriptor* descriptor,
-            id<MTLCommandBuffer> commandBuffer)
-            : Descriptor([descriptor retain]),
-              CommandBuffer([commandBuffer retain])
-        {
-        }
-
-        ~RenderPass_t()
-        {
-            [Descriptor release];
-            [CommandBuffer release];
-
-            Descriptor = nil;
-            CommandBuffer = nil;
-        }
-
-        RenderPass_t(const RenderPass_t&) = delete;
-        RenderPass_t& operator=(const RenderPass_t&) = delete;
-
-        RenderPass_t(RenderPass_t&& other) noexcept
-            : Descriptor(other.Descriptor),
-                CommandBuffer(other.CommandBuffer)
-        {
-            other.Descriptor = nil;
-            other.CommandBuffer = nil;
-        }
-
-        RenderPass_t& operator=(RenderPass_t&& other) noexcept
-        {
-            if (this != &other)
-            {
-                [Descriptor release];
-                [CommandBuffer release];
-
-                Descriptor = other.Descriptor;
-                CommandBuffer = other.CommandBuffer;
-
-                other.Descriptor = nil;
-                other.CommandBuffer = nil;
-            }
-
-            return *this;
-        }
-    };
-
     // A drawable copied into a buffer by the application's command buffer, sent once the GPU is done.
     struct PendingScreenshot_t
     {
@@ -116,7 +65,6 @@ private:
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
     id<MTLDevice> _MetalDevice;
-    std::vector<RenderPass_t> _RenderPass;
     PendingScreenshot_t _PendingScreenshot;
     // Layer whose framebufferOnly we turned off to be able to copy its drawables.
     CAMetalLayer* _ScreenshotLayer;
@@ -138,14 +86,11 @@ private:
     void _RestoreScreenshotLayer();
 
     // Hook to render functions
-    Method _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod;
     Method _MTLCommandBufferPresentDrawableMethod;
 
-    id<MTLRenderCommandEncoder> (*_MTLCommandBufferRenderCommandEncoderWithDescriptor)(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     void (*_MTLCommandBufferPresentDrawable)(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable);
 
 public:
-    static id<MTLRenderCommandEncoder> MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor);
     static void MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable);
 
     virtual ~MetalHook_t() override;
@@ -157,7 +102,7 @@ public:
     static MetalHook_t* Inst();
     virtual const char* GetLibraryName() const override;
     virtual RendererHookType_t GetRendererHookType() const override;
-    void LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method MTLCommandBufferPresentDrawable);
+    void LoadFunctions(Method MTLCommandBufferPresentDrawable);
 
     virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
     virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;

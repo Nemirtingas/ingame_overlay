@@ -90,7 +90,7 @@ bool MetalHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggle
 {
     if (!_Hooked)
     {
-        if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod == nil || _MTLCommandBufferPresentDrawableMethod == nil)
+        if (_MTLCommandBufferPresentDrawableMethod == nil)
         {
             INGAMEOVERLAY_WARN("Failed to hook Metal: Rendering functions missing.");
             return false;
@@ -101,8 +101,7 @@ bool MetalHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggle
         
         _NSViewHooked = true;
 
-        _MTLCommandBufferRenderCommandEncoderWithDescriptor = (decltype(_MTLCommandBufferRenderCommandEncoderWithDescriptor))method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)&MyMTLCommandBufferRenderCommandEncoderWithDescriptor);
-        _MTLCommandBufferPresentDrawable = (decltype(_MTLCommandBufferPresentDrawable))method_setImplementation(_MTLCommandBufferPresentDrawableMethod,                                                                                  (IMP)&MyMTLCommandBufferPresentDrawable);
+        _MTLCommandBufferPresentDrawable = (decltype(_MTLCommandBufferPresentDrawable))method_setImplementation(_MTLCommandBufferPresentDrawableMethod, (IMP)&MyMTLCommandBufferPresentDrawable);
 
         INGAMEOVERLAY_INFO("Hooked Metal");
         _Hooked = true;
@@ -178,6 +177,12 @@ void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> te
     
     if (NSViewHook_t::Inst()->PrepareForOverlay() && ImGui_ImplMetal_NewFrame(overlayDescriptor))
     {
+        // The drawable's size is the layer's drawableSize, which the application may set to anything
+        // (lower resolution rendering, a layer smaller than the window): scale the overlay to it.
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f)
+            io.DisplayFramebufferScale = ImVec2((float)texture.width / io.DisplaySize.x, (float)texture.height / io.DisplaySize.y);
+
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
             _HandleScreenshot(commandBuffer, drawable);
@@ -198,7 +203,7 @@ void MetalHook_t::_PrepareForOverlay(id<MTLDrawable> drawable, id<MTLTexture> te
 
         ImGui::Render();
 
-        id<MTLRenderCommandEncoder> renderEncoder = _MTLCommandBufferRenderCommandEncoderWithDescriptor(commandBuffer, @selector(renderCommandEncoderWithDescriptor:), overlayDescriptor);
+        id<MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:overlayDescriptor];
         
         ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
 
@@ -480,50 +485,23 @@ void MetalHook_t::_RestoreScreenshotLayer()
     _ScreenshotLayer = nil;
 }
 
-id<MTLRenderCommandEncoder> MetalHook_t::MyMTLCommandBufferRenderCommandEncoderWithDescriptor(id<MTLCommandBuffer> self, SEL sel, MTLRenderPassDescriptor* descriptor)
-{
-    MetalHook_t* inst = MetalHook_t::Inst();
-    id<MTLRenderCommandEncoder> encoder = inst->_MTLCommandBufferRenderCommandEncoderWithDescriptor(self, sel, descriptor);
-    
-    auto found = false;
-    for (auto& renderPass : inst->_RenderPass)
-    {
-        if (renderPass.CommandBuffer == self)
-        {
-            found = true;
-            break;
-        }
-    }
-    if (!found)
-    {
-        inst->_RenderPass.emplace_back(descriptor, self);
-    }
-    
-    return encoder;
-}
-
 void MetalHook_t::MyMTLCommandBufferPresentDrawable(id<MTLCommandBuffer> self, SEL sel, id<MTLDrawable> drawable)
 {
     MetalHook_t* inst = MetalHook_t::Inst();
-    
-    for (auto& renderPass : inst->_RenderPass)
+
+    // Draw into the texture that is presented: the command buffer's render passes may target
+    // offscreen, depth only or multisampled textures.
+    if (drawable != nil && [drawable conformsToProtocol:@protocol(CAMetalDrawable)])
     {
-        if (renderPass.CommandBuffer == self)
+        // The render thread may have no autorelease pool of its own.
+        @autoreleasepool
         {
-            if (renderPass.CommandBuffer != self)
-                continue;
-            
-            if (renderPass.Descriptor.colorAttachments[0].texture == nil)
-                continue;
-            
-            inst->_PrepareForOverlay(drawable, renderPass.Descriptor.colorAttachments[0].texture, self);
-            
-            break;
+            id<MTLTexture> texture = ((id<CAMetalDrawable>)drawable).texture;
+            if (texture != nil)
+                inst->_PrepareForOverlay(drawable, texture, self);
         }
     }
-    
-    inst->_RenderPass.clear();
-    
+
     inst->_MTLCommandBufferPresentDrawable(self, sel, drawable);
 }
 
@@ -537,9 +515,7 @@ MetalHook_t::MetalHook_t():
     _ScreenshotLayer(nil),
     _ScreenshotWaitRequestId(0),
     _ScreenshotWaitFrames(0),
-    _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod(nil),
     _MTLCommandBufferPresentDrawableMethod(nil),
-    _MTLCommandBufferRenderCommandEncoderWithDescriptor(nullptr),
     _MTLCommandBufferPresentDrawable(nullptr)
 {
     
@@ -552,11 +528,6 @@ MetalHook_t::~MetalHook_t()
     if (_NSViewHooked)
         delete NSViewHook_t::Inst();
 
-    if (_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod != nil && _MTLCommandBufferRenderCommandEncoderWithDescriptor != nullptr)
-    {
-        method_setImplementation(_MTLCommandBufferRenderCommandEncoderWithDescriptorMethod, (IMP)_MTLCommandBufferRenderCommandEncoderWithDescriptor);
-        _MTLCommandBufferRenderCommandEncoderWithDescriptor = nullptr;
-    }
     if (_MTLCommandBufferPresentDrawableMethod != nil && _MTLCommandBufferPresentDrawable != nullptr)
     {
         method_setImplementation(_MTLCommandBufferPresentDrawableMethod, (IMP)_MTLCommandBufferPresentDrawable);
@@ -595,9 +566,8 @@ RendererHookType_t MetalHook_t::GetRendererHookType() const
     return RendererHookType_t::Metal;
 }
 
-void MetalHook_t::LoadFunctions(Method MTLCommandBufferRenderCommandEncoderWithDescriptor, Method MTLCommandBufferPresentDrawable)
+void MetalHook_t::LoadFunctions(Method MTLCommandBufferPresentDrawable)
 {
-    _MTLCommandBufferRenderCommandEncoderWithDescriptorMethod = MTLCommandBufferRenderCommandEncoderWithDescriptor;
     _MTLCommandBufferPresentDrawableMethod = MTLCommandBufferPresentDrawable;
 }
 
