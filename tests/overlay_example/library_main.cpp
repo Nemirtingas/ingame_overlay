@@ -419,6 +419,9 @@ void shared_library_load(void* hmodule)
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout
                 image_or_dummy(OverlayData->OverlayImage2, 64, 64);
 
+                // Read by the test scripts through MCP, ImGui::Image has no id they could see.
+                ImGui::Text("Images loaded: %d %d", OverlayData->OverlayImage1->GetResourceId() != 0, OverlayData->OverlayImage2->GetResourceId() != 0);
+
                 if (OverlayData->OverlayImageScreenshot)
                 {
                     bool opened = true;

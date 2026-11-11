@@ -538,6 +538,26 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     set_property(TARGET windows_opengl3_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
+    # Host for the window and OpenGL hook scenarios of tests/windows_hook_tests/check_scenarios.py.
+    add_executable(windows_hook_tests_app
+      tests/windows_hook_tests/main.cpp
+    )
+
+    target_include_directories(windows_hook_tests_app
+      PRIVATE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
+    )
+
+    target_link_libraries(windows_hook_tests_app
+      PRIVATE
+      user32
+      gdi32
+      opengl32
+    )
+
+    set_property(TARGET windows_hook_tests_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
     # Vulkan officially supports only 64 bits apps.
     if (CMAKE_SIZEOF_VOID_P EQUAL 8)
       set(GLFW_BUILD_DOCS OFF)
