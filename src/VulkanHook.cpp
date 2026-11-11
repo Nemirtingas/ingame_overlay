@@ -801,6 +801,14 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
+        // Until the overlay is initialised (a native Wayland game has no X window, a window may not have
+        // its _NET_WM_PID yet), don't search more than once per second.
+        const auto now = std::chrono::steady_clock::now();
+        if (now < _NextWindowSearch)
+            return;
+
+        _NextWindowSearch = now + std::chrono::seconds(1);
+
         auto windows = WindowHook_t::Inst()->FindApplicationWindows();
         if (windows.empty())
             return;

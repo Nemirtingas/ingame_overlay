@@ -25,6 +25,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <set>
@@ -80,6 +81,8 @@ private:
     bool _SentOutOfDate;
     OverlayHookState _HookState;
     NativeWindow_t _MainWindow;
+    // On Linux, finding the window walks every X window.
+    std::chrono::steady_clock::time_point _NextWindowSearch;
 
     std::function<void* (const char*)> _VulkanLoader;
     VkAllocationCallbacks* _VulkanAllocationCallbacks;
