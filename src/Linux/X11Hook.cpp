@@ -50,87 +50,6 @@ static std::shared_ptr<SafeXlibDisplay_t> GetX11Display()
     return std::make_shared<SafeXlibDisplay_t>(display);
 }
 
-using EnumX11WindowsCallback_t = int (*)(const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, void* userParameter);
-
-// Returns false when enumeration must be stopped.
-static bool RunEnumX11Windows(const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, EnumX11WindowsCallback_t callback, void* userParameter)
-{
-    if (!display || display->DisplayHandle == nullptr || callback == nullptr)
-        return false;
-
-    auto x11Display = (Display*)display->DisplayHandle;
-
-    Window rootReturn = None;
-    Window parentWindow = None;
-    Window* childrenWindows = nullptr;
-    unsigned int childCount = 0;
-
-    if (!XQueryTree(x11Display, window, &rootReturn, &parentWindow, &childrenWindows, &childCount))
-        return true;
-
-    bool continueEnumeration = true;
-
-    for (unsigned int i = 0; i < childCount; ++i)
-    {
-        const auto childWindow = childrenWindows[i];
-
-        // Callback returns 0 when enumeration must stop.
-        if (!callback(display, childWindow, userParameter))
-        {
-            continueEnumeration = false;
-            break;
-        }
-
-        // Recursively enumerate children.
-        if (!RunEnumX11Windows(display, childWindow, callback, userParameter))
-        {
-            continueEnumeration = false;
-            break;
-        }
-    }
-
-    if (childrenWindows != nullptr)
-        XFree(childrenWindows);
-
-    return continueEnumeration;
-}
-
-static void EnumX11Windows(EnumX11WindowsCallback_t callback, void* userParameter, Display* display = nullptr)
-{
-    if (callback == nullptr)
-        return;
-
-    std::shared_ptr<SafeXlibDisplay_t> localDisplay;
-
-    if (display == nullptr)
-    {
-        localDisplay = GetX11Display();
-
-        if (!localDisplay || localDisplay->DisplayHandle == nullptr)
-            return;
-
-        display = (Display*)localDisplay->DisplayHandle;
-    }
-    else
-    {
-        localDisplay = std::make_shared<SafeXlibDisplay_t>();
-        localDisplay->DisplayHandle = display;
-    }
-
-    if (display == nullptr)
-        return;
-
-    const auto rootWindow = DefaultRootWindow(display);
-
-    if (rootWindow == None)
-        return;
-
-    if (!callback(localDisplay, rootWindow, userParameter))
-        return;
-
-    RunEnumX11Windows(localDisplay, rootWindow, callback, userParameter);
-}
-
 static uint32_t ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
     struct {
@@ -794,86 +713,95 @@ bool X11Hook_t::PrepareForOverlay(NativeWindow_t const& window)
 
 std::vector<NativeWindow_t> X11Hook_t::FindApplicationWindows()
 {
-    struct WindowParams
+    std::vector<NativeWindow_t> windows;
+
+    // The windows are returned with a private Xlib display, which the caller may use for the window hook.
+    auto display = GetX11Display();
+    if (!display || display->DisplayHandle == nullptr)
+        return windows;
+
+    // Enumerate through xcb: every window of every client is queried and any of them may be destroyed
+    // meanwhile. xcb returns that error with the reply, where Xlib calls the process' error handler,
+    // which exits by default.
+    int screenNumber = 0;
+    xcb_connection_t* connection = xcb_connect(DisplayString(static_cast<Display*>(display->DisplayHandle)), &screenNumber);
+    if (xcb_connection_has_error(connection))
     {
-        int32_t pid;
-        std::vector<NativeWindow_t> windows;
-        Atom pidAtom = None;
-    };
+        xcb_disconnect(connection);
+        return windows;
+    }
 
-    WindowParams windowParams{
-        getpid(),
-        {},
-        None
-    };
+    static constexpr char PidAtomName[] = "_NET_WM_PID";
+    xcb_intern_atom_reply_t* atomReply = xcb_intern_atom_reply(connection, xcb_intern_atom(connection, 1, sizeof(PidAtomName) - 1, PidAtomName), nullptr);
+    const xcb_atom_t pidAtom = atomReply != nullptr ? atomReply->atom : static_cast<xcb_atom_t>(XCB_ATOM_NONE);
+    free(atomReply);
 
-    EnumX11Windows([](const std::shared_ptr<SafeXlibDisplay_t>& display, Window window, void* userParameter) -> int
+    xcb_window_t rootWindow = XCB_WINDOW_NONE;
+    xcb_screen_iterator_t screens = xcb_setup_roots_iterator(xcb_get_setup(connection));
+    for (int i = 0; screens.rem > 0; ++i, xcb_screen_next(&screens))
+    {
+        if (i == screenNumber)
         {
-            auto* params = static_cast<WindowParams*>(userParameter);
+            rootWindow = screens.data->root;
+            break;
+        }
+    }
 
-            if (params == nullptr || !display || display->DisplayHandle == nullptr)
-                return 0;
+    if (pidAtom == XCB_ATOM_NONE || rootWindow == XCB_WINDOW_NONE)
+    {
+        xcb_disconnect(connection);
+        return windows;
+    }
 
-            Display* x11Display = (Display*)display->DisplayHandle;
+    const uint32_t processId = static_cast<uint32_t>(getpid());
 
-            // Resolve _NET_WM_PID once.
-            if (params->pidAtom == None)
-                params->pidAtom = XInternAtom(x11Display, "_NET_WM_PID", True);
+    // Level by level: the requests of a level are sent together, then their replies are read.
+    std::vector<xcb_window_t> level{ rootWindow };
+    std::vector<xcb_window_t> nextLevel;
+    std::vector<xcb_query_tree_cookie_t> treeCookies;
+    std::vector<xcb_get_property_cookie_t> pidCookies;
+    while (!level.empty())
+    {
+        pidCookies.clear();
+        treeCookies.clear();
+        for (const xcb_window_t window : level)
+        {
+            pidCookies.emplace_back(xcb_get_property(connection, 0, window, pidAtom, XCB_GET_PROPERTY_TYPE_ANY, 0, 1));
+            treeCookies.emplace_back(xcb_query_tree(connection, window));
+        }
 
-            if (params->pidAtom == None)
-                return 0;
-
-            XTextProperty data{};
-
-            int status = XGetTextProperty(
-                static_cast<Display*>(display->DisplayHandle),
-                window,
-                &data,
-                params->pidAtom);
-
-            if (!status || data.nitems <= 0)
+        nextLevel.clear();
+        for (size_t i = 0; i < level.size(); ++i)
+        {
+            xcb_generic_error_t* error = nullptr;
+            xcb_get_property_reply_t* pidReply = xcb_get_property_reply(connection, pidCookies[i], &error);
+            free(error);
+            if (pidReply != nullptr)
             {
-                if (data.value)
-                    XFree(data.value);
-
-                return 1;
-            }
-
-            int32_t processId = 0;
-
-            switch (data.format)
-            {
-                case 32:
+                if (pidReply->format == 32 && xcb_get_property_value_length(pidReply) >= 4 &&
+                    *static_cast<const uint32_t*>(xcb_get_property_value(pidReply)) == processId)
                 {
-                    const unsigned long value = reinterpret_cast<unsigned long*>(data.value)[0];
-
-                    processId = static_cast<int32_t>(value);
-                    break;
+                    windows.emplace_back(NativeWindow_t{ static_cast<Display*>(display->DisplayHandle), static_cast<Window>(level[i]), display });
                 }
-
-                case 16:
-                    processId = static_cast<int32_t>(reinterpret_cast<unsigned short*>(data.value)[0]);
-                    break;
-
-                case 8:
-                    processId = static_cast<int32_t>(data.value[0]);
-                    break;
-
-                default:
-                    XFree(data.value);
-                    return 1;
+                free(pidReply);
             }
 
-            XFree(data.value);
+            error = nullptr;
+            xcb_query_tree_reply_t* treeReply = xcb_query_tree_reply(connection, treeCookies[i], &error);
+            free(error);
+            if (treeReply != nullptr)
+            {
+                const xcb_window_t* children = xcb_query_tree_children(treeReply);
+                nextLevel.insert(nextLevel.end(), children, children + xcb_query_tree_children_length(treeReply));
+                free(treeReply);
+            }
+        }
 
-            if (processId == params->pid)
-                params->windows.push_back(NativeWindow_t{ static_cast<Display*>(display->DisplayHandle), window, display });
+        level.swap(nextLevel);
+    }
 
-            return 1;
-        },
-        &windowParams);
-
-    return std::move(windowParams.windows);
+    xcb_disconnect(connection);
+    return windows;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
