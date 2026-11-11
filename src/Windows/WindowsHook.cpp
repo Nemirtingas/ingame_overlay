@@ -731,7 +731,14 @@ BOOL WINAPI WindowsHook_t::_MyGetKeyboardState(PBYTE lpKeyState)
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
-        return FALSE;
+    {
+        // Callers rarely check the result: give them released keys rather than an untouched buffer.
+        if (lpKeyState == nullptr)
+            return FALSE;
+
+        memset(lpKeyState, 0, 256);
+        return TRUE;
+    }
 
     return inst->_GetKeyboardState(lpKeyState);
 }
