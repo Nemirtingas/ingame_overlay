@@ -194,6 +194,21 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
 
 void WindowsHook_t::HideAppInputs(bool hide)
 {
+    if (hide && !_ApplicationInputsHidden.load(std::memory_order_acquire))
+    {
+        // While hidden, the application gets the cursor position and clipping it had now. Saved here,
+        // before the clipping changes, whether hidden by the key combination or by the API.
+        POINT savedCursorPos;
+        if (_GetCursorPos != nullptr && _GetCursorPos(&savedCursorPos))
+        {
+            _SavedCursorX.store(savedCursorPos.x, std::memory_order_relaxed);
+            _SavedCursorY.store(savedCursorPos.y, std::memory_order_relaxed);
+        }
+        RECT savedClipCursor;
+        if (_GetClipCursor != nullptr && _GetClipCursor(&savedClipCursor))
+            _StoreSavedClipCursor(savedClipCursor);
+    }
+
     _ApplicationInputsHidden = hide;
     if (hide)
     {
@@ -619,17 +634,8 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
                     overlay_inputs_hidden_after_callback = overlayInputsHiddenNow;
                     if (appInputsHiddenNow)
                     {
+                        // HideAppInputs saved the cursor position and clipping.
                         hide_app_inputs = true;
-    
-                        // Save the last known cursor pos when opening the overlay
-                        // so we can spoof the GetCursorPos return value.
-                        POINT savedCursorPos;
-                        _GetCursorPos(&savedCursorPos);
-                        _SavedCursorX.store(savedCursorPos.x, std::memory_order_relaxed);
-                        _SavedCursorY.store(savedCursorPos.y, std::memory_order_relaxed);
-                        RECT savedClipCursor;
-                        _GetClipCursor(&savedClipCursor);
-                        _StoreSavedClipCursor(savedClipCursor);
                     }
                     else
                     {
@@ -757,6 +763,10 @@ BOOL WINAPI WindowsHook_t::_MySetCursorPos(int X, int Y)
     if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_SetCursorPos(X, Y);
 
+    // The cursor stays for the overlay, but the application must read back the position it set:
+    // a mouse look recenters the cursor every frame and turns by the difference.
+    inst->_SavedCursorX.store(X, std::memory_order_relaxed);
+    inst->_SavedCursorY.store(Y, std::memory_order_relaxed);
     return TRUE;
 }
 
