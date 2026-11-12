@@ -41,6 +41,10 @@ Scenarios:
     gl_pixel_state          OpenGL application leaving pixel buffers bound and a hostile pixel store state: the
                             overlay's font and images are right, the screenshot has the window's size.
     gl_error                OpenGL application leaving a GL error: the overlay's images still load.
+    mouse_hidden            While the overlay is open, the application gets no mouse message, in its client area or
+                            outside it (title bar), and the overlay still follows the cursor.
+    pointer_mouse_hidden    Same with an application that called EnableMouseInPointer(TRUE): no WM_POINTER* message
+                            either, and the overlay still follows the cursor.
 """
 
 import argparse
@@ -89,6 +93,22 @@ def key_input(vk, up):
 def mouse_move_input(dx, dy):
     i = INPUT(type=0)
     i.mi = MOUSEINPUT(dx, dy, 0, 0x0001, 0, 0)
+    return i
+
+
+def mouse_absolute_input(x, y):
+    """A move to the screen pixel (x, y): unlike SetCursorPos, it makes WM_POINTERUPDATE messages."""
+    left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+    width, height = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
+    i = INPUT(type=0)
+    # MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_ABSOLUTE
+    i.mi = MOUSEINPUT((x - left) * 65535 // (width - 1), (y - top) * 65535 // (height - 1), 0, 0x0001 | 0x4000 | 0x8000, 0, 0)
+    return i
+
+
+def mouse_button_input(up):
+    i = INPUT(type=0)
+    i.mi = MOUSEINPUT(0, 0, 0, 0x0004 if up else 0x0002, 0, 0)  # MOUSEEVENTF_LEFTUP / MOUSEEVENTF_LEFTDOWN
     return i
 
 
@@ -444,6 +464,100 @@ def scenario_gl_pixel_state(app, reference):
     return checks
 
 
+MOUSE_EVENTS = ('mouse', 'ncmouse', 'pointer')
+
+
+def mouse_events(app, since, until):
+    """The mouse messages the application saw, from its window procedure or its message queue."""
+    result = []
+    for t, f in app.events(since):
+        if t > until:
+            break
+        if f[0] in MOUSE_EVENTS:
+            result.append(' '.join(f[:2]))
+        elif f[0] == 'queued' and len(f) >= 3 and f[1] in MOUSE_EVENTS:
+            result.append(' '.join(f[1:3]))
+    return result
+
+
+def client_rect(app):
+    """The window's rectangle and its client area's, in screen pixels."""
+    hwnd = app.window()
+    window, client = wintypes.RECT(), wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(window))
+    user32.GetClientRect(hwnd, ctypes.byref(client))
+    origin = wintypes.POINT(0, 0)
+    user32.ClientToScreen(hwnd, ctypes.byref(origin))
+    return window, (origin.x, origin.y, origin.x + client.right, origin.y + client.bottom)
+
+
+def move_and_click(app, points):
+    """Glides the cursor through points, then clicks at the last one."""
+    app.check_foreground()
+    for x, y in points:
+        send(mouse_absolute_input(x, y))
+        time.sleep(0.05)
+    send(mouse_button_input(False))
+    time.sleep(0.05)
+    send(mouse_button_input(True))
+    time.sleep(0.3)
+    app.check_foreground()
+
+
+def mouse_hidden_scenario(app, pointer):
+    checks = []
+    if pointer and any(f[0] == 'pointer_enable_failed' for t, f in app.events()):
+        return [('pointer', False, 'EnableMouseInPointer failed')]
+    window, (left, top, right, bottom) = client_rect(app)
+    # Away from the overlay's windows, at the top left, and from the title bar's buttons and icon.
+    client_points = [(left + (right - left) * k // 10, top + (bottom - top) * 7 // 10) for k in (6, 7, 8)]
+    title_y = (window.top + top) // 2
+    title_points = [(window.left + (window.right - window.left) * k // 10, title_y) for k in (3, 4, 5)]
+
+    def gestures():
+        move_and_click(app, client_points)
+        move_and_click(app, title_points)
+        # Back to the client area: the overlay follows the cursor there.
+        for x, y in reversed(client_points):
+            send(mouse_absolute_input(x, y))
+            time.sleep(0.05)
+        time.sleep(0.3)
+
+    # The application sees the mouse while the overlay is closed: the test sees what it hides.
+    start = tick()
+    gestures()
+    seen = set(mouse_events(app, start, tick()))
+    expected = {'mouse move', 'mouse ldown', 'ncmouse move', 'ncmouse ldown'}
+    if pointer:
+        expected |= {'pointer update', 'pointer down', 'pointer ncdown'}
+    missing = sorted(expected - seen)
+    checks.append(('seen_closed', not missing, 'missing: ' + ', '.join(missing) if missing else 'seen: ' + ', '.join(sorted(seen))))
+
+    app.bridge.tool('overlay_set_visible', {'visible': True})
+    time.sleep(0.5)
+    hidden = tick()
+    gestures()
+    leaked = mouse_events(app, hidden, tick())
+    error, state, _ = app.bridge.tool('imgui_state')
+    app.bridge.tool('overlay_set_visible', {'visible': False})
+    checks.append(('hidden', not leaked, '; '.join(sorted(set(leaked))) or 'nothing reached the application'))
+
+    x, y = client_points[0]
+    position = (state or {}).get('mouse', {}).get('pos') if not error else None
+    expected_position = (x - left, y - top)
+    followed = position is not None and abs(position[0] - expected_position[0]) <= 2 and abs(position[1] - expected_position[1]) <= 2
+    checks.append(('overlay_mouse', followed, 'ImGui mouse %s, cursor %s' % (position, expected_position)))
+    return checks
+
+
+def scenario_mouse_hidden(app):
+    return mouse_hidden_scenario(app, False)
+
+
+def scenario_pointer_mouse_hidden(app):
+    return mouse_hidden_scenario(app, True)
+
+
 def scenario_gl_error(app):
     app.bridge.tool('overlay_set_visible', {'visible': True})
     seen = images_loaded(app)
@@ -461,6 +575,8 @@ SCENARIOS = {
     'clip_api':               ({'INGAMEOVERLAY_TEST_CLIP_CURSOR': '1'}, scenario_clip_api, True),
     'gl_pixel_state':         ({'INGAMEOVERLAY_TEST_GL_PIXEL_STATE': '1'}, None, False),
     'gl_error':               ({'INGAMEOVERLAY_TEST_GL_ERROR': '1'}, scenario_gl_error, False),
+    'mouse_hidden':           ({}, scenario_mouse_hidden, True),
+    'pointer_mouse_hidden':   ({'INGAMEOVERLAY_TEST_POINTER': '1'}, scenario_pointer_mouse_hidden, True),
 }
 
 
@@ -471,6 +587,8 @@ def main():
     parser.add_argument('--skip-interactive', action='store_true', help='only run the scenarios without keyboard and mouse input')
     arguments = parser.parse_args()
 
+    # Screen coordinates in pixels, like the application (SetProcessDPIAware).
+    user32.SetProcessDPIAware()
     directory = os.path.abspath(arguments.directory)
     names = arguments.only.split(',') if arguments.only else list(SCENARIOS)
     if arguments.skip_interactive:
