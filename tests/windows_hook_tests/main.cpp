@@ -30,6 +30,7 @@
 //   INGAMEOVERLAY_TEST_GL_PIXEL_STATE=1    Leave pixel buffers bound and a non default pixel store state before each swap.
 //   INGAMEOVERLAY_TEST_GL_ERROR=1          Leave a GL error before each swap.
 //   INGAMEOVERLAY_TEST_BACKGROUND=1        Show the window without activating it, for the scenarios without input.
+//   INGAMEOVERLAY_TEST_POINTER=1           Call EnableMouseInPointer(TRUE): the mouse comes as WM_POINTER* messages.
 //
 // Frames are paced (about 100 per second) like a game, which makes the input scenarios reproducible.
 //
@@ -42,6 +43,10 @@
 //   look <dx> <dy>                         cursor offset from the client center (mouse look)
 //   appclip <left> <top> <right> <bottom>  the clipping the application set, again at each activation like games do
 //   clip <left> <top> <right> <bottom>     GetClipCursor changes
+//   mouse|ncmouse|pointer <message>        mouse messages in the client area, outside it (title bar, borders), and
+//                                          WM_POINTER* messages: move, ldown, lup, rdown, wheel, update, enter...
+//                                          received by the window procedure
+//   queued mouse|ncmouse|pointer <message> the same messages, taken from the message queue by PeekMessage
 
 #include <windows.h>
 
@@ -84,6 +89,36 @@ static bool Option(const char* name)
     return value != nullptr && value[0] != '\0' && strcmp(value, "0") != 0;
 }
 
+// Category and name of the mouse messages the application logs, or nullptr.
+static const char* MouseMessageName(UINT msg, const char** category)
+{
+    struct { UINT msg; const char* category; const char* name; } static const names[] = {
+        { WM_MOUSEMOVE, "mouse", "move" }, { WM_MOUSEWHEEL, "mouse", "wheel" }, { WM_MOUSEHWHEEL, "mouse", "hwheel" },
+        { WM_LBUTTONDOWN, "mouse", "ldown" }, { WM_LBUTTONUP, "mouse", "lup" }, { WM_LBUTTONDBLCLK, "mouse", "ldblclk" },
+        { WM_RBUTTONDOWN, "mouse", "rdown" }, { WM_RBUTTONUP, "mouse", "rup" },
+        { WM_MBUTTONDOWN, "mouse", "mdown" }, { WM_MBUTTONUP, "mouse", "mup" },
+        { WM_XBUTTONDOWN, "mouse", "xdown" }, { WM_XBUTTONUP, "mouse", "xup" },
+        { WM_NCMOUSEMOVE, "ncmouse", "move" }, { WM_NCMOUSEHOVER, "ncmouse", "hover" }, { WM_NCMOUSELEAVE, "ncmouse", "leave" },
+        { WM_NCLBUTTONDOWN, "ncmouse", "ldown" }, { WM_NCLBUTTONUP, "ncmouse", "lup" }, { WM_NCLBUTTONDBLCLK, "ncmouse", "ldblclk" },
+        { WM_NCRBUTTONDOWN, "ncmouse", "rdown" }, { WM_NCRBUTTONUP, "ncmouse", "rup" },
+        { WM_NCMBUTTONDOWN, "ncmouse", "mdown" }, { WM_NCMBUTTONUP, "ncmouse", "mup" },
+        { WM_NCXBUTTONDOWN, "ncmouse", "xdown" }, { WM_NCXBUTTONUP, "ncmouse", "xup" },
+        { WM_POINTERUPDATE, "pointer", "update" }, { WM_POINTERDOWN, "pointer", "down" }, { WM_POINTERUP, "pointer", "up" },
+        { WM_POINTERWHEEL, "pointer", "wheel" }, { WM_POINTERHWHEEL, "pointer", "hwheel" },
+        { WM_POINTERENTER, "pointer", "enter" }, { WM_POINTERLEAVE, "pointer", "leave" },
+        { WM_NCPOINTERUPDATE, "pointer", "ncupdate" }, { WM_NCPOINTERDOWN, "pointer", "ncdown" }, { WM_NCPOINTERUP, "pointer", "ncup" },
+    };
+    for (auto const& entry : names)
+    {
+        if (entry.msg == msg)
+        {
+            *category = entry.category;
+            return entry.name;
+        }
+    }
+    return nullptr;
+}
+
 static void LogRawKeyboard(RAWINPUT const& raw)
 {
     if (raw.header.dwType == RIM_TYPEKEYBOARD)
@@ -111,6 +146,10 @@ static void ClipToClient(HWND hWnd)
 
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    const char* category;
+    if (const char* name = MouseMessageName(msg, &category))
+        Log("%s %s", category, name);
+
     switch (msg)
     {
         case WM_ACTIVATE:
@@ -200,6 +239,9 @@ int main(int argc, char** argv)
 
     SetProcessDPIAware();
 
+    if (Option("INGAMEOVERLAY_TEST_POINTER") && !EnableMouseInPointer(TRUE))
+        Log("pointer_enable_failed %lu", GetLastError());
+
     WNDCLASSEXW wc{ sizeof(wc), CS_OWNDC, WndProc, 0, 0, GetModuleHandleW(nullptr), nullptr, LoadCursor(nullptr, IDC_ARROW), nullptr, nullptr, L"InGameOverlayHookTests", nullptr };
     RegisterClassExW(&wc);
     HWND hWnd = CreateWindowW(wc.lpszClassName, L"InGameOverlay Windows hook tests", WS_OVERLAPPEDWINDOW, 100, 100, 1024, 640, nullptr, nullptr, wc.hInstance, nullptr);
@@ -260,6 +302,9 @@ int main(int argc, char** argv)
         {
             if (msg.message == WM_QUIT)
                 done = true;
+            const char* category;
+            if (const char* name = MouseMessageName(msg.message, &category))
+                Log("queued %s %s", category, name);
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }

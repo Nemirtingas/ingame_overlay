@@ -340,6 +340,21 @@ std::vector<NativeWindow_t> WindowsHook_t::FindApplicationWindows()
 
 /////////////////////////////////////////////////////////////////////////////////////
 // Windows window hooks
+
+// Pointer messages (Windows 8), for SDKs targeting an older version.
+#ifndef WM_POINTERUPDATE
+#define WM_NCPOINTERUPDATE 0x0241
+#define WM_NCPOINTERDOWN   0x0242
+#define WM_NCPOINTERUP     0x0243
+#define WM_POINTERUPDATE   0x0245
+#define WM_POINTERDOWN     0x0246
+#define WM_POINTERUP       0x0247
+#define WM_POINTERENTER    0x0249
+#define WM_POINTERLEAVE    0x024A
+#define WM_POINTERWHEEL    0x024E
+#define WM_POINTERHWHEEL   0x024F
+#endif
+
 static bool IgnoreMsg(UINT uMsg)
 {
     switch (uMsg)
@@ -352,6 +367,20 @@ static bool IgnoreMsg(UINT uMsg)
         case WM_MBUTTONUP: case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
         case WM_XBUTTONUP: case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
         case WM_MOUSEACTIVATE: case WM_MOUSEHOVER: case WM_MOUSELEAVE:
+        // Mouse outside the client area (title bar, borders of a windowed game). The hidden messages still go to
+        // DefWindowProc: the window can still be moved, resized or closed.
+        case WM_NCMOUSEMOVE: case WM_NCMOUSEHOVER: case WM_NCMOUSELEAVE:
+        case WM_NCLBUTTONUP: case WM_NCLBUTTONDOWN: case WM_NCLBUTTONDBLCLK:
+        case WM_NCRBUTTONUP: case WM_NCRBUTTONDOWN: case WM_NCRBUTTONDBLCLK:
+        case WM_NCMBUTTONUP: case WM_NCMBUTTONDOWN: case WM_NCMBUTTONDBLCLK:
+        case WM_NCXBUTTONUP: case WM_NCXBUTTONDOWN: case WM_NCXBUTTONDBLCLK:
+        // Pointer Events: the mouse comes as WM_POINTER* once the application called EnableMouseInPointer(TRUE), and it
+        // reads it with GetPointerInfo. DefWindowProc turns them into the mouse messages above, hidden too, which the
+        // overlay gets.
+        case WM_POINTERUPDATE: case WM_POINTERDOWN: case WM_POINTERUP:
+        case WM_POINTERWHEEL: case WM_POINTERHWHEEL:
+        case WM_POINTERENTER: case WM_POINTERLEAVE:
+        case WM_NCPOINTERUPDATE: case WM_NCPOINTERDOWN: case WM_NCPOINTERUP:
         // Keyboard Events
         case WM_KEYDOWN: case WM_KEYUP:
         case WM_SYSKEYDOWN: case WM_SYSKEYUP: case WM_SYSDEADCHAR:
