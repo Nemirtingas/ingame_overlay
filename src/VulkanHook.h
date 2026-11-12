@@ -19,12 +19,13 @@
 
 #pragma once
 
-#include "../RendererHookInternal.h"
-
-#include <Windows.h>
+#include "RendererHookInternal.h"
+#include "RendererUploadBatchState.h"
+#include "WindowHook.h"
 
 #include <vulkan/vulkan.h>
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <set>
@@ -76,10 +77,12 @@ private:
     std::filesystem::path LibraryPath;
 
     bool _Hooked;
-    bool _WindowsHooked;
+    bool _WindowHooked;
     bool _SentOutOfDate;
     OverlayHookState _HookState;
-    HWND _MainWindow;
+    NativeWindow_t _MainWindow;
+    // On Linux, finding the window walks every X window.
+    std::chrono::steady_clock::time_point _NextWindowSearch;
 
     std::function<void* (const char*)> _VulkanLoader;
     VkAllocationCallbacks* _VulkanAllocationCallbacks;
@@ -90,7 +93,6 @@ private:
     VkCommandPool _VulkanImageCommandPool;
     VkCommandBuffer _VulkanImageCommandBuffer;
     VkFence _VulkanImageFence;
-    VkSampler _VulkanImageSampler;
     VkDescriptorSetLayout _VulkanImageDescriptorSetLayout;
     std::vector<VulkanFrame_t> _OverlayFrames;
     VkRenderPass _VulkanRenderPass;
@@ -103,6 +105,10 @@ private:
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
+    VkBuffer _PendingImageUploadBuffer;
+    VkDeviceMemory _PendingImageUploadMemory;
+    bool _PendingImageUpload;
+    RendererUploadBatchState_t<RendererTexture_t> _ImageUploadBatchState;
     void* _ImGuiFontAtlas;
 
     // Functions
@@ -133,9 +139,6 @@ private:
 
     bool _CreateImageFence();
     void _DestroyImageFence();
-
-    bool _CreateImageSampler();
-    void _DestroyImageSampler();
 
     bool _CreateImageDescriptorSetLayout();
     void _DestroyImageDescriptorSetLayout();
@@ -197,8 +200,6 @@ private:
     decltype(::vkDestroyCommandPool)                     *_vkDestroyCommandPool;
     decltype(::vkCreateImageView)                        *_vkCreateImageView;
     decltype(::vkDestroyImageView)                       *_vkDestroyImageView;
-    decltype(::vkCreateSampler)                          *_vkCreateSampler;
-    decltype(::vkDestroySampler)                         *_vkDestroySampler;
     decltype(::vkCreateImage)                            *_vkCreateImage;
     decltype(::vkDestroyImage)                           *_vkDestroyImage;
     decltype(::vkAllocateMemory)                         *_vkAllocateMemory;
@@ -213,6 +214,7 @@ private:
     decltype(::vkDestroyFramebuffer)                     *_vkDestroyFramebuffer;
     decltype(::vkCreateFence)                            *_vkCreateFence;
     decltype(::vkWaitForFences)                          *_vkWaitForFences;
+    decltype(::vkGetFenceStatus)                         *_vkGetFenceStatus;
     decltype(::vkResetFences)                            *_vkResetFences;
     decltype(::vkDestroyFence)                           *_vkDestroyFence;
     decltype(::vkCreateDescriptorPool)                   *_vkCreateDescriptorPool;

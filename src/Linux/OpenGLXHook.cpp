@@ -20,13 +20,17 @@
 #include <glad/gl.h>
 
 #include "OpenGLXHook.h"
-#include "X11Hook.h"
+#include "../WindowHook.h"
+#include "../Library.h"
 
 #undef Status
 
 #include <imgui.h>
-#include <imgui_internal.h>
 #include <backends/imgui_impl_opengl3.h>
+
+#include <xcb/xcb.h>
+
+#include <cstdlib>
 
 namespace InGameOverlay {
 
@@ -42,13 +46,22 @@ bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, Togg
 {
     if (!_Hooked)
     {
+        LibraryWrapper libOpenGL(LibraryPath);
+        _GetCurrentContext = libOpenGL.IsValid() ? reinterpret_cast<void* (*)()>(libOpenGL.GetSymbol("glXGetCurrentContext")) : nullptr;
+        if (_GetCurrentContext == nullptr)
+        {
+            INGAMEOVERLAY_ERROR("Failed to hook OpenGLX: glXGetCurrentContext missing.");
+            return false;
+        }
+        _GLXQueryDrawable = reinterpret_cast<decltype(_GLXQueryDrawable)>(libOpenGL.GetSymbol("glXQueryDrawable"));
+
         if (_GLXSwapBuffers == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook OpenGLX: Rendering functions missing.");
             return false;
         }
 
-        if (!X11Hook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _X11Hooked = true;
@@ -67,13 +80,13 @@ bool OpenGLXHook_t::StartHook(std::function<void()> keyCombinationCallback, Togg
 void OpenGLXHook_t::HideAppInputs(bool hide)
 {
     if (_Initialized)
-        X11Hook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void OpenGLXHook_t::HideOverlayInputs(bool hide)
 {
     if (_Initialized)
-        X11Hook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool OpenGLXHook_t::IsStarted()
@@ -81,38 +94,115 @@ bool OpenGLXHook_t::IsStarted()
     return _Hooked;
 }
 
-void OpenGLXHook_t::_ResetRenderState(OverlayHookState state)
+// Requests go through a private xcb connection: an error is returned with the reply, where Xlib would call
+// the application's error handler, which exits by default.
+static bool GetXWindowSize(xcb_connection_t* connection, Window window, uint32_t& width, uint32_t& height)
 {
-    if (_HookState == state)
-        return;
+    xcb_generic_error_t* error = nullptr;
+    xcb_get_geometry_reply_t* reply = xcb_get_geometry_reply(connection, xcb_get_geometry(connection, static_cast<xcb_drawable_t>(window)), &error);
+    free(error);
+    if (reply == nullptr)
+        return false;
 
-    OverlayHookReady(state);
+    width = reply->width;
+    height = reply->height;
+    free(reply);
+    return true;
+}
 
-    _HookState = state;
+static bool IsXWindow(xcb_connection_t* connection, XID id)
+{
+    xcb_generic_error_t* error = nullptr;
+    xcb_get_window_attributes_reply_t* reply = xcb_get_window_attributes_reply(connection, xcb_get_window_attributes(connection, static_cast<xcb_window_t>(id)), &error);
+    const bool isWindow = reply != nullptr;
+    free(error);
+    free(reply);
+    return isWindow;
+}
 
-    switch (state)
+Window OpenGLXHook_t::_GetDrawableWindow(Display* display, GLXDrawable drawable)
+{
+    auto it = _DrawableWindows.find(drawable);
+    if (it != _DrawableWindows.end())
+        return it->second;
+
+    // Searching walks every X window: not more than once per second for a drawable that isn't resolved.
+    const auto now = std::chrono::steady_clock::now();
+    if (now < _NextWindowSearch)
+        return None;
+
+    _NextWindowSearch = now + std::chrono::seconds(1);
+
+    xcb_connection_t* connection = xcb_connect(DisplayString(display), nullptr);
+    if (xcb_connection_has_error(connection))
     {
-        case OverlayHookState::Reset:
-            break;
-
-        case OverlayHookState::Removing:
-            ImGui_ImplOpenGL3_Shutdown();
-            X11Hook_t::Inst()->ResetRenderState(state);
-            //ImGui::DestroyContext();
-
-            _ImageResources.clear();
-
-            //glXDestroyContext(_Display, _Context);
-            _Display = nullptr;
-            _Initialized = false;
+        xcb_disconnect(connection);
+        // Can't check it, use it as a window like before.
+        _DrawableWindows.emplace(drawable, static_cast<Window>(drawable));
+        return static_cast<Window>(drawable);
     }
+
+    Window window = None;
+    if (IsXWindow(connection, drawable))
+    {
+        window = static_cast<Window>(drawable);
+    }
+    else
+    {
+        // A GLXWindow: find the application's window of the same size.
+        unsigned int drawableWidth = 0;
+        unsigned int drawableHeight = 0;
+        if (_GLXQueryDrawable != nullptr)
+        {
+            _GLXQueryDrawable(display, drawable, GLX_WIDTH, &drawableWidth);
+            _GLXQueryDrawable(display, drawable, GLX_HEIGHT, &drawableHeight);
+        }
+
+        for (auto const& applicationWindow : WindowHook_t::Inst()->FindApplicationWindows())
+        {
+            uint32_t width = 0;
+            uint32_t height = 0;
+            if (!GetXWindowSize(connection, applicationWindow.WindowHandle, width, height))
+                continue;
+
+            if (window == None)
+                window = applicationWindow.WindowHandle;
+
+            if (width == drawableWidth && height == drawableHeight)
+            {
+                window = applicationWindow.WindowHandle;
+                break;
+            }
+        }
+
+        if (window == None)
+            INGAMEOVERLAY_WARN("No X window found for the GLX drawable {}.", drawable);
+    }
+
+    xcb_disconnect(connection);
+
+    if (window != None)
+        _DrawableWindows.emplace(drawable, window);
+
+    return window;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
 void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 {
+    const Window window = _GetDrawableWindow(display, drawable);
+    if (window == None)
+        return;
+
     if( !_Initialized )
     {
+        // The renderer can be obtained with GetRenderer, without the detector loading glad.
+        if (gladLoaderLoadGL() < GLAD_MAKE_VERSION(3, 1))
+        {
+            INGAMEOVERLAY_WARN("Failed to load OpenGL functions or OpenGL version is lower than 3.1.");
+            return;
+        }
+
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
@@ -137,10 +227,10 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
         //if (_Context == nullptr)
         //    return;
 
-        if (!X11Hook_t::Inst()->SetInitialWindowSize(display, (Window)drawable))
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ display, window }))
             return;
 
-        ImGui_ImplOpenGL3_Init();
+        _ImGuiBackendInit();
 
         _Display = display;
         _Initialized = true;
@@ -151,139 +241,12 @@ void OpenGLXHook_t::_PrepareForOverlay(Display* display, GLXDrawable drawable)
 
     //glXMakeCurrent(_Display, drawable, _Context);
 
-    if (ImGui_ImplOpenGL3_NewFrame() && X11Hook_t::Inst()->PrepareForOverlay(display, (Window)drawable))
+    if (_ImGuiBackendNewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ display, window }))
     {
-        auto screenshotType = _ScreenshotType();
-        if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot();
-        if (_ImGuiFontAtlas != nullptr)
-        {
-            const bool has_textures = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasTextures) != 0;
-            ImFontAtlasUpdateNewFrame(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas), ImGui::GetFrameCount(), has_textures);
-        }
-
-        ++_CurrentFrame;
-        ImGui::NewFrame();
-
-        OverlayProc();
-
-        _LoadResources();
-        _ReleaseResources();
-
-        ImGui::Render();
-
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        if (screenshotType == ScreenshotType_t::AfterOverlay)
-            _HandleScreenshot();
+        _RenderOverlayFrame();
     }
 
     //glXMakeCurrent(_Display, drawable, oldContext);
-}
-
-void OpenGLXHook_t::_LoadResources()
-{
-    if (_ImageResourcesToLoad.empty())
-        return;
-
-    // Save old texture id
-    GLint oldTex;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
-
-    struct ValidTexture_t
-    {
-        std::shared_ptr<RendererTexture_t> Resource;
-        const void* Data;
-        uint32_t Width;
-        uint32_t Height;
-    };
-
-    std::vector<ValidTexture_t> validResources;
-
-    const auto loadParameterCount = _ImageResourcesToLoad.size() > _BatchSize ? _BatchSize : _ImageResourcesToLoad.size();
-
-    for (size_t i = 0; i < loadParameterCount; ++i)
-    {
-        auto& param = _ImageResourcesToLoad[i];
-        auto r = param.Resource.lock();
-        if (!r) continue;
-
-        validResources.push_back(ValidTexture_t{
-            r,
-            param.Data,
-            param.Width,
-            param.Height
-        });
-    }
-
-    if (!validResources.empty())
-    {
-        for (size_t i = 0; i < validResources.size(); ++i)
-        {
-            auto& tex = validResources[i];
-
-            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(tex.Resource->ImGuiTextureId));
-
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-            // Upload pixels into texture
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex.Width, tex.Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex.Data);
-
-            tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
-        }
-    }
-
-    glBindTexture(GL_TEXTURE_2D, oldTex);
-
-    _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
-        _ImageResourcesToLoad.begin() + loadParameterCount);
-}
-
-void OpenGLXHook_t::_ReleaseResources()
-{
-    _ImageResourcesToRelease.clear();
-}
-
-void OpenGLXHook_t::_HandleScreenshot()
-{
-    int viewport[8];
-    int width, height;
-    glGetIntegerv(GL_VIEWPORT, viewport); // viewport[2] = width, viewport[3] = height
-    width = viewport[2];
-    height = viewport[3];
-
-    int bytesPerPixel = 4;
-
-    std::vector<uint8_t> buffer(width * height * bytesPerPixel);
-
-    GLboolean isDoubleBuffered = GL_FALSE;
-    glGetBooleanv(GL_DOUBLEBUFFER, &isDoubleBuffered);
-
-    glReadBuffer(isDoubleBuffered ? GL_BACK : GL_FRONT);
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
-
-    std::vector<uint8_t> lineBuffer(width * bytesPerPixel);
-
-    for (int i = 0; i < (height / 2); ++i)
-    {
-        uint8_t* topLine = buffer.data() + i * width * bytesPerPixel;
-        uint8_t* bottomLine = buffer.data() + (height - i - 1) * width * bytesPerPixel;
-
-        memcpy(lineBuffer.data(), topLine, width * bytesPerPixel);
-        memcpy(topLine, bottomLine, width * bytesPerPixel);
-        memcpy(bottomLine, lineBuffer.data(), width * bytesPerPixel);
-    }
-
-    ScreenshotCallbackParameter_t screenshot;
-    screenshot.Width = width;
-    screenshot.Height = height;
-    screenshot.Pitch = bytesPerPixel * width;
-    screenshot.Data = reinterpret_cast<void*>(buffer.data());
-    screenshot.Format = InGameOverlay::ScreenshotDataFormat_t::R8G8B8A8;
-
-    _SendScreenshot(&screenshot);
 }
 
 void OpenGLXHook_t::_MyGLXSwapBuffers(Display* display, GLXDrawable drawable)
@@ -295,10 +258,8 @@ void OpenGLXHook_t::_MyGLXSwapBuffers(Display* display, GLXDrawable drawable)
 OpenGLXHook_t::OpenGLXHook_t():
     _Hooked(false),
     _X11Hooked(false),
-    _Initialized(false),
-    _HookState(OverlayHookState::Removing),
     _Display(nullptr),
-    _ImGuiFontAtlas(nullptr),
+    _GLXQueryDrawable(nullptr),
     _GLXSwapBuffers(nullptr)
 {
     //_library = dlopen(DLL_NAME);
@@ -308,10 +269,11 @@ OpenGLXHook_t::~OpenGLXHook_t()
 {
     INGAMEOVERLAY_INFO("OpenGLX Hook removed");
 
-    if (_X11Hooked)
-        delete X11Hook_t::Inst();
-
+    // The context may already be gone on the teardown thread; do not issue GL calls.
     _ResetRenderState(OverlayHookState::Removing);
+
+    if (_X11Hooked)
+        delete WindowHook_t::Inst();
 
     //dlclose(_library);
 
@@ -342,56 +304,42 @@ void OpenGLXHook_t::LoadFunctions(decltype(::glXSwapBuffers)* pfnglXSwapBuffers)
     _GLXSwapBuffers = pfnglXSwapBuffers;
 }
 
-std::weak_ptr<RendererTexture_t> OpenGLXHook_t::AllocImageResource()
-{
-    GLuint texture = 0;
-    glGenTextures(1, &texture);
-    if (glGetError() != GL_NO_ERROR)
-        return std::weak_ptr<RendererTexture_t>{};
-
-    auto ptr = std::shared_ptr<RendererTexture_t>(new RendererTexture_t(), [](RendererTexture_t* handle)
-    {
-        if (handle != nullptr)
-        {
-            auto resource = static_cast<GLuint>(handle->ImGuiTextureId);
-            glDeleteTextures(1, &resource);
-            delete handle;
-        }
-    });
-    ptr->ImGuiTextureId = static_cast<uint64_t>(texture);
-
-    _ImageResources.emplace(ptr);
-
-    return ptr;
-}
-
-void OpenGLXHook_t::LoadImageResource(RendererTextureLoadParameter_t& loadParameter)
-{
-    _ImageResourcesToLoad.emplace_back(loadParameter);
-}
-
-void OpenGLXHook_t::ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource)
-{
-    auto ptr = resource.lock();
-    if (ptr)
-    {
-        auto it = _ImageResources.find(ptr);
-        if (it != _ImageResources.end())
-        {
-            _ImageResources.erase(it);
-            _ImageResourcesToRelease.emplace_back(RendererTextureReleaseParameter_t
-            {
-                std::move(ptr),
-                _CurrentFrame
-            });
-        }
-    }
-}
-
 void OpenGLXHook_t::SetLibraryPath(std::filesystem::path const& libraryPath)
 {
     LibraryPath = libraryPath;
     LibraryName = LibraryPath.string();
+}
+
+bool OpenGLXHook_t::_ImGuiBackendInit()
+{
+    return ImGui_ImplOpenGL3_Init();
+}
+
+bool OpenGLXHook_t::_ImGuiBackendNewFrame()
+{
+    return ImGui_ImplOpenGL3_NewFrame();
+}
+
+void OpenGLXHook_t::_ImGuiBackendRenderDrawData(ImDrawData* drawData)
+{
+    ImGui_ImplOpenGL3_RenderDrawData(drawData);
+}
+
+void OpenGLXHook_t::_ImGuiBackendShutdown()
+{
+    ImGui_ImplOpenGL3_Shutdown();
+}
+
+void OpenGLXHook_t::_ResetWindowHook(OverlayHookState state)
+{
+    WindowHook_t::Inst()->ResetRenderState(state);
+}
+
+void OpenGLXHook_t::_ForgetWindow()
+{
+    _Display = nullptr;
+    _DrawableWindows.clear();
+    _NextWindowSearch = {};
 }
 
 }// namespace InGameOverlay

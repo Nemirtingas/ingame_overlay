@@ -36,7 +36,7 @@
 #include "../StringUtils.h"
 
 #include "OpenGLXHook.h"
-#include "VulkanHook.h"
+#include "../VulkanHook.h"
 
 #define TRY_HOOK_FUNCTION(NAME, HOOK) do { if (!_DetectionHooks.HookFunc(std::make_pair<void**, void*>(&(void*&)NAME, (void*)HOOK))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME); } } while(0)

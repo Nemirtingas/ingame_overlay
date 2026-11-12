@@ -20,6 +20,7 @@
 #pragma once
 
 #include "../RendererHookInternal.h"
+#include "../RendererUploadBatchState.h"
 
 #include <Windows.h>
 
@@ -34,6 +35,8 @@
 #include <cstdint>
 
 namespace InGameOverlay {
+
+class ComDestructionNotifier_t;
 
 class DX12Hook_t : 
     public InGameOverlay::RendererHookInternal_t,
@@ -93,12 +96,14 @@ private:
         ID3D12CommandAllocator* CommandAllocator = nullptr;
         ID3D12GraphicsCommandList* CommandList = nullptr;
         ID3D12Resource* BackBuffer = nullptr;
+        UINT64 FenceValue = 0;
 
         inline void Reset()
         {
             CommandAllocator = nullptr;
             CommandList = nullptr;
             BackBuffer = nullptr;
+            FenceValue = 0;
         }
 
         DX12Frame_t() = default;
@@ -111,6 +116,7 @@ private:
             , CommandAllocator(other.CommandAllocator)
             , CommandList(other.CommandList)
             , BackBuffer(other.BackBuffer)
+            , FenceValue(other.FenceValue)
         {
             other.Reset();
         }
@@ -121,6 +127,7 @@ private:
             CommandAllocator = other.CommandAllocator;
             CommandList = other.CommandList;
             BackBuffer = other.BackBuffer;
+            FenceValue = other.FenceValue;
             other.Reset();
 
             return *this;
@@ -134,27 +141,59 @@ private:
         }
     };
 
+    struct PendingScreenshot_t
+    {
+        ID3D12Resource* Staging = nullptr;
+        ID3D12Resource* BackBuffer = nullptr;
+        ID3D12CommandQueue* CommandQueue = nullptr;
+        UINT Width = 0;
+        UINT Height = 0;
+        DXGI_FORMAT Format = DXGI_FORMAT_UNKNOWN;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT Footprint = {};
+        UINT64 FenceValue = 0;
+        ScreenshotType_t Type = ScreenshotType_t::None;
+        uint64_t RequestId = 0;
+        bool Submitted = false;
+        bool Signaled = false;
+    };
+
+    struct RetainedScreenshotBatch_t
+    {
+        PendingScreenshot_t Pending;
+        ID3D12Fence* Fence = nullptr;
+        ID3D12CommandAllocator* Allocator = nullptr;
+        ID3D12GraphicsCommandList* CommandList = nullptr;
+        HANDLE Event = nullptr;
+        RetainedScreenshotBatch_t* Next = nullptr;
+    };
+
     // Variables
     std::string LibraryName;
     std::filesystem::path LibraryPath;
 
     bool _Hooked;
     bool _WindowsHooked;
-    uint32_t _DeviceReleasing;
 
     int _CommandQueueOffsetRetries;
     size_t _CommandQueueOffset;
     ID3D12CommandQueue* _CommandQueue;
     ID3D12Device* _Device;
-    ULONG _HookDeviceRefCount;
     OverlayHookState _HookState;
+    bool _DeviceLost;
+    bool _WaitFailureUnsafe;
+    // Not owned, only valid while _SwapChainNotifier is set.
+    IDXGISwapChain* _SwapChain;
+    ComDestructionNotifier_t* _SwapChainNotifier;
     std::vector<DX12Frame_t> _OverlayFrames;
     std::vector<ID3D12DescriptorHeapWrapper_t> _ShaderResourceViewHeapDescriptors;
     std::vector<ShaderResourceViewHeap_t> _ShaderResourceViewHeaps;
     // Render Target View heap
     ID3D12DescriptorHeap* _RenderTargetViewDescriptorHeap;
+    // Signaled on the application queue after each overlay frame, see DX12Frame_t::FenceValue.
+    ID3D12Fence* _FrameFence;
+    HANDLE _FrameFenceEvent;
+    UINT64 _FrameFenceValue;
 
-    HANDLE _ImageEvent;
     UINT64 _ImageFenceValue;
     ID3D12Fence* _ImageFence;
     ID3D12CommandQueue* _ImageCommandQueue;
@@ -163,15 +202,22 @@ private:
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
     std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
     std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
+    ID3D12Resource* _PendingImageUploadBuffer;
+    UINT64 _PendingImageFenceValue;
+    bool _PendingImageFenceValid;
+    RendererUploadBatchState_t<RendererTexture_t> _ImageUploadBatchState;
 
     HANDLE _ScreenshotEvent;
     UINT64 _ScreenshotFenceValue;
     ID3D12Fence* _ScreenshotFence;
     ID3D12CommandAllocator* _ScreenshotCommandAllocator;
     ID3D12GraphicsCommandList* _ScreenshotCommandList;
+    PendingScreenshot_t _PendingScreenshot;
+    bool _ScreenshotQueueFailed;
+    bool _ScreenshotDeviceLost;
 
-    uint32_t _ImGuiFontTextureId;
     void* _ImGuiFontAtlas;
+    bool _ImGuiContextOwned;
 
     // Functions
     DX12Hook_t();
@@ -180,24 +226,28 @@ private:
     ShaderRessourceView_t _GetFreeShaderRessourceViewFromHeap(uint32_t heapIndex);
     ShaderRessourceView_t _GetFreeShaderRessourceView();
     void _ReleaseShaderRessourceView(uint32_t id);
+    uint32_t _GetShaderRessourceViewId(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle);
 
     ID3D12CommandQueue* _FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain);
 
-    void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain* pSwapChain);
     void _DestroyRenderTargets();
+    void _WaitForFrame(DX12Frame_t& frame);
+    bool _ConfirmDeviceLost(HRESULT result = S_OK, bool checkDeviceHealth = false);
+    bool _ConfirmDeviceLostForSwapChain(IDXGISwapChain* swapChain, HRESULT result);
     bool _CreateImageObjects();
     void _DestroyImageObjects();
     bool _CreateScreenshotObjects();
     void _DestroyScreenshotObjects();
+    bool _PollScreenshot(bool waitForCompletion, DWORD timeout);
     void _ResetRenderState(OverlayHookState state);
+    bool _IsSwapChain(IUnknown* pSwapChain) const;
     void _PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQueue* pCommandQueue, UINT flags);
     void _LoadResources();
     void _ReleaseResources();
-    void _HandleScreenshot(DX12Frame_t& frame);
+    void _HandleScreenshot(DX12Frame_t& frame, ID3D12CommandQueue* pCommandQueue);
 
     // Hook to render functions
-    decltype(&ID3D12Device::Release)                   _ID3D12DeviceRelease;
     decltype(&IDXGISwapChain::Present)                 _IDXGISwapChainPresent;
     decltype(&IDXGISwapChain::ResizeBuffers)           _IDXGISwapChainResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget)            _IDXGISwapChainResizeTarget;
@@ -205,7 +255,7 @@ private:
     decltype(&IDXGISwapChain3::ResizeBuffers1)         _IDXGISwapChain3ResizeBuffers1;
     decltype(&ID3D12CommandQueue::ExecuteCommandLists) _ID3D12CommandQueueExecuteCommandLists;
 
-    static ULONG   STDMETHODCALLTYPE _MyID3D12DeviceRelease(IUnknown* _this);
+    static void _OnSwapChainDestroyed(void* userData);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainPresent(IDXGISwapChain* _this, UINT SyncInterval, UINT Flags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     static HRESULT STDMETHODCALLTYPE _MyIDXGISwapChainResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
@@ -225,7 +275,6 @@ public:
     virtual RendererHookType_t GetRendererHookType() const override;
 
     void LoadFunctions(
-        decltype(_ID3D12DeviceRelease) releaseFcn,
         decltype(_IDXGISwapChainPresent) presentFcn,
         decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
         decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,

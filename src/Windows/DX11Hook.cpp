@@ -18,7 +18,7 @@
  */
 
 #include "DX11Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -67,16 +67,6 @@ static InGameOverlay::ScreenshotDataFormat_t RendererFormatToScreenshotFormat(DX
     }
 }
 
-static inline HRESULT GetDeviceAndCtxFromSwapchain(IDXGISwapChain* pSwapChain, ID3D11Device** ppDevice, ID3D11DeviceContext** ppContext)
-{
-    HRESULT ret = pSwapChain->GetDevice(IID_PPV_ARGS(ppDevice));
-
-    if (SUCCEEDED(ret))
-        (*ppDevice)->GetImmediateContext(ppContext);
-
-    return ret;
-}
-
 bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount, /*ImFontAtlas* */ void* imguiFontAtlas)
 {
     if (!_Hooked)
@@ -87,7 +77,7 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -113,13 +103,13 @@ bool DX11Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 void DX11Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX11Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX11Hook_t::IsStarted()
@@ -127,55 +117,68 @@ bool DX11Hook_t::IsStarted()
     return _Hooked;
 }
 
+// The ImGui backend creates these objects while rendering, not when it is initialized.
+void DX11Hook_t::_UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData)
+{
+    _BackendLazyDeviceRefCount = 0;
+
+    if (drawData->DisplaySize.x > 0.0f && drawData->DisplaySize.y > 0.0f)
+        _BackendLazyDeviceRefCount += 1 // vertex buffer
+            + 1; // index buffer
+
+    for (ImTextureData const* texture : ImGui::GetPlatformIO().Textures)
+    {
+        if (texture->TexID != ImTextureID_Invalid)
+            _BackendLazyDeviceRefCount += 1 // texture
+                + 1; // shader view
+    }
+}
+
 void DX11Hook_t::_UpdateHookDeviceRefCount()
 {
     switch (_HookState)
     {
-        case OverlayHookState::Removing: _HookDeviceRefCount =
-            + 1 // ?
-
-            // _PrepareForOverlay
-            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
-
-            // ImGui_ImplDX11_Init
-            + 1 // ImGui ID3D11Device AddRef
-            ;
+        case OverlayHookState::Removing:
+            _HookDeviceRefCount = 1 // GetDevice held device
+                + 1; // ImGui backend device reference
             break;
-
-        case OverlayHookState::Ready: _HookDeviceRefCount =
-            + 1 // ?
-
-            // ImGui_ImplDX11_CreateDeviceObjects
-            + 1 // ID3D11BlendState (singleton per device)
-            + 1 // ID3D11RasterizerState (singleton per device)
-            + 1 // ID3D11DepthStencilState (singleton per device)
-            + 1 // ID3D11SamplerState (singleton per device)
-            + 1 // ID3D11SamplerState (singleton per device)
-
-            // _PrepareForOverlay
-            + 1 // ID3D11Device GetDeviceAndCtxFromSwapchain
-
-            // _CreateRenderTargets
-            + 1 // _RenderTargetView
-
-            // ImGui_ImplDX11_Init
-            + 1 // ImGui ID3D11Device AddRef
-
-            // ImGui_ImplDX11_CreateDeviceObjects
-            + 1 // ImGui Vertex Shader
-            + 1 // ImGui Input Layout
-            + 1 // ImGui Constant Buffer
-            + 1 // ImGui Pixel Shader
-
-            // ImGui_ImplDX11_RenderDrawData
-            + 1 // ImGui Vertex Buffer
-            + 1 // ImGui Index Buffer
-            + 1 // ImGui Font Texture
-            + 1 // ImGui Font Shader View
-
-            + _ImageResourcesToRelease.size()
-            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
-            ;
+        case OverlayHookState::Ready:
+            _HookDeviceRefCount = 1 // pre-existing backend reference
+                + 1 // GetDevice held device
+                + 1 // ImGui device reference
+                + 1 // blend state singleton
+                + 1 // rasterizer state singleton
+                + 1 // depth stencil state singleton
+                + 1 // first sampler state singleton
+                + 1 // second sampler state singleton
+                + 1 // render target view
+                + 1 // vertex shader
+                + 1 // input layout
+                + 1 // constant buffer
+                + 1 // pixel shader
+                + _BackendLazyDeviceRefCount
+                + _ImageResourcesToRelease.size()
+                + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
+                    { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
+            break;
+        case OverlayHookState::Reset:
+            _HookDeviceRefCount = 1 // pre-existing backend reference
+                + 1 // GetDevice held device
+                + 1 // ImGui device reference
+                + 1 // blend state singleton
+                + 1 // rasterizer state singleton
+                + 1 // depth stencil state singleton
+                + 1 // first sampler state singleton
+                + 1 // second sampler state singleton
+                + 1 // vertex shader
+                + 1 // input layout
+                + 1 // constant buffer
+                + 1 // pixel shader
+                + _BackendLazyDeviceRefCount
+                + _ImageResourcesToRelease.size()
+                + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](const std::shared_ptr<RendererTexture_t>& tex)
+                    { return tex->LoadStatus == RendererTextureStatus_e::Loaded; });
+            break;
     }
 }
 
@@ -229,6 +232,20 @@ void DX11Hook_t::_DestroyRenderTargets()
     SafeRelease(_RenderTargetView);
 }
 
+uintptr_t DX11Hook_t::_GetSwapChainIdentity(IUnknown* pSwapChain) const
+{
+    if (pSwapChain == nullptr)
+        return 0;
+
+    IUnknown* identity = nullptr;
+    if (FAILED(pSwapChain->QueryInterface(IID_PPV_ARGS(&identity))))
+        return 0;
+
+    const auto result = reinterpret_cast<uintptr_t>(identity);
+    identity->Release();
+    return result;
+}
+
 void DX11Hook_t::_ResetRenderState(OverlayHookState state)
 {
     if (_HookState == state)
@@ -237,15 +254,16 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
     if (state == OverlayHookState::Removing)
         ++_DeviceReleasing;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
     _UpdateHookDeviceRefCount();
     switch (state)
     {
         case OverlayHookState::Removing:
+            _SwapChainIdentity = 0;
             ImGui_ImplDX11_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
@@ -254,6 +272,7 @@ void DX11Hook_t::_ResetRenderState(OverlayHookState state)
             _DestroyRenderTargets();
             SafeRelease(_DeviceContext);
             SafeRelease(_Device);
+            _BackendLazyDeviceRefCount = 0;
             break;
 
         case OverlayHookState::Reset:
@@ -275,8 +294,10 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
 
     if (_HookState == OverlayHookState::Removing)
     {
-        if (FAILED(GetDeviceAndCtxFromSwapchain(pSwapChain, &_Device, &_DeviceContext)))
+        if (FAILED(pSwapChain->GetDevice(IID_PPV_ARGS(&_Device))))
             return;
+        _HookDeviceRefCount = 1;
+        _Device->GetImmediateContext(&_DeviceContext);
 
         if (!_CreateRenderTargets(pSwapChain))
         {
@@ -288,11 +309,20 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ desc.OutputWindow }))
+        {
+            _DestroyRenderTargets();
+            SafeRelease(_DeviceContext);
+            SafeRelease(_Device);
+            return;
+        }
+
         ImGui_ImplDX11_Init(_Device, _DeviceContext);
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(desc.OutputWindow);
 
-        if (!ImGui_ImplDX11_CreateDeviceObjects())
+        bool createDeviceObjects = false;
+        createDeviceObjects = ImGui_ImplDX11_CreateDeviceObjects();
+        if (!createDeviceObjects)
         {
             ImGui_ImplDX11_Shutdown();
             _DestroyRenderTargets();
@@ -301,10 +331,11 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
             return;
         }
 
+        _SwapChainIdentity = _GetSwapChainIdentity(pSwapChain);
         _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX11_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(desc.OutputWindow))
+    if (ImGui_ImplDX11_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ desc.OutputWindow }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -319,15 +350,40 @@ void DX11Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, UINT flags)
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
+
+        // These device releases are ours: the refcount can transiently be below the threshold.
+        ++_DeviceReleasing;
 
         _LoadResources();
         _ReleaseResources();
 
         ImGui::Render();
 
-        _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        {
+            struct RenderTargetState_t
+            {
+                ID3D11RenderTargetView* RenderTargetViews[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+                ID3D11DepthStencilView* DepthStencilView = nullptr;
+
+                ~RenderTargetState_t()
+                {
+                    for (auto*& renderTargetView : RenderTargetViews)
+                        SafeRelease(renderTargetView);
+                    SafeRelease(DepthStencilView);
+                }
+            } renderTargetState;
+
+            _DeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, &renderTargetState.DepthStencilView);
+            _DeviceContext->OMSetRenderTargets(1, &_RenderTargetView, NULL);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            _DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargetState.RenderTargetViews, renderTargetState.DepthStencilView);
+        }
+
+        _UpdateBackendLazyDeviceRefCount(ImGui::GetDrawData());
+        _UpdateHookDeviceRefCount();
+
+        --_DeviceReleasing;
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot(pSwapChain);
@@ -368,10 +424,19 @@ void DX11Hook_t::_LoadResources()
     }
 
     if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
         return;
+    }
 
     for (auto& tex : validResources)
     {
+        if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = tex.Width;
         desc.Height = tex.Height;
@@ -389,7 +454,11 @@ void DX11Hook_t::_LoadResources()
 
         ID3D11Texture2D* texture = nullptr;
         HRESULT hr = _Device->CreateTexture2D(&desc, &sub, &texture);
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || texture == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         // Create texture view
         D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -399,9 +468,14 @@ void DX11Hook_t::_LoadResources()
 
         ID3D11ShaderResourceView* srv = nullptr;
         hr = _Device->CreateShaderResourceView(texture, &srvDesc, &srv);
-        IM_ASSERT(SUCCEEDED(hr));
         // Release Texure, the shader resource increases the reference count.
         texture->Release();
+
+        if (FAILED(hr) || srv == nullptr)
+        {
+            tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         tex.Resource->ImGuiTextureId = reinterpret_cast<uint64_t>(srv);
         tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
@@ -412,6 +486,7 @@ void DX11Hook_t::_LoadResources()
         _ImageResourcesToLoad.begin() + loadParameterCount);
 
     _UpdateHookDeviceRefCount();
+
 }
 
 void DX11Hook_t::_ReleaseResources()
@@ -419,7 +494,18 @@ void DX11Hook_t::_ReleaseResources()
     if (_ImageResourcesToRelease.empty())
         return;
 
-    _ImageResourcesToRelease.clear();
+    // Keep the resources released during this frame, the current draw data may still use them.
+    for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
+    {
+        if (it->ReleaseFrame < _CurrentFrame)
+        {
+            it = _ImageResourcesToRelease.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
     _UpdateHookDeviceRefCount();
 }
 
@@ -496,6 +582,9 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
     auto inst = DX11Hook_t::Inst();
+    if ((inst->_SwapChainIdentity == 0 && inst->_HookState != OverlayHookState::Removing)
+        || (inst->_SwapChainIdentity != 0 && inst->_GetSwapChainIdentity(_this) != inst->_SwapChainIdentity))
+        return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
     inst->_PrepareForOverlay(_this, Flags);
     return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
 }
@@ -504,6 +593,8 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX11Hook_t::Inst();
+    if (inst->_SwapChainIdentity == 0 || inst->_GetSwapChainIdentity(_this) != inst->_SwapChainIdentity)
+        return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -526,6 +617,8 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX11Hook_t::Inst();
+    if (inst->_SwapChainIdentity == 0 || inst->_GetSwapChainIdentity(_this) != inst->_SwapChainIdentity)
+        return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -548,6 +641,9 @@ HRESULT STDMETHODCALLTYPE DX11Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain1::Present1");
     auto inst = DX11Hook_t::Inst();
+    if ((inst->_SwapChainIdentity == 0 && inst->_HookState != OverlayHookState::Removing)
+        || (inst->_SwapChainIdentity != 0 && inst->_GetSwapChainIdentity(_this) != inst->_SwapChainIdentity))
+        return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
     inst->_PrepareForOverlay(_this, Flags);
     return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
 }
@@ -558,7 +654,9 @@ DX11Hook_t::DX11Hook_t():
     _UsesDXVK(false),
     _DeviceReleasing(0),
     _Device(nullptr),
+    _SwapChainIdentity(0),
     _HookDeviceRefCount(0),
+    _BackendLazyDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _DeviceContext(nullptr),
     _RenderTargetView(nullptr),
@@ -578,7 +676,7 @@ DX11Hook_t::~DX11Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

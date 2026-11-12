@@ -1,0 +1,77 @@
+name: macOS GUI tests
+
+# GitHub's macOS runners have a logged in desktop session: the test applications can run, with the overlay
+# injected, and be checked through the overlay's MCP server.
+
+on:
+  push:
+    # Pull request branches are built by the pull_request event: building their pushes too ran everything twice.
+    # A branch without a pull request can still be built with workflow_dispatch (gh workflow run --ref).
+    branches: [develop, master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run of its previous commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gui-tests:
+    name: ${{ matrix.os }}-gui-tests
+    # develop and master are built by their push: their own pull requests (develop to master) don't build them again.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref != 'develop' && github.head_ref != 'master')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-latest: Apple Silicon. macos-15-intel: x86_64.
+        os: [macos-latest, macos-15-intel]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Machine
+        shell: bash
+        run: |
+          sw_vers
+          uname -m
+          system_profiler SPDisplaysDataType | grep -E "Chipset|Metal|Resolution|Vendor" || true
+
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S . -B build -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{ github.workspace }}/tests/common/ingameoverlay_imconfig.h
+          cmake --build build -j 4
+
+      - name: MCP server test
+        shell: bash
+        run: ./build/mcp_server_test
+
+      - name: Test applications (OpenGL 2, OpenGL 3, Metal)
+        shell: bash
+        run: python3 tests/mcp_check_apps.py build liboverlay_example.dylib macos_opengl2_app macos_opengl3_app macos_metal_app
+
+      # The other scenarios are the remaining Metal work (other present paths, input race on a render thread).
+      - name: Metal scenarios
+        shell: bash
+        run: python3 tests/macos_metal/check_scenarios.py build --soak 10 --only default,offscreen_first,drawable_size,msaa,copyable_drawable,unretained,render_thread,leak
+
+      - name: Metal scenarios with the API validation layer
+        shell: bash
+        run: python3 tests/macos_metal/check_scenarios.py build --validation --soak 5 --only default,offscreen_first,drawable_size,msaa,copyable_drawable,unretained,render_thread
+
+      - name: Logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-gui-tests
+          path: |
+            build/mcp_check
+            build/check_scenarios
+          if-no-files-found: ignore

@@ -22,6 +22,10 @@
 #include <InGameOverlay/RendererHook.h>
 #include "InternalIncludes.h"
 
+#if defined(INGAMEOVERLAY_HAS_MCP)
+#include "Mcp/McpServerInternal.h"
+#endif
+
 #include <set>
 #include <memory>
 #include <algorithm>
@@ -34,6 +38,7 @@ enum class RendererTextureStatus_e
     NotLoaded,
     Loading,
     Loaded,
+    Failed,
 };
 
 struct RendererTexture_t
@@ -63,6 +68,10 @@ class RendererHookInternal_t : public RendererHook_t
     ScreenshotCallback_t _ScreenshotCallback;
     void* _ScreenshotCallbackUserParameter;
     ScreenshotType_t _TakeScreenshotType;
+    uint64_t _ScreenshotRequestGeneration;
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    McpServerInternal_t _McpServer;
+#endif
 
 protected:
     uint32_t _BatchSize;
@@ -73,9 +82,17 @@ protected:
 
     ScreenshotType_t _ScreenshotType();
 
+    // Every hook calls the user callbacks through these, so the MCP server sees the frames and the hook state too.
+    void _OverlayProc();
+    void _OverlayHookReady(OverlayHookState state);
+
     void _SendScreenshot(ScreenshotCallbackParameter_t* screenshot);
+    uint64_t _ScreenshotRequestId();
+    void _SendScreenshotForRequest(uint64_t requestId, ScreenshotCallbackParameter_t* screenshot);
 
 public:
+    virtual void Release();
+
     virtual void SetScreenshotCallback(ScreenshotCallback_t callback, void* userParam);
 
     virtual uint32_t GetAutoLoadBatchSize();
@@ -87,6 +104,14 @@ public:
     virtual RendererResource_t* CreateAndAttachResource(const void* image_data, uint32_t width, uint32_t height);
 
     virtual void TakeScreenshot(ScreenshotType_t type);
+
+    virtual bool StartMcpServer(std::string const& name, McpServerCallbacks_t callbacks);
+
+    virtual bool StartMcpServerWithTransport(McpServerTransport_t transport, McpServerCallbacks_t callbacks);
+
+    virtual bool PushMcpMessage(const char* message, size_t size);
+
+    virtual void StopMcpServer();
 
     virtual std::weak_ptr<RendererTexture_t> AllocImageResource() = 0;
 

@@ -23,7 +23,7 @@
 #define GL_SILENCE_DEPRECATION
 #endif
 
-#include "../RendererHookInternal.h"
+#include "../OpenGLHookCommon.h"
 
 #include <OpenGL/OpenGL.h>
 
@@ -43,7 +43,7 @@ struct ImDrawData;
 namespace InGameOverlay {
 
 class OpenGLHook_t :
-    public InGameOverlay::RendererHookInternal_t,
+    public OpenGLHookCommon_t,
     public BaseHook_t
 {
 private:
@@ -63,21 +63,19 @@ private:
 
     bool _Hooked;
     bool _NSViewHooked;
-    bool _Initialized;
     OpenGLDriver_t _OpenGLDriver;
-    std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
-    std::vector<RendererTextureLoadParameter_t> _ImageResourcesToLoad;
-    std::vector<RendererTextureReleaseParameter_t> _ImageResourcesToRelease;
-    void* _ImGuiFontAtlas;
 
     // Functions
     OpenGLHook_t();
 
-    void _ResetRenderState();
     void _PrepareForOverlay();
-    void _LoadResources();
-    void _ReleaseResources();
-    void _HandleScreenshot();
+
+    virtual bool _ImGuiBackendInit() override;
+    virtual bool _ImGuiBackendNewFrame() override;
+    virtual void _ImGuiBackendRenderDrawData(ImDrawData* drawData) override;
+    virtual void _ImGuiBackendShutdown() override;
+    virtual void _ResetWindowHook(OverlayHookState state) override;
+    virtual void _ForgetWindow() override;
 
     // Hook to render functions
     Method _NSOpenGLContextFlushBufferMethod;
@@ -98,10 +96,6 @@ public:
     virtual const char* GetLibraryName() const override;
     virtual RendererHookType_t GetRendererHookType() const override;
     void LoadFunctions(Method openGLFlushBufferMethod, decltype(::CGLFlushDrawable)* pfnCGLFlushDrawable);
-
-    virtual std::weak_ptr<RendererTexture_t> AllocImageResource() override;
-    virtual void LoadImageResource(RendererTextureLoadParameter_t& loadParameter) override;
-    virtual void ReleaseImageResource(std::weak_ptr<RendererTexture_t> resource) override;
 
     virtual void SetLibraryPath(std::filesystem::path const& libraryPath) override;
 };

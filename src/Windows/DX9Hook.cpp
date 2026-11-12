@@ -18,7 +18,7 @@
  */
 
 #include "DX9Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -75,7 +75,7 @@ bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKe
             return false;
         }
         
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
@@ -105,18 +105,34 @@ bool DX9Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleKe
 void DX9Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX9Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX9Hook_t::IsStarted()
 {
     return _Hooked;
+}
+
+// The ImGui backend creates these objects while rendering, not when it is initialized.
+void DX9Hook_t::_UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData)
+{
+    _BackendLazyDeviceRefCount = 0;
+
+    if (drawData->DisplaySize.x > 0.0f && drawData->DisplaySize.y > 0.0f)
+        _BackendLazyDeviceRefCount += 1 // vertex buffer
+            + 1; // index buffer
+
+    for (ImTextureData const* texture : ImGui::GetPlatformIO().Textures)
+    {
+        if (texture->TexID != ImTextureID_Invalid)
+            _BackendLazyDeviceRefCount += 1; // texture
+    }
 }
 
 void DX9Hook_t::_UpdateHookDeviceRefCount()
@@ -138,9 +154,7 @@ void DX9Hook_t::_UpdateHookDeviceRefCount()
         case OverlayHookState::Ready: _HookDeviceRefCount =
             + 1 // _Device->AddRef
             + 1 // ImGui IDirect3DDevice9*
-            + 1 // ImGui Vertex Buffer
-            + 1 // ImGui Index Buffer
-            + 1 // ImGui Font Texture
+            + _BackendLazyDeviceRefCount
             + _ImageResourcesToRelease.size()
             + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
             ;
@@ -155,7 +169,7 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
     if (state == OverlayHookState::Removing)
         ++_DeviceReleasing;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
     _UpdateHookDeviceRefCount();
@@ -167,17 +181,19 @@ void DX9Hook_t::_ResetRenderState(OverlayHookState state)
             _ImageResources.clear();
             _ImageResourcesToLoad.clear();
             _ImageResourcesToRelease.clear();
+            _BackendLazyDeviceRefCount = 0;
             break;
 
         case OverlayHookState::Removing:
             ImGui_ImplDX9_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
             _ImageResourcesToLoad.clear();
             _ImageResourcesToRelease.clear();
             SafeRelease(_Device);
+            _BackendLazyDeviceRefCount = 0;
 
             _LastWindow = nullptr;
     }
@@ -222,11 +238,16 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ destWindow }))
+        {
+            SafeRelease(_Device);
+            return;
+        }
+
         ImGui_ImplDX9_Init(pDevice);
 
         _LastWindow = destWindow;
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(destWindow);
 
         if (!ImGui_ImplDX9_CreateDeviceObjects())
         {
@@ -241,7 +262,7 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
     if (_HookState != OverlayHookState::Ready)
         return;
 
-    if (ImGui_ImplDX9_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(destWindow))
+    if (ImGui_ImplDX9_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ destWindow }))
     {
         auto screenshotType = _ScreenshotType();
         if (screenshotType == ScreenshotType_t::BeforeOverlay)
@@ -256,7 +277,10 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
+
+        // These device releases are ours: the refcount can transiently be below the threshold.
+        ++_DeviceReleasing;
 
         _LoadResources();
         _ReleaseResources();
@@ -264,6 +288,11 @@ void DX9Hook_t::_PrepareForOverlay(IDirect3DDevice9 *pDevice, HWND destWindow)
         ImGui::Render();
 
         ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+
+        _UpdateBackendLazyDeviceRefCount(ImGui::GetDrawData());
+        _UpdateHookDeviceRefCount();
+
+        --_DeviceReleasing;
 
         if (screenshotType == ScreenshotType_t::AfterOverlay)
             _HandleScreenshot();
@@ -311,8 +340,14 @@ void DX9Hook_t::_LoadResources()
         {
             auto& tex = validResources[i];
 
+            if (tex.Data == nullptr || tex.Width == 0 || tex.Height == 0)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                continue;
+            }
+
             dx9Tex = nullptr;
-            _Device->CreateTexture(
+            hr = _Device->CreateTexture(
                 tex.Width,
                 tex.Height,
                 1,
@@ -323,7 +358,7 @@ void DX9Hook_t::_LoadResources()
                 nullptr
             );
 
-            if (dx9Tex != nullptr)
+            if (SUCCEEDED(hr) && dx9Tex != nullptr)
             {
                 D3DLOCKED_RECT rect;
                 if (SUCCEEDED(dx9Tex->LockRect(0, &rect, nullptr, D3DLOCK_DISCARD)))
@@ -351,6 +386,8 @@ void DX9Hook_t::_LoadResources()
 
                 SafeRelease(dx9Tex);
             }
+            if (tex.Resource->LoadStatus != RendererTextureStatus_e::Loaded)
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
         }
     }
 
@@ -365,7 +402,18 @@ void DX9Hook_t::_ReleaseResources()
     if (_ImageResourcesToRelease.empty())
         return;
 
-    _ImageResourcesToRelease.clear();
+    // Keep the resources released during this frame, the current draw data may still use them.
+    for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
+    {
+        if (it->ReleaseFrame < _CurrentFrame)
+        {
+            it = _ImageResourcesToRelease.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
     _UpdateHookDeviceRefCount();
 }
 
@@ -526,6 +574,7 @@ DX9Hook_t::DX9Hook_t():
     _DeviceReleasing(0),
     _Device(nullptr),
     _HookDeviceRefCount(0),
+    _BackendLazyDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
     _ImGuiFontAtlas(nullptr),
     _IDirect3DDevice9Release(nullptr),
@@ -544,7 +593,7 @@ DX9Hook_t::~DX9Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;

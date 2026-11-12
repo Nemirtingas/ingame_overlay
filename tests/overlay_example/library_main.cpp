@@ -7,6 +7,8 @@
 #include <imgui.h>
 #include <InGameOverlay/RendererDetector.h>
 
+#include <cstdlib>
+
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_PNG
@@ -58,6 +60,22 @@ struct OverlayData_t
 };
 
 static OverlayData_t* OverlayData;
+
+static void SetOverlayVisible(bool visible)
+{
+    std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
+    auto& io = ImGui::GetIO();
+
+    OverlayData->Renderer->HideAppInputs(visible);
+    OverlayData->Renderer->HideOverlayInputs(!visible);
+    if (visible)
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    else
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+
+    io.MouseDrawCursor = visible;
+    OverlayData->Show = visible;
+}
 
 Image CreateImageFromData(void const* data, size_t data_len)
 {
@@ -419,6 +437,9 @@ void shared_library_load(void* hmodule)
                 // Good habit is to use a dummy when the image is not ready, to not screw up your layout
                 image_or_dummy(OverlayData->OverlayImage2, 64, 64);
 
+                // Read by the test scripts through MCP, ImGui::Image has no id they could see.
+                ImGui::Text("Images loaded: %d %d", OverlayData->OverlayImage1->GetResourceId() != 0, OverlayData->OverlayImage2->GetResourceId() != 0);
+
                 if (OverlayData->OverlayImageScreenshot)
                 {
                     bool opened = true;
@@ -488,27 +509,27 @@ void shared_library_load(void* hmodule)
 
         OverlayData->FontAtlas->AddFontDefault(&fontcfg);
 
+        // Opt-in: an overlay must not open a control channel unless it has been asked to. Without INGAMEOVERLAY_BUILD_MCP, it fails.
+        if (std::getenv("INGAMEOVERLAY_MCP") != nullptr)
+        {
+            InGameOverlay::McpServerCallbacks_t callbacks;
+            callbacks.IsOverlayVisible = [](void* userParameter)
+            {
+                auto overlayData = static_cast<OverlayData_t*>(userParameter);
+                std::lock_guard<std::recursive_mutex> lk(overlayData->OverlayMutex);
+                return overlayData->Show;
+            };
+            callbacks.SetOverlayVisible = [](bool visible, void*) { SetOverlayVisible(visible); };
+            callbacks.UserParameter = OverlayData;
+            // Several overlays in the same process need different names.
+            char const* name = std::getenv("INGAMEOVERLAY_MCP_NAME");
+            OverlayData->Renderer->StartMcpServer(name != nullptr ? name : "", callbacks);
+        }
+
         OverlayData->Renderer->StartHook([]()
         {
             std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
-            auto& io = ImGui::GetIO();
-
-            if (OverlayData->Show)
-            {
-                OverlayData->Renderer->HideAppInputs(false);
-                OverlayData->Renderer->HideOverlayInputs(true);
-                io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-                io.MouseDrawCursor = false;
-                OverlayData->Show = false;
-            }
-            else
-            {
-                OverlayData->Renderer->HideAppInputs(true);
-                OverlayData->Renderer->HideOverlayInputs(false);
-                io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
-                io.MouseDrawCursor = true;
-                OverlayData->Show = true;
-            }
+            SetOverlayVisible(!OverlayData->Show);
         }, OverlayData->ToggleKeys, CountOf(OverlayData->ToggleKeys), OverlayData->FontAtlas);
 
         OverlayData->Renderer->SetScreenshotCallback([](InGameOverlay::ScreenshotCallbackParameter_t const* screenshot, void* userParam)
@@ -529,6 +550,10 @@ void shared_library_load(void* hmodule)
 
 void shared_library_unload(void* hmodule)
 {
+    // Outside of the overlay lock: its requests run SetOverlayVisible on the render thread.
+    if (OverlayData->Renderer != nullptr)
+        OverlayData->Renderer->StopMcpServer();
+
     {
         std::lock_guard<std::recursive_mutex> lk(OverlayData->OverlayMutex);
         if (OverlayData->Worker.joinable())
@@ -545,7 +570,9 @@ void shared_library_unload(void* hmodule)
         if (OverlayData->OverlayImageScreenshot != nullptr && OverlayData->OverlayImageScreenshot->GetResourceId() != 0)
             OverlayData->OverlayImageScreenshot->Unload();
 
-        delete OverlayData->Renderer; OverlayData->Renderer = nullptr;
+        if (OverlayData->Renderer != nullptr)
+            OverlayData->Renderer->Release();
+        OverlayData->Renderer = nullptr;
     }
     delete OverlayData;
 }

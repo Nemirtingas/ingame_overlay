@@ -28,11 +28,19 @@
 #include <X11/X.h> // XEvent types
 #include <X11/Xlib.h> // XEvent structure
 #include <X11/Xutil.h> // XEvent keysym
+#undef Status
 
 #include <xcb/xcb.h>
 #include <X11/keysym.h>
 
 namespace InGameOverlay {
+
+struct NativeWindow_t
+{
+    Display* DisplayHandle = nullptr;
+    Window WindowHandle = None;
+    std::shared_ptr<SafeXlibDisplay_t> Owner;
+};
 
 class X11Hook_t :
     public BaseHook_t
@@ -98,7 +106,14 @@ private:
     std::vector<ToggleKey> _OverlayToggleKeys;
     std::vector<uint32_t> _NativeKeyCombination;
     std::vector<uint32_t> _PressedKeycodes;
-    uint32_t _GameWnd;
+    // Keycodes of the key combination, from the moment it toggled the overlay until they are released:
+    // their auto-repeat and release are hidden from the application, which would otherwise get them once
+    // the overlay is closed.
+    std::vector<uint32_t> _LatchedKeycodes;
+    void _LatchKeycode(uint32_t keycode);
+    void _UnlatchKeycode(uint32_t keycode);
+    bool _IsKeycodeLatched(uint32_t keycode) const;
+uint32_t _GameWnd;
     bool _HasSavedCursor;
     uint32_t _SavedRoot;
     uint32_t _SavedChild;
@@ -134,28 +149,12 @@ private:
     static xcb_query_pointer_reply_t* MyXCBQueryPointerReply(xcb_connection_t* connection, xcb_query_pointer_cookie_t cookie, xcb_generic_error_t** error);
 
 public:
-    struct X11WindowEnumerationResult_t
-    {
-        X11WindowEnumerationResult_t() = default;
-
-        X11WindowEnumerationResult_t(
-            const std::shared_ptr<SafeXlibDisplay_t>& display,
-            Window window)
-            : DisplayHandle(display)
-            , WindowHandle(window)
-        {
-        }
-
-        std::shared_ptr<SafeXlibDisplay_t> DisplayHandle;
-        Window WindowHandle = None;
-    };
-
     virtual ~X11Hook_t() override;
 
     void ResetRenderState(OverlayHookState state);
-    bool SetInitialWindowSize(Display* display, Window wnd);
-    bool PrepareForOverlay(Display* display, uint32_t wnd);
-    std::vector<X11WindowEnumerationResult_t> FindApplicationX11Window(int32_t processId);
+    bool SetInitialWindowSize(NativeWindow_t const& window);
+    bool PrepareForOverlay(NativeWindow_t const& window);
+    std::vector<NativeWindow_t> FindApplicationWindows();
 
     bool StartHook(std::function<void()>& keyCombinationCallback, ToggleKey toggleKeys[], int toggleKeysCount);
     void HideAppInputs(bool hide);

@@ -193,6 +193,12 @@ bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, Togg
                         {// All shortcut keys are pressed
                             if (!inst->KeyCombinationPushed)
                             {
+                                for (auto const& key : inst->NativeKeyCombination)
+                                {
+                                    if (std::find(inst->_LatchedKeyCodes.begin(), inst->_LatchedKeyCodes.end(), key) == inst->_LatchedKeyCodes.end())
+                                        inst->_LatchedKeyCodes.emplace_back(key);
+                                }
+
                                 inst->KeyCombinationCallback();
     
                                 if (inst->OverlayInputsHidden)
@@ -222,10 +228,25 @@ bool NSViewHook_t::StartHook(std::function<void()>& keyCombinationCallback, Togg
     
             if (!hide_overlay_inputs)
                 ImGui_ImplOSX_HandleEvent(event, view);
-    
+
+            // The key combination's own events, until each key is released. Modifiers are released by a
+            // NSEventTypeFlagsChanged, which is not hidden.
+            const NSEventType type = [event type];
+            if (type == NSEventTypeKeyDown || type == NSEventTypeKeyUp || type == NSEventTypeFlagsChanged)
+            {
+                auto it = std::find(inst->_LatchedKeyCodes.begin(), inst->_LatchedKeyCodes.end(), (int)[event keyCode]);
+                if (it != inst->_LatchedKeyCodes.end())
+                {
+                    if (type != NSEventTypeKeyDown)
+                        inst->_LatchedKeyCodes.erase(it);
+                    if (type != NSEventTypeFlagsChanged)
+                        return nil;
+                }
+            }
+
             if (hide_app_inputs && IgnoreEvent(event))
                 return nil;
-    
+
             return event;
         }];
 
@@ -324,14 +345,24 @@ NSViewHook_t::~NSViewHook_t()
 
     ResetRenderState();
 
-    Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
-    method_setImplementation(ns_method, (IMP)pressedMouseButtons);
+    // Only restore what StartHook replaced, a null IMP would crash the next NSEvent call.
+    if (pressedMouseButtons != nullptr)
+    {
+        Method ns_method = class_getClassMethod([NSEvent class], @selector(pressedMouseButtons));
+        method_setImplementation(ns_method, (IMP)pressedMouseButtons);
+    }
 
-    ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
-    method_setImplementation(ns_method, (IMP)mouseLocation);
+    if (mouseLocation != nullptr)
+    {
+        Method ns_method = class_getClassMethod([NSEvent class], @selector(mouseLocation));
+        method_setImplementation(ns_method, (IMP)mouseLocation);
+    }
 
-    [NSEvent removeMonitor :_EventMonitor];
-    _EventMonitor = nil;
+    if (_EventMonitor != nil)
+    {
+        [NSEvent removeMonitor :_EventMonitor];
+        _EventMonitor = nil;
+    }
 
     _Instance->UnhookAll();
     _Instance = nullptr;

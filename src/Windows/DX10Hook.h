@@ -33,6 +33,8 @@
 
 #include <cstdint>
 
+struct ImDrawData;
+
 namespace InGameOverlay {
 
 class DX10Hook_t :
@@ -51,7 +53,9 @@ private:
     bool _UsesDXVK;
     uint32_t _DeviceReleasing;
     ID3D10Device* _Device;
+    uintptr_t _SwapChainIdentity;
     ULONG _HookDeviceRefCount;
+    ULONG _BackendLazyDeviceRefCount;
     OverlayHookState _HookState;
     ID3D10RenderTargetView* _RenderTargetView;
     std::set<std::shared_ptr<RendererTexture_t>> _ImageResources;
@@ -62,9 +66,11 @@ private:
     // Functions
     DX10Hook_t();
 
+    void _UpdateBackendLazyDeviceRefCount(ImDrawData const* drawData);
     void _UpdateHookDeviceRefCount();
     bool _CreateRenderTargets(IDXGISwapChain *pSwapChain);
     void _DestroyRenderTargets();
+    uintptr_t _GetSwapChainIdentity(IUnknown* pSwapChain) const;
     void _ResetRenderState(OverlayHookState state);
     void _PrepareForOverlay(IDXGISwapChain *pSwapChain, UINT flags);
     void _LoadResources();

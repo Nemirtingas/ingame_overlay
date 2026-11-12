@@ -339,7 +339,7 @@ bool CreateSwapChainForHWND(IDXGIFactory4* dxgiFactory, IDXGISwapChain1** swapCh
 
 bool CreateSwapChainForComposition(IDXGIFactory4* dxgiFactory, IDXGISwapChain1** swapChain1)
 {
-    g_swapChainFlags = 0;
+    g_swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     // Setup swap chain
     DXGI_SWAP_CHAIN_DESC1 sd;

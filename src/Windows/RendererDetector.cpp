@@ -40,7 +40,7 @@
 #include "DX10Hook.h"
 #include "DX9Hook.h"
 #include "OpenGLHook.h"
-#include "VulkanHook.h"
+#include "../VulkanHook.h"
 #include "DXVKDetector.h"
   
 #include "DirectXVTables.h"
@@ -109,7 +109,6 @@ struct DirectX11Driver_t
 struct DirectX12Driver_t
 {
     std::filesystem::path LibraryPath;
-    decltype(&ID3D12Device::Release) pfnRelease;
     decltype(&IDXGISwapChain::Present) pfnPresent;
     decltype(&IDXGISwapChain::ResizeBuffers) pfnResizeBuffers;
     decltype(&IDXGISwapChain::ResizeTarget) pfnResizeTarget;
@@ -674,10 +673,6 @@ static DirectX12Driver_t GetDX12Driver(std::filesystem::path const& directX12Lib
         pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
 
         {
-            void** vTable = *reinterpret_cast<void***>(pDevice);
-            (void*&)driver.pfnRelease = vTable[(int)ID3D12DeviceVTable::Release];
-        }
-        {
             void** vTable = *reinterpret_cast<void***>(pCommandQueue);
             (void*&)driver.pfnExecuteCommandLists = vTable[(int)ID3D12CommandQueueVTable::ExecuteCommandLists];
         }
@@ -895,7 +890,7 @@ static DX12Hook_t* GetDX12RendererHook(DirectX12Driver_t const& driver)
 
     auto rendererHook = DX12Hook_t::Inst();
     rendererHook->SetLibraryPath(driver.LibraryPath);
-    rendererHook->LoadFunctions(driver.pfnRelease, driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
+    rendererHook->LoadFunctions(driver.pfnPresent, driver.pfnResizeBuffers, driver.pfnResizeTarget, driver.pfnPresent1, driver.pfnResizeBuffer1, driver.pfnExecuteCommandLists);
     return rendererHook;
 }
 
@@ -944,6 +939,9 @@ public:
     ~RendererDetector_t()
     {
         StopDetection();
+
+        DestroyDummyHWND(_DummyWindowHandle, _DummyWindowClassName.c_str());
+        _DummyWindowHandle = nullptr;
 
         delete _DX9Hook;
         delete _DX10Hook;
@@ -1461,6 +1459,10 @@ private:
 
     bool _EnterDetection()
     {
+        // DetectRenderer is polled: keep the window of the detection in progress.
+        if (_DummyWindowHandle != nullptr)
+            return true;
+
         _DummyWindowClassName = CreateDummyHWND(&_DummyWindowHandle, &_DummyWindowAtom);
         return _DummyWindowHandle != nullptr;
     }
@@ -1585,7 +1587,7 @@ static inline void SetupSpdLog()
     {
         auto sinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
 
-#if defined(SYSTEM_OS_WINDOWS) && defined(_DEBUG)
+#if defined(INGAMEOVERLAY_OS_WINDOWS) && defined(_DEBUG)
         sinks->add_sink(std::make_shared<spdlog::sinks::msvc_sink_mt>());
 #endif
 

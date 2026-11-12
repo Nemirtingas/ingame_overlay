@@ -18,11 +18,16 @@
  */
 
 #include "DX12Hook.h"
-#include "WindowsHook.h"
+#include "../WindowHook.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <limits>
 #include <backends/imgui_impl_dx12.h>
+
+#include <new>
+
+#include "ComDestructionNotifier.h"
 
 namespace InGameOverlay {
 
@@ -31,6 +36,32 @@ struct DX12Texture_t : RendererTexture_t {
     ID3D12Resource* pTexture = nullptr;
     uint32_t Id = 0;
 };
+
+// A submitted upload without a completion proof cannot safely release its command objects or
+// resources. Keep these references for process lifetime when the owning hook is torn down.
+static void RetainAbandonedDX12Upload(
+    const std::vector<std::shared_ptr<RendererTexture_t>>& resources,
+    ID3D12Resource*& uploadBuffer,
+    ID3D12CommandQueue* commandQueue,
+    ID3D12CommandAllocator* commandAllocator,
+    ID3D12GraphicsCommandList* commandList,
+    ID3D12Fence* fence)
+{
+    static auto* retainedResources = new std::vector<std::shared_ptr<RendererTexture_t>>();
+    static auto* retainedObjects = new std::vector<IUnknown*>();
+
+    retainedResources->insert(retainedResources->end(), resources.begin(), resources.end());
+    IUnknown* objects[] = { uploadBuffer, commandQueue, commandAllocator, commandList, fence };
+    for (auto* object : objects)
+    {
+        if (object != nullptr)
+        {
+            object->AddRef();
+            retainedObjects->push_back(object);
+        }
+    }
+    uploadBuffer = nullptr;
+}
 
 #define TRY_HOOK_FUNCTION(NAME) do { if (!HookFunc(std::make_pair<void**, void*>(&(void*&)_##NAME, (void*)&DX12Hook_t::_My##NAME))) { \
     INGAMEOVERLAY_ERROR("Failed to hook {}", #NAME);\
@@ -94,19 +125,18 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 {
     if (!_Hooked)
     {
-        if (_ID3D12DeviceRelease == nullptr || _IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
+        if (_IDXGISwapChainPresent == nullptr || _IDXGISwapChainResizeTarget == nullptr || _IDXGISwapChainResizeBuffers == nullptr || _ID3D12CommandQueueExecuteCommandLists == nullptr)
         {
             INGAMEOVERLAY_WARN("Failed to hook DirectX 12: Rendering functions missing.");
             return false;
         }
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
         _WindowsHooked = true;
 
         BeginHook();
-        TRY_HOOK_FUNCTION(ID3D12DeviceRelease);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainPresent);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeTarget);
         TRY_HOOK_FUNCTION_OR_FAIL(IDXGISwapChainResizeBuffers);
@@ -130,13 +160,13 @@ bool DX12Hook_t::StartHook(std::function<void()> keyCombinationCallback, ToggleK
 void DX12Hook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void DX12Hook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool DX12Hook_t::IsStarted()
@@ -197,8 +227,24 @@ DX12Hook_t::ShaderRessourceView_t DX12Hook_t::_GetFreeShaderRessourceView()
 void DX12Hook_t::_ReleaseShaderRessourceView(uint32_t id)
 {
     auto& heap = _ShaderResourceViewHeaps[GetHeapIndex(id)];
+    if (!heap.HeapBitmap[GetHeapUsedIndex(id)])
+        return;
+
     heap.HeapBitmap[GetHeapUsedIndex(id)] = false;
     --heap.UsedHeap;
+}
+
+uint32_t DX12Hook_t::_GetShaderRessourceViewId(D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle)
+{
+    UINT inc = _Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (uint32_t heapIndex = 0; heapIndex < _ShaderResourceViewHeapDescriptors.size(); ++heapIndex)
+    {
+        const SIZE_T heapStart = _ShaderResourceViewHeapDescriptors[heapIndex].Heap->GetCPUDescriptorHandleForHeapStart().ptr;
+        if (cpuHandle.ptr >= heapStart && cpuHandle.ptr < heapStart + SIZE_T(inc) * ShaderResourceViewHeap_t::HeapSize)
+            return MakeHeapId(heapIndex, static_cast<uint32_t>((cpuHandle.ptr - heapStart) / inc));
+    }
+
+    return ShaderRessourceView_t::InvalidId;
 }
 
 ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* pSwapChain)
@@ -242,41 +288,6 @@ ID3D12CommandQueue* DX12Hook_t::_FindCommandQueueFromSwapChain(IDXGISwapChain* p
     return pCommandQueue;
 }
 
-void DX12Hook_t::_UpdateHookDeviceRefCount()
-{
-    switch (_HookState)
-    {
-        case OverlayHookState::Removing: _HookDeviceRefCount =
-            + 1 // _Device->AddRef
-            ;
-            break;
-        // ImGui:
-        //   PipelineState
-        //   FontTexture
-        //   (VertexBuffer + IndexBuffer) * FrameCount
-        case OverlayHookState::Ready: _HookDeviceRefCount =
-            + 6 // 6 From swapchain
-            + 1 // ID3D12RootSignature (linear) (singleton per device)
-            + 1 // ID3D12RootSignature (neared) (singleton per device)
-            + 2 // 2 From lazy initialization of DX12, the device gets 2 refs randomly in ImGui_ImplDX12_CreateDeviceObjects 
-            + 1 // _Device->AddRef
-            + 1 // RenderTargetViewDescriptorHeap
-            + (_OverlayFrames.size() * 2) + 1 // FrameCount * (RenderTargetCommandAllocator + RenderTargetCommandList)
-            + 1 // ImageFence
-            + 1 // ImageCommandQueue
-            + 1 // ImageCommandAllocator
-            + 1 // ImageCommandList
-            + _ShaderResourceViewHeapDescriptors.size()
-            + _ImageResourcesToRelease.size()
-            + std::count_if(_ImageResources.begin(), _ImageResources.end(), [](std::shared_ptr<RendererTexture_t> tex) { return tex->LoadStatus == RendererTextureStatus_e::Loaded; })
-            + 1 // ID3D12PipelineState (linear)
-            + 1 // ID3D12PipelineState (nearest)
-            + (_OverlayFrames.size() * 2) // ImGui VertexBuffer + IndexBuffer
-            ;
-            break;
-    }
-}
-
 bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 {
     IDXGISwapChain3* pSwapChain3 = nullptr;
@@ -285,6 +296,19 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
     // Happens when the functions have been hooked, but the DX hook is not setup yet.
     if (_Device == nullptr)
         return false;
+
+    if (_FrameFence == nullptr)
+    {
+        if (_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_FrameFence)) != S_OK)
+            return false;
+
+        _FrameFenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (_FrameFenceEvent == nullptr)
+        {
+            SafeRelease(_FrameFence);
+            return false;
+        }
+    }
 
     pSwapChain->QueryInterface(IID_PPV_ARGS(&pSwapChain3));
     if (pSwapChain3 == nullptr)
@@ -337,6 +361,8 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
             }
 
             _Device->CreateRenderTargetView(frame.BackBuffer, NULL, rtvHandle);
+            // Back buffers are acquired again on each frame, holding them could keep the swapchain alive.
+            SafeRelease(frame.BackBuffer);
             frame.RenderTarget = rtvHandle;
             rtvHandle.ptr += rtvDescriptorSize;
         }
@@ -349,8 +375,60 @@ bool DX12Hook_t::_CreateRenderTargets(IDXGISwapChain* pSwapChain)
 
 void DX12Hook_t::_DestroyRenderTargets()
 {
+    // The frames command allocators and lists may still be used by the GPU.
+    if (_FrameFence != nullptr)
+    {
+        for (auto& frame : _OverlayFrames)
+            _WaitForFrame(frame);
+    }
+
     _OverlayFrames.clear();
     SafeRelease(_RenderTargetViewDescriptorHeap);
+    SafeRelease(_FrameFence);
+    if (_FrameFenceEvent != NULL)
+    {
+        CloseHandle(_FrameFenceEvent);
+        _FrameFenceEvent = NULL;
+    }
+    _FrameFenceValue = 0;
+}
+
+void DX12Hook_t::_WaitForFrame(DX12Frame_t& frame)
+{
+    if (frame.FenceValue == 0 || _FrameFence->GetCompletedValue() >= frame.FenceValue)
+        return;
+
+    if (SUCCEEDED(_FrameFence->SetEventOnCompletion(frame.FenceValue, _FrameFenceEvent)))
+        WaitForSingleObject(_FrameFenceEvent, INFINITE);
+}
+
+bool DX12Hook_t::_ConfirmDeviceLost(HRESULT result, bool checkDeviceHealth)
+{
+    if (_DeviceLost)
+        return true;
+    if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET ||
+        result == DXGI_ERROR_DEVICE_HUNG ||
+        (checkDeviceHealth && _Device != nullptr && FAILED(_Device->GetDeviceRemovedReason())))
+    {
+        _DeviceLost = true;
+        INGAMEOVERLAY_WARN("DirectX 12 device lost (HRESULT 0x{:08X}).", static_cast<unsigned int>(result));
+        return true;
+    }
+    return false;
+}
+
+bool DX12Hook_t::_ConfirmDeviceLostForSwapChain(IDXGISwapChain* swapChain, HRESULT result)
+{
+    if (_Device == nullptr || SUCCEEDED(result))
+        return false;
+
+    ID3D12Device* presentingDevice = nullptr;
+    if (FAILED(swapChain->GetDevice(IID_PPV_ARGS(&presentingDevice))) || presentingDevice == nullptr)
+        return false;
+
+    const bool isActiveDevice = presentingDevice == _Device || _SwapChain == swapChain;
+    presentingDevice->Release();
+    return isActiveDevice && _ConfirmDeviceLost(result, true);
 }
 
 bool DX12Hook_t::_CreateImageObjects()
@@ -361,10 +439,6 @@ bool DX12Hook_t::_CreateImageObjects()
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.NodeMask = 1;
-
-    _ImageEvent = CreateEventW(0, 0, 0, 0);
-    if (_ImageEvent == NULL)
-        goto on_fail;
 
     hr = _Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_ImageFence));
     if (!SUCCEEDED(hr))
@@ -392,11 +466,6 @@ on_fail:
 
 void DX12Hook_t::_DestroyImageObjects()
 {
-    if (_ImageEvent != NULL)
-    {
-        CloseHandle(_ImageEvent);
-        _ImageEvent = NULL;
-    }
     SafeRelease(_ImageCommandList);
     SafeRelease(_ImageCommandAllocator);
     SafeRelease(_ImageCommandQueue);
@@ -439,6 +508,52 @@ on_fail:
 
 void DX12Hook_t::_DestroyScreenshotObjects()
 {
+    if (_ScreenshotDeviceLost)
+    {
+        SafeRelease(_PendingScreenshot.Staging);
+        SafeRelease(_PendingScreenshot.BackBuffer);
+        SafeRelease(_PendingScreenshot.CommandQueue);
+        _PendingScreenshot = {};
+        if (_ScreenshotEvent != NULL)
+        {
+            CloseHandle(_ScreenshotEvent);
+            _ScreenshotEvent = NULL;
+        }
+        SafeRelease(_ScreenshotFence);
+        SafeRelease(_ScreenshotCommandList);
+        SafeRelease(_ScreenshotCommandAllocator);
+        _ScreenshotQueueFailed = false;
+        _ScreenshotDeviceLost = false;
+        return;
+    }
+    if (_PendingScreenshot.Submitted)
+    {
+        // Without a completed fence (including the 250 ms removal wait), D3D12
+        // gives us no safe point to release these references. In particular,
+        // retaining BackBuffer can delay swapchain destruction if no later
+        // Present occurs; releasing it here could invalidate in-flight GPU work.
+        static RetainedScreenshotBatch_t* retainedBatches = nullptr;
+        auto* retained = new (std::nothrow) RetainedScreenshotBatch_t{};
+        if (retained != nullptr)
+        {
+            retained->Pending = _PendingScreenshot;
+            retained->Fence = _ScreenshotFence;
+            retained->Allocator = _ScreenshotCommandAllocator;
+            retained->CommandList = _ScreenshotCommandList;
+            retained->Event = _ScreenshotEvent;
+            retained->Next = retainedBatches;
+            retainedBatches = retained;
+        }
+        // If allocation fails, intentionally leak the COM references by dropping
+        // our raw pointers; releasing them could free objects still used by the GPU.
+        _PendingScreenshot = {};
+        _ScreenshotFence = nullptr;
+        _ScreenshotCommandAllocator = nullptr;
+        _ScreenshotCommandList = nullptr;
+        _ScreenshotEvent = nullptr;
+        _ScreenshotQueueFailed = false;
+        return;
+    }
     if (_ScreenshotEvent != NULL)
     {
         CloseHandle(_ScreenshotEvent);
@@ -447,6 +562,82 @@ void DX12Hook_t::_DestroyScreenshotObjects()
     SafeRelease(_ScreenshotFence);
     SafeRelease(_ScreenshotCommandList);
     SafeRelease(_ScreenshotCommandAllocator);
+    _ScreenshotQueueFailed = false;
+}
+
+bool DX12Hook_t::_PollScreenshot(bool waitForCompletion, DWORD timeout)
+{
+    if (!_PendingScreenshot.Submitted)
+        return true;
+
+    if (!_PendingScreenshot.Signaled || _ScreenshotFence == nullptr)
+        return false;
+
+    UINT64 completed = _ScreenshotFence->GetCompletedValue();
+    if (completed == UINT64_MAX)
+    {
+        _ScreenshotQueueFailed = true;
+        _ScreenshotDeviceLost = true;
+        return false;
+    }
+
+    if (completed < _PendingScreenshot.FenceValue && waitForCompletion)
+    {
+        if (FAILED(_ScreenshotFence->SetEventOnCompletion(_PendingScreenshot.FenceValue, _ScreenshotEvent)) ||
+            WaitForSingleObject(_ScreenshotEvent, timeout) != WAIT_OBJECT_0)
+            return false;
+        completed = _ScreenshotFence->GetCompletedValue();
+    }
+    if (completed == UINT64_MAX)
+    {
+        _ScreenshotQueueFailed = true;
+        _ScreenshotDeviceLost = true;
+        return false;
+    }
+    if (completed < _PendingScreenshot.FenceValue)
+        return false;
+
+    HRESULT hr = _ScreenshotCommandAllocator->Reset();
+    if (SUCCEEDED(hr))
+        hr = _ScreenshotCommandList->Reset(_ScreenshotCommandAllocator, nullptr);
+    if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
+        SafeRelease(_PendingScreenshot.Staging);
+        SafeRelease(_PendingScreenshot.BackBuffer);
+        SafeRelease(_PendingScreenshot.CommandQueue);
+        const auto requestId = _PendingScreenshot.RequestId;
+        _PendingScreenshot = {};
+        _SendScreenshotForRequest(requestId, nullptr);
+        return true;
+    }
+
+    PendingScreenshot_t completedScreenshot = _PendingScreenshot;
+    _PendingScreenshot = {};
+    BYTE* mapped = nullptr;
+    hr = completedScreenshot.Staging->Map(0, nullptr, reinterpret_cast<void**>(&mapped));
+    if (SUCCEEDED(hr) && mapped != nullptr)
+    {
+        ScreenshotCallbackParameter_t screenshot{};
+        screenshot.Width = completedScreenshot.Width;
+        screenshot.Height = completedScreenshot.Height;
+        screenshot.Pitch = completedScreenshot.Footprint.Footprint.RowPitch;
+        screenshot.Data = mapped;
+        screenshot.Format = RendererFormatToScreenshotFormat(completedScreenshot.Format);
+
+        _SendScreenshotForRequest(completedScreenshot.RequestId, &screenshot);
+
+        completedScreenshot.Staging->Unmap(0, nullptr);
+    }
+    else
+    {
+        _SendScreenshotForRequest(completedScreenshot.RequestId, nullptr);
+    }
+
+    SafeRelease(completedScreenshot.Staging);
+    SafeRelease(completedScreenshot.BackBuffer);
+    SafeRelease(completedScreenshot.CommandQueue);
+    return true;
 }
 
 void DX12Hook_t::_ResetRenderState(OverlayHookState state)
@@ -454,20 +645,53 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
     
-    if (state == OverlayHookState::Removing)
-        ++_DeviceReleasing;
-
-    OverlayHookReady(state);
-    
     _HookState = state;
-    _UpdateHookDeviceRefCount();
+    _OverlayHookReady(state);
 
     switch (state)
     {
         case OverlayHookState::Removing:
+            if (_ImageUploadBatchState.HasResources())
+            {
+                const UINT64 completedValue = _PendingImageFenceValid && _ImageFence != nullptr
+                    ? _ImageFence->GetCompletedValue()
+                    : UINT64_MAX;
+                if (!_PendingImageFenceValid || completedValue == UINT64_MAX || completedValue < _PendingImageFenceValue)
+                {
+                    RetainAbandonedDX12Upload(
+                        _ImageUploadBatchState.Resources(),
+                        _PendingImageUploadBuffer,
+                        _ImageCommandQueue,
+                        _ImageCommandAllocator,
+                        _ImageCommandList,
+                        _ImageFence);
+                }
+                else
+                {
+                    SafeRelease(_PendingImageUploadBuffer);
+                }
+                _ImageUploadBatchState.ClearResources();
+                _PendingImageFenceValue = 0;
+                _PendingImageFenceValid = false;
+            }
+            _ImageUploadBatchState.Reset();
+            _PollScreenshot(true, 250);
+            if (_SwapChainNotifier != nullptr)
+            {
+                // The swapchain is still alive (resize failure, hook removal), stop watching it.
+                _SwapChainNotifier->Detach();
+                _SwapChain->SetPrivateDataInterface(GetComDestructionNotifierGuid(), nullptr);
+                _SwapChainNotifier = nullptr;
+                _SwapChain = nullptr;
+            }
+
             ImGui_ImplDX12_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
-            ImGui::DestroyContext();
+            WindowHook_t::Inst()->ResetRenderState(state);
+            if (_ImGuiContextOwned)
+            {
+                ImGui::DestroyContext();
+                _ImGuiContextOwned = false;
+            }
 
             _ImageResources.clear();
             _ImageResourcesToLoad.clear();
@@ -486,12 +710,29 @@ void DX12Hook_t::_ResetRenderState(OverlayHookState state)
             break;
 
         case OverlayHookState::Reset:
+            _PollScreenshot(true, 250);
             _DestroyRenderTargets();
 
     }
-    
-    if (state == OverlayHookState::Removing)
-        --_DeviceReleasing;
+}
+
+bool DX12Hook_t::_IsSwapChain(IUnknown* pSwapChain) const
+{
+    if (pSwapChain == nullptr || _SwapChain == nullptr)
+        return false;
+
+    IUnknown* swapChainIdentity = nullptr;
+    IUnknown* overlaySwapChainIdentity = nullptr;
+    const HRESULT swapChainResult = pSwapChain->QueryInterface(IID_PPV_ARGS(&swapChainIdentity));
+    const HRESULT overlaySwapChainResult = _SwapChain->QueryInterface(IID_PPV_ARGS(&overlaySwapChainIdentity));
+    const bool isSameSwapChain = SUCCEEDED(swapChainResult)
+        && SUCCEEDED(overlaySwapChainResult)
+        && swapChainIdentity == overlaySwapChainIdentity;
+
+    SafeRelease(swapChainIdentity);
+    SafeRelease(overlaySwapChainIdentity);
+
+    return isSameSwapChain;
 }
 
 // Try to make this function and overlay's proc as short as possible or it might affect game's fps.
@@ -508,46 +749,86 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
 
     pSwapChain3->GetDesc(&sc_desc);
 
+    _PollScreenshot(false, 0);
+
     if(_HookState == OverlayHookState::Removing)
     {
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
-        _Device = nullptr;
-        if (pSwapChain3->GetDevice(IID_PPV_ARGS(&_Device)) != S_OK)
+        ID3D12Device* candidateDevice = nullptr;
+        if (FAILED(pSwapChain3->GetDevice(IID_PPV_ARGS(&candidateDevice))) || candidateDevice == nullptr)
         {
             pSwapChain3->Release();
             return;
         }
+        if (FAILED(candidateDevice->GetDeviceRemovedReason()))
+        {
+            _DeviceLost = true;
+            candidateDevice->Release();
+            pSwapChain3->Release();
+            return;
+        }
+        SafeRelease(_Device);
+        _Device = candidateDevice;
+        _DeviceLost = false;
+        _WaitFailureUnsafe = false;
+
+        bool contextCreated = false;
+        bool backendInitialized = false;
+        auto cleanupInitialization = [&]()
+        {
+            if (backendInitialized)
+            {
+                ImGui_ImplDX12_Shutdown();
+                backendInitialized = false;
+            }
+            if (contextCreated)
+            {
+                ImGui::DestroyContext();
+                contextCreated = false;
+                _ImGuiContextOwned = false;
+            }
+            _DestroyImageObjects();
+            _DestroyScreenshotObjects();
+            _DestroyRenderTargets();
+            _ShaderResourceViewHeaps.clear();
+            _ShaderResourceViewHeapDescriptors.clear();
+            SafeRelease(_Device);
+        };
 
         if (!_AllocShaderRessourceViewHeap())
         {
-            _Device->Release();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
         if (!_CreateRenderTargets(pSwapChain))
         {
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
         if (!_CreateImageObjects())
         {
-            _DestroyRenderTargets();
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
-        auto shaderRessourceView = _GetFreeShaderRessourceView();
-
         if (ImGui::GetCurrentContext() == nullptr)
+        {
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
+            contextCreated = true;
+            _ImGuiContextOwned = true;
+        }
+
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(NativeWindow_t{ sc_desc.OutputWindow }))
+        {
+            cleanupInitialization();
+            pSwapChain3->Release();
+            return;
+        }
 
         ImGui_ImplDX12_InitInfo initInfo{};
         initInfo.CommandQueue = pCommandQueue;
@@ -561,41 +842,63 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         {
             auto* _this = reinterpret_cast<DX12Hook_t*>(info->UserData);
             auto shaderResource = _this->_GetFreeShaderRessourceView();
-            _this->_ImGuiFontTextureId = shaderResource.Id;
             *out_cpu_desc_handle = shaderResource.CpuHandle;
             *out_gpu_desc_handle = shaderResource.GpuHandle;
         };
         initInfo.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo* info, D3D12_CPU_DESCRIPTOR_HANDLE cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_desc_handle)
         {
+            // ImGui allocates one descriptor per texture, find the slot from the handle it gives back.
             auto* _this = reinterpret_cast<DX12Hook_t*>(info->UserData);
-            _this->_ReleaseShaderRessourceView(_this->_ImGuiFontTextureId);
+            auto id = _this->_GetShaderRessourceViewId(cpu_desc_handle);
+            if (id != ShaderRessourceView_t::InvalidId)
+                _this->_ReleaseShaderRessourceView(id);
         };
 
-        ImGui_ImplDX12_Init(&initInfo);
-
-        WindowsHook_t::Inst()->SetInitialWindowSize(sc_desc.OutputWindow);
-
-        if (!ImGui_ImplDX12_CreateDeviceObjects())
+        backendInitialized = ImGui_ImplDX12_Init(&initInfo);
+        if (!backendInitialized)
         {
-            ImGui_ImplDX12_Shutdown();
-            _DestroyRenderTargets();
-            _Device->Release();
-            _ShaderResourceViewHeaps.clear();
-            _ShaderResourceViewHeapDescriptors.clear();
+            cleanupInitialization();
             pSwapChain3->Release();
             return;
         }
 
+        if (!ImGui_ImplDX12_CreateDeviceObjects())
+        {
+            cleanupInitialization();
+            pSwapChain3->Release();
+            return;
+        }
+
+        // Tie the overlay lifetime to the swapchain instead of guessing the device reference count.
+        auto* notifier = new ComDestructionNotifier_t(&DX12Hook_t::_OnSwapChainDestroyed, this);
+        if (SUCCEEDED(pSwapChain->SetPrivateDataInterface(GetComDestructionNotifierGuid(), notifier)))
+        {
+            _SwapChain = pSwapChain;
+            _SwapChainNotifier = notifier;
+        }
+        else
+        {
+            INGAMEOVERLAY_WARN("Failed to watch the DirectX 12 swapchain destruction.");
+            notifier->Detach();
+        }
+        notifier->Release();
+
         _ResetRenderState(OverlayHookState::Ready);
     }
 
-    if (ImGui_ImplDX12_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(sc_desc.OutputWindow))
+    if (ImGui_ImplDX12_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(NativeWindow_t{ sc_desc.OutputWindow }))
     {
-        auto& frame = _OverlayFrames[pSwapChain3->GetCurrentBackBufferIndex()];
+        const UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
+        auto& frame = _OverlayFrames[bufferIndex];
+        if (FAILED(pSwapChain3->GetBuffer(bufferIndex, IID_PPV_ARGS(&frame.BackBuffer))))
+        {
+            pSwapChain3->Release();
+            return;
+        }
 
         auto screenshotType = _ScreenshotType();
-        if (screenshotType == ScreenshotType_t::BeforeOverlay)
-            _HandleScreenshot(frame);
+        if (screenshotType == ScreenshotType_t::BeforeOverlay && !_PendingScreenshot.Submitted && !_ScreenshotQueueFailed)
+            _HandleScreenshot(frame, pCommandQueue);
 
         if (_ImGuiFontAtlas != nullptr)
         {
@@ -606,7 +909,7 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         ++_CurrentFrame;
         ImGui::NewFrame();
 
-        OverlayProc();
+        _OverlayProc();
 
         _LoadResources();
         _ReleaseResources();
@@ -619,6 +922,9 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 
+        // The allocator can only be reset once the GPU finished the previous overlay frame using it,
+        // the application presenting faster than the GPU must not make us overwrite commands in flight.
+        _WaitForFrame(frame);
         frame.CommandAllocator->Reset();
         frame.CommandList->Reset(frame.CommandAllocator, NULL);
         frame.CommandList->ResourceBarrier(1, &barrier);
@@ -633,9 +939,13 @@ void DX12Hook_t::_PrepareForOverlay(IDXGISwapChain* pSwapChain, ID3D12CommandQue
         frame.CommandList->Close();
 
         pCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&frame.CommandList);
+        if (SUCCEEDED(pCommandQueue->Signal(_FrameFence, ++_FrameFenceValue)))
+            frame.FenceValue = _FrameFenceValue;
 
-        if (screenshotType == ScreenshotType_t::AfterOverlay)
-            _HandleScreenshot(frame);
+        if (screenshotType == ScreenshotType_t::AfterOverlay && !_PendingScreenshot.Submitted && !_ScreenshotQueueFailed)
+            _HandleScreenshot(frame, pCommandQueue);
+
+        SafeRelease(frame.BackBuffer);
     }
 
     pSwapChain3->Release();
@@ -645,7 +955,52 @@ void DX12Hook_t::_LoadResources()
 {
     HRESULT hr;
 
-    if (_ImageResourcesToLoad.empty())
+    if (_ImageUploadBatchState.HasResources())
+    {
+        if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            return;
+        if (!_PendingImageFenceValid || _ImageFence == nullptr)
+        {
+            _ImageUploadBatchState.Fail();
+            return;
+        }
+
+        const UINT64 completedValue = _ImageFence->GetCompletedValue();
+        if (!_ImageUploadBatchState.Poll(completedValue >= _PendingImageFenceValue, completedValue == UINT64_MAX))
+        {
+            if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            {
+                for (auto& resource : _ImageUploadBatchState.Resources())
+                    resource->LoadStatus = RendererTextureStatus_e::Failed;
+            }
+            return;
+        }
+
+        for (auto& resource : _ImageUploadBatchState.Resources())
+            resource->LoadStatus = RendererTextureStatus_e::Loaded;
+        SafeRelease(_PendingImageUploadBuffer);
+        _ImageUploadBatchState.ClearResources();
+        _PendingImageFenceValue = 0;
+        _PendingImageFenceValid = false;
+        hr = _ImageCommandAllocator->Reset();
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            INGAMEOVERLAY_ERROR("Failed to reset the DirectX 12 image command allocator: {}", static_cast<long>(hr));
+            return;
+        }
+        hr = _ImageCommandList->Reset(_ImageCommandAllocator, nullptr);
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            INGAMEOVERLAY_ERROR("Failed to reset the DirectX 12 image command list: {}", static_cast<long>(hr));
+            return;
+        }
+
+        _ImageUploadBatchState.Reset();
+    }
+
+    if (!_ImageUploadBatchState.CanSubmit() || _ImageResourcesToLoad.empty())
         return;
 
     D3D12_HEAP_PROPERTIES defaultProps{};
@@ -673,6 +1028,11 @@ void DX12Hook_t::_LoadResources()
         auto& param = _ImageResourcesToLoad[i];
         auto r = param.Resource.lock();
         if (!r) continue;
+        if (param.Data == nullptr || param.Width == 0 || param.Height == 0)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         validResources.push_back(ValidTexture_t{
             std::static_pointer_cast<DX12Texture_t>(r),
@@ -684,14 +1044,35 @@ void DX12Hook_t::_LoadResources()
 
     if (!validResources.empty())
     {
+        auto failBatch = [this, loadParameterCount]()
+        {
+            for (size_t i = 0; i < loadParameterCount; ++i)
+            {
+                auto resource = _ImageResourcesToLoad[i].Resource.lock();
+                if (resource != nullptr)
+                    resource->LoadStatus = RendererTextureStatus_e::Failed;
+            }
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+        };
+
         UINT64 totalUploadSize = 0;
         std::vector<UINT> rowPitches;
         rowPitches.reserve(validResources.size());
         for (auto& tex : validResources)
         {
-            UINT pitch = (tex.Width * 4 + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) & ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u);
+            const UINT64 rowBytes = static_cast<UINT64>(tex.Width) * 4;
+            const UINT64 alignedPitch = (rowBytes + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1u) &
+                ~(static_cast<UINT64>(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) - 1u);
+            if (alignedPitch > (std::numeric_limits<UINT>::max)() ||
+                static_cast<UINT64>(tex.Height) > ((std::numeric_limits<UINT64>::max)() - totalUploadSize) / alignedPitch)
+            {
+                failBatch();
+                return;
+            }
+            const UINT pitch = static_cast<UINT>(alignedPitch);
             rowPitches.push_back(pitch);
-            totalUploadSize += tex.Height * pitch;
+            totalUploadSize += static_cast<UINT64>(tex.Height) * pitch;
         }
 
         D3D12_RESOURCE_DESC uploadDesc{};
@@ -708,12 +1089,21 @@ void DX12Hook_t::_LoadResources()
         ID3D12Resource* uploadBuffer = nullptr;
         hr = _Device->CreateCommittedResource(&uploadProps, D3D12_HEAP_FLAG_NONE, &uploadDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&uploadBuffer));
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || uploadBuffer == nullptr)
+        {
+            failBatch();
+            return;
+        }
 
         void* mapped = nullptr;
         D3D12_RANGE range{ 0, static_cast<SIZE_T>(totalUploadSize) };
         hr = uploadBuffer->Map(0, &range, &mapped);
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr) || mapped == nullptr)
+        {
+            SafeRelease(uploadBuffer);
+            failBatch();
+            return;
+        }
 
         UINT64 offset = 0;
         std::vector<D3D12_TEXTURE_COPY_LOCATION> srcLocations;
@@ -767,7 +1157,24 @@ void DX12Hook_t::_LoadResources()
             ID3D12Resource* pTexture = nullptr;
             hr = _Device->CreateCommittedResource(&defaultProps, D3D12_HEAP_FLAG_NONE, &texDesc,
                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&pTexture));
-            IM_ASSERT(SUCCEEDED(hr));
+            if (FAILED(hr) || pTexture == nullptr)
+            {
+                if (SUCCEEDED(_ImageCommandList->Close()))
+                {
+                    if (FAILED(_ImageCommandAllocator->Reset()) ||
+                        FAILED(_ImageCommandList->Reset(_ImageCommandAllocator, nullptr)))
+                        _ImageUploadBatchState.Fail();
+                }
+                else
+                {
+                    _ImageUploadBatchState.Fail();
+                }
+                for (auto* createdTexture : createdTextures)
+                    SafeRelease(createdTexture);
+                SafeRelease(uploadBuffer);
+                failBatch();
+                return;
+            }
             createdTextures.push_back(pTexture);
 
             D3D12_TEXTURE_COPY_LOCATION dstLoc{};
@@ -796,32 +1203,54 @@ void DX12Hook_t::_LoadResources()
         }
 
         hr = _ImageCommandList->Close();
-        IM_ASSERT(SUCCEEDED(hr));
+        if (FAILED(hr))
+        {
+            _ImageUploadBatchState.Fail();
+            for (auto* createdTexture : createdTextures)
+                SafeRelease(createdTexture);
+            SafeRelease(uploadBuffer);
+            failBatch();
+            return;
+        }
         _ImageCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList* const*)&_ImageCommandList);
 
         hr = _ImageCommandQueue->Signal(_ImageFence, ++_ImageFenceValue);
-        IM_ASSERT(SUCCEEDED(hr));
-        _ImageFence->SetEventOnCompletion(_ImageFenceValue, _ImageEvent);
-        WaitForSingleObject(_ImageEvent, INFINITE);
-
-        hr = _ImageCommandAllocator->Reset();
-        IM_ASSERT(SUCCEEDED(hr));
-        hr = _ImageCommandList->Reset(_ImageCommandAllocator, nullptr);
-        IM_ASSERT(SUCCEEDED(hr));
-
+        if (FAILED(hr))
+        {
+            INGAMEOVERLAY_ERROR("Failed to signal the DirectX 12 image upload fence: {}", static_cast<long>(hr));
+            for (size_t i = 0; i < validResources.size(); ++i)
+            {
+                validResources[i].Resource->pTexture = createdTextures[i];
+                validResources[i].Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(validResources[i].Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            uploadBuffer = nullptr;
+            _PendingImageFenceValue = _ImageFenceValue;
+            _PendingImageFenceValid = false;
+            _ImageUploadBatchState.Submitted(false);
+            failBatch();
+            return;
+        }
+        // Completion is polled on later render frames. This keeps the render thread nonblocking
+        // and the shared allocator/list unavailable until the queue has completed this batch.
         for (size_t i = 0; i < validResources.size(); ++i)
         {
             validResources[i].Resource->pTexture = createdTextures[i];
-            validResources[i].Resource->LoadStatus = RendererTextureStatus_e::Loaded;
+            _ImageUploadBatchState.Retain(validResources[i].Resource);
         }
-
-        SafeRelease(uploadBuffer);
+        _PendingImageUploadBuffer = uploadBuffer;
+        uploadBuffer = nullptr;
+        _PendingImageFenceValue = _ImageFenceValue;
+        _PendingImageFenceValid = true;
+        _ImageUploadBatchState.Submitted(true);
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
+        return;
     }
 
     _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
         _ImageResourcesToLoad.begin() + loadParameterCount);
-
-    _UpdateHookDeviceRefCount();
 }
 
 void DX12Hook_t::_ReleaseResources()
@@ -831,6 +1260,7 @@ void DX12Hook_t::_ReleaseResources()
 
     for (auto it = _ImageResourcesToRelease.begin(); it != _ImageResourcesToRelease.end();)
     {
+        auto texture = std::static_pointer_cast<DX12Texture_t>(it->Resource);
         if ((it->ReleaseFrame + _OverlayFrames.size()) < _CurrentFrame)
         {
             it = _ImageResourcesToRelease.erase(it);
@@ -840,11 +1270,9 @@ void DX12Hook_t::_ReleaseResources()
             ++it;
         }
     }
-
-    _UpdateHookDeviceRefCount();
 }
 
-void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
+void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame, ID3D12CommandQueue* pCommandQueue)
 {
     bool result = false;
 
@@ -870,6 +1298,29 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
     ScreenshotCallbackParameter_t screenshot;
 
     HRESULT hr;
+    const uint64_t requestId = _ScreenshotRequestId();
+
+    if (pCommandQueue == nullptr || _PendingScreenshot.Submitted || _ScreenshotQueueFailed)
+        return;
+
+    ID3D12Device* queueDevice = nullptr;
+    hr = pCommandQueue->GetDevice(IID_PPV_ARGS(&queueDevice));
+    IUnknown* queueIdentity = nullptr;
+    IUnknown* deviceIdentity = nullptr;
+    if (SUCCEEDED(hr) && queueDevice != nullptr)
+        hr = queueDevice->QueryInterface(IID_PPV_ARGS(&queueIdentity));
+    if (SUCCEEDED(hr) && _Device != nullptr)
+        hr = _Device->QueryInterface(IID_PPV_ARGS(&deviceIdentity));
+    const bool sameDevice = SUCCEEDED(hr) && queueIdentity != nullptr && deviceIdentity != nullptr && queueIdentity == deviceIdentity;
+    SafeRelease(queueIdentity);
+    SafeRelease(deviceIdentity);
+    if (FAILED(hr) || queueDevice == nullptr || !sameDevice)
+    {
+        SafeRelease(queueDevice);
+        _SendScreenshotForRequest(requestId, nullptr);
+        return;
+    }
+    queueDevice->Release();
 
     _Device->GetCopyableFootprints(&desc, 0, 1, 0, &layout, &numRows, &rowSize, &totalSize);
 
@@ -890,7 +1341,7 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
         screenshot.Data = reinterpret_cast<void*>(pMappedMemory);
         screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
 
-        _SendScreenshot(&screenshot);
+        _SendScreenshotForRequest(requestId, &screenshot);
 
         frame.BackBuffer->Unmap(0, nullptr);
 
@@ -954,47 +1405,36 @@ void DX12Hook_t::_HandleScreenshot(DX12Frame_t& frame)
 
     hr = _ScreenshotCommandList->Close();
     if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
         goto cleanup;
+    }
 
-    _CommandQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&_ScreenshotCommandList));
+    pCommandQueue->AddRef();
+    frame.BackBuffer->AddRef();
+    _PendingScreenshot.Staging = pStaging;
+    pStaging = nullptr;
+    _PendingScreenshot.BackBuffer = frame.BackBuffer;
+    _PendingScreenshot.CommandQueue = pCommandQueue;
+    _PendingScreenshot.Width = static_cast<UINT>(desc.Width);
+    _PendingScreenshot.Height = desc.Height;
+    _PendingScreenshot.Format = desc.Format;
+    _PendingScreenshot.Footprint = layout;
+    _PendingScreenshot.Type = _ScreenshotType();
+    _PendingScreenshot.RequestId = requestId;
+
+    pCommandQueue->ExecuteCommandLists(1, reinterpret_cast<ID3D12CommandList* const*>(&_ScreenshotCommandList));
+    _PendingScreenshot.Submitted = true;
 
     // Signal the fence
-    hr = _CommandQueue->Signal(_ScreenshotFence, ++_ScreenshotFenceValue);
+    hr = pCommandQueue->Signal(_ScreenshotFence, ++_ScreenshotFenceValue);
     if (FAILED(hr))
+    {
+        _ScreenshotQueueFailed = true;
         goto cleanup;
-
-    hr = _ScreenshotFence->SetEventOnCompletion(_ScreenshotFenceValue, _ScreenshotEvent);
-    if (FAILED(hr))
-        goto cleanup;
-
-    DWORD waitResult = WaitForSingleObject(_ScreenshotEvent, INFINITE);
-
-    if (waitResult != WAIT_OBJECT_0)
-        goto cleanup;
-
-    hr = _ScreenshotCommandAllocator->Reset();
-    if (FAILED(hr))
-        goto cleanup;
-
-    hr = _ScreenshotCommandList->Reset(_ScreenshotCommandAllocator, nullptr);
-    if (FAILED(hr))
-        goto cleanup;
-
-    hr = pStaging->Map(0, nullptr, (void**)&pMappedMemory);
-    if (FAILED(hr))
-        goto cleanup;
-
-    screenshot.Width = desc.Width;
-    screenshot.Height = desc.Height;
-    screenshot.Pitch = layout.Footprint.RowPitch;
-    screenshot.Data = reinterpret_cast<void*>(pMappedMemory);
-    screenshot.Format = RendererFormatToScreenshotFormat(desc.Format);
-
-    _SendScreenshot(&screenshot);
-
-    pStaging->Unmap(0, nullptr);
-    pMappedMemory = nullptr;
-
+    }
+    _PendingScreenshot.FenceValue = _ScreenshotFenceValue;
+    _PendingScreenshot.Signaled = true;
     result = true;
 
 cleanup:
@@ -1005,23 +1445,18 @@ cleanup:
     SafeRelease(pStaging);
 
     if (!result)
-        _SendScreenshot(nullptr);
+        _SendScreenshotForRequest(requestId, nullptr);
 }
 
-ULONG STDMETHODCALLTYPE DX12Hook_t::_MyID3D12DeviceRelease(IUnknown* _this)
+void DX12Hook_t::_OnSwapChainDestroyed(void* userData)
 {
-    auto inst = DX12Hook_t::Inst();
-    auto result = (_this->*inst->_ID3D12DeviceRelease)();
+    auto* inst = reinterpret_cast<DX12Hook_t*>(userData);
+    INGAMEOVERLAY_INFO("DirectX 12 swapchain destroyed, removing the overlay.");
 
-    if (_this == inst->_Device)
-    {
-        INGAMEOVERLAY_INFO("ID3D12Device::Release: RefCount = {}, Our removal threshold = {}", result, inst->_HookDeviceRefCount);
-
-        if (inst->_DeviceReleasing == 0 && result <= inst->_HookDeviceRefCount)
-            inst->_ResetRenderState(OverlayHookState::Removing);
-    }
-
-    return result;
+    // The swapchain is being destroyed, it must not be used anymore.
+    inst->_SwapChainNotifier = nullptr;
+    inst->_SwapChain = nullptr;
+    inst->_ResetRenderState(OverlayHookState::Removing);
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_this, UINT SyncInterval, UINT Flags)
@@ -1029,17 +1464,28 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainPresent(IDXGISwapChain *_
     INGAMEOVERLAY_INFO("IDXGISwapChain::Present");
     auto inst = DX12Hook_t::Inst();
 
+    if (inst->_SwapChain != nullptr && !inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    if (inst->_SwapChain == nullptr && inst->_HookState != OverlayHookState::Removing)
+        return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
-    if (pCommandQueue != nullptr)
+    if (pCommandQueue != nullptr && !inst->_WaitFailureUnsafe)
         inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
-    return (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    HRESULT result = (_this->*inst->_IDXGISwapChainPresent)(SyncInterval, Flags);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, result))
+        inst->_ResetRenderState(OverlayHookState::Removing);
+    return result;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeBuffers");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -1048,6 +1494,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeBuffers(IDXGISwapCh
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChainResizeBuffers)(BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1062,6 +1513,9 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain::ResizeTarget");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -1070,6 +1524,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChainResizeTarget(IDXGISwapCha
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChainResizeTarget)(pNewTargetParameters);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1084,18 +1543,29 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain1Present1(IDXGISwapChain1
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain1::Present1");
     auto inst = DX12Hook_t::Inst();
+
+    if (inst->_SwapChain != nullptr && !inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    if (inst->_SwapChain == nullptr && inst->_HookState != OverlayHookState::Removing)
+        return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
     
     ID3D12CommandQueue* pCommandQueue = inst->_FindCommandQueueFromSwapChain(_this);
-    if (pCommandQueue != nullptr)
+    if (pCommandQueue != nullptr && !inst->_WaitFailureUnsafe)
         inst->_PrepareForOverlay(_this, pCommandQueue, Flags);
 
-    return (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    HRESULT result = (_this->*inst->_IDXGISwapChain1Present1)(SyncInterval, Flags, pPresentParameters);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, result))
+        inst->_ResetRenderState(OverlayHookState::Removing);
+    return result;
 }
 
 HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
 {
     INGAMEOVERLAY_INFO("IDXGISwapChain3::ResizeBuffers1");
     auto inst = DX12Hook_t::Inst();
+    if (!inst->_IsSwapChain(_this))
+        return (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+
     auto createRenderTargets = false;
 
     if (inst->_Device != nullptr && inst->_HookState != OverlayHookState::Removing)
@@ -1104,6 +1574,11 @@ HRESULT STDMETHODCALLTYPE DX12Hook_t::_MyIDXGISwapChain3ResizeBuffers1(IDXGISwap
         inst->_ResetRenderState(OverlayHookState::Reset);
     }
     auto r = (_this->*inst->_IDXGISwapChain3ResizeBuffers1)(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+    if (inst->_ConfirmDeviceLostForSwapChain(_this, r))
+    {
+        inst->_ResetRenderState(OverlayHookState::Removing);
+        return r;
+    }
     if (createRenderTargets)
     {
         inst->_ResetRenderState(inst->_CreateRenderTargets(_this)
@@ -1127,28 +1602,37 @@ void STDMETHODCALLTYPE DX12Hook_t::_MyID3D12CommandQueueExecuteCommandLists(ID3D
 DX12Hook_t::DX12Hook_t():
     _Hooked(false),
     _WindowsHooked(false),
-    _DeviceReleasing(0),
     _CommandQueueOffsetRetries(0),
     _CommandQueueOffset(0),
     _CommandQueue(nullptr),
     _Device(nullptr),
-    _HookDeviceRefCount(0),
     _HookState(OverlayHookState::Removing),
+    _DeviceLost(false),
+    _WaitFailureUnsafe(false),
+    _SwapChain(nullptr),
+    _SwapChainNotifier(nullptr),
     _RenderTargetViewDescriptorHeap(nullptr),
-    _ImageEvent(nullptr),
+    _FrameFence(nullptr),
+    _FrameFenceEvent(nullptr),
+    _FrameFenceValue(0),
     _ImageFenceValue(0),
     _ImageFence(nullptr),
     _ImageCommandQueue(nullptr),
     _ImageCommandAllocator(nullptr),
     _ImageCommandList(nullptr),
+    _PendingImageUploadBuffer(nullptr),
+    _PendingImageFenceValue(0),
+    _PendingImageFenceValid(false),
     _ScreenshotEvent(nullptr),
     _ScreenshotFenceValue(0),
     _ScreenshotFence(nullptr),
     _ScreenshotCommandAllocator(nullptr),
     _ScreenshotCommandList(nullptr),
-    _ImGuiFontTextureId(ShaderRessourceView_t::InvalidId),
+    _PendingScreenshot{},
+    _ScreenshotQueueFailed(false),
+    _ScreenshotDeviceLost(false),
     _ImGuiFontAtlas(nullptr),
-    _ID3D12DeviceRelease(nullptr),
+    _ImGuiContextOwned(false),
     _IDXGISwapChainPresent(nullptr),
     _IDXGISwapChainResizeBuffers(nullptr),
     _IDXGISwapChainResizeTarget(nullptr),
@@ -1165,7 +1649,7 @@ DX12Hook_t::~DX12Hook_t()
     _ResetRenderState(OverlayHookState::Removing);
 
     if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;
@@ -1190,7 +1674,6 @@ RendererHookType_t DX12Hook_t::GetRendererHookType() const
 }
 
 void DX12Hook_t::LoadFunctions(
-    decltype(_ID3D12DeviceRelease) releaseFcn,
     decltype(_IDXGISwapChainPresent) presentFcn,
     decltype(_IDXGISwapChainResizeBuffers) resizeBuffersFcn,
     decltype(_IDXGISwapChainResizeTarget) resizeTargetFcn,
@@ -1198,8 +1681,6 @@ void DX12Hook_t::LoadFunctions(
     decltype(_IDXGISwapChain3ResizeBuffers1) resizeBuffers1Fcn,
     decltype(_ID3D12CommandQueueExecuteCommandLists) executeCommandListsFcn)
 {
-    _ID3D12DeviceRelease = releaseFcn;
-
     _IDXGISwapChainPresent = presentFcn;
     _IDXGISwapChainResizeBuffers = resizeBuffersFcn;
     _IDXGISwapChainResizeTarget = resizeTargetFcn;

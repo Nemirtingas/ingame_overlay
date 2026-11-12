@@ -17,14 +17,15 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#include "WindowHook.h"
 #include "VulkanHook.h"
-#include "WindowsHook.h"
 
 #include <imgui.h>
+#include <limits>
 #include <imgui_internal.h>
 #include <backends/imgui_impl_vulkan.h>
 
-#include "../VulkanHelpers.h"
+#include "VulkanHelpers.h"
 
 namespace InGameOverlay {
 
@@ -93,10 +94,10 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
         if (!_CreateVulkanInstance())
             return false;
 
-        if (!WindowsHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
+        if (!WindowHook_t::Inst()->StartHook(keyCombinationCallback, toggleKeys, toggleKeysCount))
             return false;
 
-        _WindowsHooked = true;
+        _WindowHooked = true;
 
         BeginHook();
         TRY_HOOK_FUNCTION_OR_FAIL(VkAcquireNextImageKHR);
@@ -118,13 +119,13 @@ bool VulkanHook_t::StartHook(std::function<void()> keyCombinationCallback, Toggl
 void VulkanHook_t::HideAppInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideAppInputs(hide);
+        WindowHook_t::Inst()->HideAppInputs(hide);
 }
 
 void VulkanHook_t::HideOverlayInputs(bool hide)
 {
     if (_HookState == OverlayHookState::Ready)
-        WindowsHook_t::Inst()->HideOverlayInputs(hide);
+        WindowHook_t::Inst()->HideOverlayInputs(hide);
 }
 
 bool VulkanHook_t::IsStarted()
@@ -136,9 +137,11 @@ bool VulkanHook_t::_AllocDescriptorPool()
 {    
     VkDescriptorPool vulkanDescriptorPool = VK_NULL_HANDLE;
 
+    // The ImGui Vulkan backend binds our descriptor sets as set 0, whose layout holds a SAMPLED_IMAGE
+    // (the sampler lives in the backend's own set 1), so the pool must hold that descriptor type.
     VkDescriptorPoolSize poolSizes[] =
     {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MaxDescriptorCountPerPool },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MaxDescriptorCountPerPool },
     };
 
     VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
@@ -211,14 +214,14 @@ void VulkanHook_t::_DestroyDescriptorPools()
 void VulkanHook_t::_CreateImageTexture(VkDescriptorSet descriptorSet, VkImageView imageView, VkImageLayout imageLayout)
 {
     VkDescriptorImageInfo descriptorImageInfo[1] = {};
-    descriptorImageInfo[0].sampler = _VulkanImageSampler;
+    // No sampler here: the backend samples with its own linear/nearest samplers.
     descriptorImageInfo[0].imageView = imageView;
     descriptorImageInfo[0].imageLayout = imageLayout;
     VkWriteDescriptorSet writeDescriptorSet[1] = {};
     writeDescriptorSet[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writeDescriptorSet[0].dstSet = descriptorSet;
     writeDescriptorSet[0].descriptorCount = 1;
-    writeDescriptorSet[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writeDescriptorSet[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     writeDescriptorSet[0].pImageInfo = descriptorImageInfo;
     _vkUpdateDescriptorSets(_VulkanDevice, 1, writeDescriptorSet, 0, nullptr);
 }
@@ -365,19 +368,23 @@ void VulkanHook_t::_ResetRenderState(OverlayHookState state)
     if (_HookState == state)
         return;
 
-    OverlayHookReady(state);
+    _OverlayHookReady(state);
 
     _HookState = state;
     switch (state)
     {
         case OverlayHookState::Removing:
             ImGui_ImplVulkan_Shutdown();
-            WindowsHook_t::Inst()->ResetRenderState(state);
+            WindowHook_t::Inst()->ResetRenderState(state);
             ImGui::DestroyContext();
 
             _ImageResources.clear();
+            _ImageResourcesToLoad.clear();
+            _ImageResourcesToRelease.clear();
 
             _FreeVulkanRessources();
+            _ImageUploadBatchState.ClearResources();
+            _ImageUploadBatchState.Reset();
 
             _SentOutOfDate = false;
             break;
@@ -400,9 +407,26 @@ PFN_vkVoidFunction VulkanHook_t::_LoadVulkanFunction(const char* functionName)
 void VulkanHook_t::_FreeVulkanRessources()
 {
     _DestroyRenderTargets();
-    _DestroyImageDevices();
+    if (_PendingImageUpload)
+    {
+        // Submitted work has no completion proof. Leave its command pool, fence, staging
+        // allocation, and images to VkDestroyDevice, which follows this teardown callback.
+        _VulkanImageCommandBuffer = VK_NULL_HANDLE;
+        _VulkanImageCommandPool = VK_NULL_HANDLE;
+        _VulkanImageFence = VK_NULL_HANDLE;
+        _PendingImageUploadBuffer = VK_NULL_HANDLE;
+        _PendingImageUploadMemory = VK_NULL_HANDLE;
+        _PendingImageUpload = false;
+        _ImageUploadBatchState.Fail();
+        _DestroyImageDescriptorSetLayout();
+    }
+    else
+    {
+        _DestroyImageDevices();
+    }
 
     _DestroyDescriptorPools();
+    _DestroyRenderPass();
 
     _VulkanQueue = nullptr;
     _VulkanDevice = nullptr;
@@ -456,8 +480,6 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkDestroyCommandPool);
     LOAD_VULKAN_FUNCTION(vkCreateImageView);
     LOAD_VULKAN_FUNCTION(vkDestroyImageView);
-    LOAD_VULKAN_FUNCTION(vkCreateSampler);
-    LOAD_VULKAN_FUNCTION(vkDestroySampler);
     LOAD_VULKAN_FUNCTION(vkCreateImage);
     LOAD_VULKAN_FUNCTION(vkDestroyImage);
     LOAD_VULKAN_FUNCTION(vkAllocateMemory);
@@ -472,6 +494,7 @@ bool VulkanHook_t::_CreateVulkanInstance()
     LOAD_VULKAN_FUNCTION(vkDestroyFramebuffer);
     LOAD_VULKAN_FUNCTION(vkCreateFence);
     LOAD_VULKAN_FUNCTION(vkWaitForFences);
+    LOAD_VULKAN_FUNCTION(vkGetFenceStatus);
     LOAD_VULKAN_FUNCTION(vkResetFences);
     LOAD_VULKAN_FUNCTION(vkDestroyFence);
     LOAD_VULKAN_FUNCTION(vkCreateDescriptorPool);
@@ -600,41 +623,15 @@ void VulkanHook_t::_DestroyImageFence()
     }
 }
 
-bool VulkanHook_t::_CreateImageSampler()
-{
-    if (_VulkanImageSampler != VK_NULL_HANDLE)
-        return true;
-
-    VkSamplerCreateInfo samplerInfo = {};
-    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    samplerInfo.minLod = -1000;
-    samplerInfo.maxLod = 1000;
-    samplerInfo.maxAnisotropy = 1.0f;
-    return _vkCreateSampler(_VulkanDevice, &samplerInfo, _VulkanAllocationCallbacks, &_VulkanImageSampler) == VkResult::VK_SUCCESS;
-}
-
-void VulkanHook_t::_DestroyImageSampler()
-{
-    if (_VulkanImageSampler != VK_NULL_HANDLE)
-    {
-        _vkDestroySampler(_VulkanDevice, _VulkanImageSampler, _VulkanAllocationCallbacks);
-        _VulkanImageSampler = VK_NULL_HANDLE;
-    }
-}
-
 bool VulkanHook_t::_CreateImageDescriptorSetLayout()
 {
     if (_VulkanImageDescriptorSetLayout != VK_NULL_HANDLE)
         return true;
 
+    // Must stay identical to the backend's set 0 layout (ImGui_ImplVulkan_CreateDescriptorSetLayout),
+    // which is what the overlay's pipeline layout expects at set 0.
     VkDescriptorSetLayoutBinding binding[1] = {};
-    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     binding[0].descriptorCount = 1;
     binding[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     VkDescriptorSetLayoutCreateInfo info = {};
@@ -700,9 +697,6 @@ bool VulkanHook_t::_CreateImageDevices()
     if (!_CreateImageFence())
         return false;
 
-    if (!_CreateImageSampler())
-        return false;
-
     if (!_CreateImageDescriptorSetLayout())
         return false;
     
@@ -720,7 +714,6 @@ void VulkanHook_t::_DestroyImageDevices()
     _DestroyImageCommandBuffer();
     _DestroyImageCommandPool();
     _DestroyImageDescriptorSetLayout();
-    _DestroyImageSampler();
     _DestroyImageFence();
 }
 
@@ -736,7 +729,7 @@ bool VulkanHook_t::_CreateRenderPass()
     attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     VkAttachmentReference colorAttachment = { };
@@ -808,16 +801,25 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
 
     if (_HookState == OverlayHookState::Removing)
     {
-        auto processWindows = WindowsHook_t::Inst()->FindApplicationHWND(GetCurrentProcessId());
-        if (processWindows.empty())
+        // Until the overlay is initialised (a native Wayland game has no X window, a window may not have
+        // its _NET_WM_PID yet), don't search more than once per second.
+        const auto now = std::chrono::steady_clock::now();
+        if (now < _NextWindowSearch)
             return;
 
-        _MainWindow = processWindows[0];
+        _NextWindowSearch = now + std::chrono::seconds(1);
+
+        auto windows = WindowHook_t::Inst()->FindApplicationWindows();
+        if (windows.empty())
+            return;
+
+        _MainWindow = windows[0];
 
         if (ImGui::GetCurrentContext() == nullptr)
             ImGui::CreateContext(reinterpret_cast<ImFontAtlas*>(_ImGuiFontAtlas));
 
-        WindowsHook_t::Inst()->SetInitialWindowSize(_MainWindow);
+        if (!WindowHook_t::Inst()->SetInitialWindowSize(_MainWindow))
+            return;
 
         if (_VulkanQueue == nullptr)
             _vkGetDeviceQueue(_VulkanDevice, _VulkanQueueFamily, 0, &_VulkanQueue);
@@ -885,9 +887,11 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             _vkCmdBeginRenderPass(frame.CommandBuffer, &info, VK_SUBPASS_CONTENTS_INLINE);
         }
 
+        // The command buffer is recording and the fence has been reset: it must always be submitted,
+        // even if the overlay cannot render this frame, or the next vkWaitForFences will never return.
         auto canTakeScreenshot = false;
         auto screenshotType = _ScreenshotType();
-        if (ImGui_ImplVulkan_NewFrame() && WindowsHook_t::Inst()->PrepareForOverlay(_MainWindow))
+        if (ImGui_ImplVulkan_NewFrame() && WindowHook_t::Inst()->PrepareForOverlay(_MainWindow))
         {
             if (screenshotType == ScreenshotType_t::BeforeOverlay)
                 _HandleScreenshot(frame);
@@ -901,7 +905,7 @@ void VulkanHook_t::_PrepareForOverlay(VkQueue queue, const VkPresentInfoKHR* pPr
             ++_CurrentFrame;
             ImGui::NewFrame();
 
-            OverlayProc();
+            _OverlayProc();
 
             _LoadResources();
             _ReleaseResources();
@@ -980,6 +984,61 @@ void VulkanHook_t::_LoadResources()
 {
     VkResult result;
 
+    if (_PendingImageUpload)
+    {
+        if (_ImageUploadBatchState.GetStatus() == RendererUploadBatchState_t<RendererTexture_t>::Status_e::Failed)
+            return;
+        if (_VulkanDevice == VK_NULL_HANDLE || _VulkanImageFence == VK_NULL_HANDLE || _vkGetFenceStatus == nullptr)
+        {
+            _ImageUploadBatchState.Fail();
+            return;
+        }
+
+        result = _vkGetFenceStatus(_VulkanDevice, _VulkanImageFence);
+        if (result == VK_NOT_READY)
+            return;
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Poll(false, true);
+            for (auto& resource : _ImageUploadBatchState.Resources())
+                resource->LoadStatus = RendererTextureStatus_e::Failed;
+            return;
+        }
+        _ImageUploadBatchState.Poll(true, false);
+        for (auto& resource : _ImageUploadBatchState.Resources())
+            resource->LoadStatus = RendererTextureStatus_e::Loaded;
+
+        _vkDestroyBuffer(_VulkanDevice, _PendingImageUploadBuffer, _VulkanAllocationCallbacks);
+        _vkFreeMemory(_VulkanDevice, _PendingImageUploadMemory, _VulkanAllocationCallbacks);
+        _PendingImageUploadBuffer = VK_NULL_HANDLE;
+        _PendingImageUploadMemory = VK_NULL_HANDLE;
+        _PendingImageUpload = false;
+
+        result = _vkResetFences(_VulkanDevice, 1, &_VulkanImageFence);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Fail();
+            _ImageUploadBatchState.ClearResources();
+            return;
+        }
+        result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _ImageUploadBatchState.Fail();
+            _ImageUploadBatchState.ClearResources();
+            return;
+        }
+
+        _ImageUploadBatchState.ClearResources();
+        _ImageUploadBatchState.Reset();
+    }
+
+    if (!_ImageUploadBatchState.CanSubmit())
+        return;
+
     struct ValidTexture_t
     {
         std::shared_ptr<VulkanTexture_t> Resource;
@@ -1000,30 +1059,99 @@ void VulkanHook_t::_LoadResources()
 
         auto r = param.Resource.lock();
         if (!r) continue;
+        if (param.Data == nullptr || param.Width == 0 || param.Height == 0)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
 
         ValidTexture_t t{};
         t.Resource = std::static_pointer_cast<VulkanTexture_t>(r);
         t.Data = param.Data;
         t.Width = param.Width;
         t.Height = param.Height;
-        t.Size = t.Width * t.Height * 4;
+        const VkDeviceSize maxSize = (std::numeric_limits<VkDeviceSize>::max)();
+        if (static_cast<VkDeviceSize>(t.Width) > maxSize / t.Height / 4)
+        {
+            r->LoadStatus = RendererTextureStatus_e::Failed;
+            continue;
+        }
+        t.Size = static_cast<VkDeviceSize>(t.Width) * static_cast<VkDeviceSize>(t.Height) * 4;
 
         validResources.push_back(t);
     }
 
     if (validResources.empty())
+    {
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
         return;
+    }
 
     VkDeviceSize totalUploadSize = 0;
 
     for (auto& v : validResources)
     {
+        if (v.Size > (std::numeric_limits<VkDeviceSize>::max)() - totalUploadSize)
+        {
+            for (auto& tex : validResources)
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+            return;
+        }
         v.Offset = totalUploadSize;
         totalUploadSize += v.Size;
     }
 
     VkBuffer uploadBuffer = VK_NULL_HANDLE;
     VkDeviceMemory uploadBufferMemory = VK_NULL_HANDLE;
+
+    auto failBatch = [this, &validResources, loadParameterCount, &uploadBuffer, &uploadBufferMemory]()
+    {
+        VkResult resetResult = VK_SUCCESS;
+        if (_VulkanImageCommandPool != VK_NULL_HANDLE)
+            resetResult = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+
+        if (resetResult != VK_SUCCESS)
+        {
+            _CheckVkResult(resetResult);
+            _ImageUploadBatchState.Fail();
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(tex.Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            _PendingImageUploadMemory = uploadBufferMemory;
+            _PendingImageUpload = true;
+            uploadBuffer = VK_NULL_HANDLE;
+            uploadBufferMemory = VK_NULL_HANDLE;
+        }
+        else
+        {
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                if (tex.Resource->VulkanImageView != VK_NULL_HANDLE)
+                    _vkDestroyImageView(_VulkanDevice, tex.Resource->VulkanImageView, _VulkanAllocationCallbacks);
+                if (tex.Resource->VulkanImage != VK_NULL_HANDLE)
+                    _vkDestroyImage(_VulkanDevice, tex.Resource->VulkanImage, _VulkanAllocationCallbacks);
+                if (tex.Resource->VulkanImageMemory != VK_NULL_HANDLE)
+                    _vkFreeMemory(_VulkanDevice, tex.Resource->VulkanImageMemory, _VulkanAllocationCallbacks);
+                tex.Resource->VulkanImageView = VK_NULL_HANDLE;
+                tex.Resource->VulkanImage = VK_NULL_HANDLE;
+                tex.Resource->VulkanImageMemory = VK_NULL_HANDLE;
+            }
+            if (uploadBuffer != VK_NULL_HANDLE)
+                _vkDestroyBuffer(_VulkanDevice, uploadBuffer, _VulkanAllocationCallbacks);
+            if (uploadBufferMemory != VK_NULL_HANDLE)
+                _vkFreeMemory(_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
+        }
+
+        _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+            _ImageResourcesToLoad.begin() + loadParameterCount);
+    };
 
     {
         VkBufferCreateInfo buffer_info{};
@@ -1033,6 +1161,11 @@ void VulkanHook_t::_LoadResources()
 
         result = _vkCreateBuffer(_VulkanDevice, &buffer_info, _VulkanAllocationCallbacks, &uploadBuffer);
         _CheckVkResult(result);
+        if (result != VK_SUCCESS || uploadBuffer == VK_NULL_HANDLE)
+        {
+            failBatch();
+            return;
+        }
 
         VkMemoryRequirements req;
         _vkGetBufferMemoryRequirements(_VulkanDevice, uploadBuffer, &req);
@@ -1044,15 +1177,38 @@ void VulkanHook_t::_LoadResources()
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             req.memoryTypeBits);
 
+        if (alloc.memoryTypeIndex == 0xFFFFFFFF)
+        {
+            failBatch();
+            return;
+        }
+
         result = _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &uploadBufferMemory);
         _CheckVkResult(result);
+        if (result != VK_SUCCESS || uploadBufferMemory == VK_NULL_HANDLE)
+        {
+            failBatch();
+            return;
+        }
 
-        _vkBindBufferMemory(_VulkanDevice, uploadBuffer, uploadBufferMemory, 0);
+        result = _vkBindBufferMemory(_VulkanDevice, uploadBuffer, uploadBufferMemory, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
     }
 
     {
         uint8_t* map = nullptr;
-        _vkMapMemory(_VulkanDevice, uploadBufferMemory, 0, totalUploadSize, 0, (void**)&map);
+        result = _vkMapMemory(_VulkanDevice, uploadBufferMemory, 0, totalUploadSize, 0, (void**)&map);
+        if (result != VK_SUCCESS || map == nullptr)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
 
         for (auto& v : validResources)
             memcpy(map + v.Offset, v.Data, v.Size);
@@ -1060,13 +1216,25 @@ void VulkanHook_t::_LoadResources()
         _vkUnmapMemory(_VulkanDevice, uploadBufferMemory);
     }
 
-    _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+    result = _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        failBatch();
+        return;
+    }
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    _vkBeginCommandBuffer(_VulkanImageCommandBuffer, &beginInfo);
+    result = _vkBeginCommandBuffer(_VulkanImageCommandBuffer, &beginInfo);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        failBatch();
+        return;
+    }
 
     for (auto& tex : validResources)
     {
@@ -1085,7 +1253,13 @@ void VulkanHook_t::_LoadResources()
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
         info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-        _vkCreateImage(_VulkanDevice, &info, _VulkanAllocationCallbacks, &image);
+        result = _vkCreateImage(_VulkanDevice, &info, _VulkanAllocationCallbacks, &image);
+        if (result != VK_SUCCESS || image == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            failBatch();
+            return;
+        }
 
         VkMemoryRequirements req;
         _vkGetImageMemoryRequirements(_VulkanDevice, image, &req);
@@ -1095,8 +1269,30 @@ void VulkanHook_t::_LoadResources()
         alloc.allocationSize = req.size;
         alloc.memoryTypeIndex = _GetVulkanMemoryType(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, req.memoryTypeBits);
 
-        _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &memory);
-        _vkBindImageMemory(_VulkanDevice, image, memory, 0);
+        if (alloc.memoryTypeIndex == 0xFFFFFFFF)
+        {
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
+
+        result = _vkAllocateMemory(_VulkanDevice, &alloc, _VulkanAllocationCallbacks, &memory);
+        if (result != VK_SUCCESS || memory == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
+        result = _vkBindImageMemory(_VulkanDevice, image, memory, 0);
+        if (result != VK_SUCCESS)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            _vkFreeMemory(_VulkanDevice, memory, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1107,7 +1303,15 @@ void VulkanHook_t::_LoadResources()
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.layerCount = 1;
 
-        _vkCreateImageView(_VulkanDevice, &viewInfo, _VulkanAllocationCallbacks, &view);
+        result = _vkCreateImageView(_VulkanDevice, &viewInfo, _VulkanAllocationCallbacks, &view);
+        if (result != VK_SUCCESS || view == VK_NULL_HANDLE)
+        {
+            _CheckVkResult(result);
+            _vkDestroyImage(_VulkanDevice, image, _VulkanAllocationCallbacks);
+            _vkFreeMemory(_VulkanDevice, memory, _VulkanAllocationCallbacks);
+            failBatch();
+            return;
+        }
 
         _CreateImageTexture(tex.Resource->ImageDescriptorId.DescriptorSet, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -1157,22 +1361,60 @@ void VulkanHook_t::_LoadResources()
         tex.Resource->VulkanImage = image;
         tex.Resource->VulkanImageMemory = memory;
         tex.Resource->VulkanImageView = view;
-        tex.Resource->LoadStatus = RendererTextureStatus_e::Loaded;
     }
 
-    _vkEndCommandBuffer(_VulkanImageCommandBuffer);
+    result = _vkEndCommandBuffer(_VulkanImageCommandBuffer);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        _vkResetCommandPool(_VulkanDevice, _VulkanImageCommandPool, 0);
+        failBatch();
+        return;
+    }
 
     VkSubmitInfo submit{};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &_VulkanImageCommandBuffer;
 
-    _vkQueueSubmit(_VulkanQueue, 1, &submit, _VulkanImageFence);
-    _vkWaitForFences(_VulkanDevice, 1, &_VulkanImageFence, VK_TRUE, UINT64_MAX);
-    _vkResetFences(_VulkanDevice, 1, &_VulkanImageFence);
+    result = _vkQueueSubmit(_VulkanQueue, 1, &submit, _VulkanImageFence);
+    if (result != VK_SUCCESS)
+    {
+        _CheckVkResult(result);
+        if (result == VK_ERROR_DEVICE_LOST)
+        {
+            for (auto& tex : validResources)
+            {
+                tex.Resource->LoadStatus = RendererTextureStatus_e::Failed;
+                _ImageUploadBatchState.Retain(tex.Resource);
+            }
+            _PendingImageUploadBuffer = uploadBuffer;
+            _PendingImageUploadMemory = uploadBufferMemory;
+            _PendingImageUpload = true;
+            _ImageUploadBatchState.Submitted(false);
+            uploadBuffer = VK_NULL_HANDLE;
+            uploadBufferMemory = VK_NULL_HANDLE;
+            _ImageResourcesToLoad.erase(_ImageResourcesToLoad.begin(),
+                _ImageResourcesToLoad.begin() + loadParameterCount);
+        }
+        else
+        {
+            _ImageUploadBatchState.Submitted(false);
+            failBatch();
+        }
+        return;
+    }
 
-    _vkDestroyBuffer(_VulkanDevice, uploadBuffer, _VulkanAllocationCallbacks);
-    _vkFreeMemory(_VulkanDevice, uploadBufferMemory, _VulkanAllocationCallbacks);
+    // Poll the fence on later render frames. Keep the full batch and staging allocation alive,
+    // and do not reset the fence, command pool, or command buffer until completion is confirmed.
+    for (auto& tex : validResources)
+        _ImageUploadBatchState.Retain(tex.Resource);
+    _PendingImageUploadBuffer = uploadBuffer;
+    _PendingImageUploadMemory = uploadBufferMemory;
+    _PendingImageUpload = true;
+    _ImageUploadBatchState.Submitted(true);
+    uploadBuffer = VK_NULL_HANDLE;
+    uploadBufferMemory = VK_NULL_HANDLE;
 
     _ImageResourcesToLoad.erase(
         _ImageResourcesToLoad.begin(),
@@ -1224,6 +1466,8 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     VkImage dstImage = VK_NULL_HANDLE;
     VkDeviceMemory dstMemory = VK_NULL_HANDLE;
     VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+    VkFence copyFence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fenceInfo{};
 
     VkMemoryRequirements memReqs{};
     VkMemoryAllocateInfo allocInfo{};
@@ -1300,6 +1544,17 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
+    // The swapchain image is in PRESENT_SRC_KHR, which is not a valid copy source layout
+    barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.image = frame.BackBuffer;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+    _vkCmdPipelineBarrier(cmdBuffer,
+        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
+
     // Copy from src (swapchain) to dst (linear)
     imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     imageCopy.srcSubresource.layerCount = 1;
@@ -1310,9 +1565,19 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     imageCopy.extent.depth = 1;
 
     _vkCmdCopyImage(cmdBuffer,
-        frame.BackBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        frame.BackBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dstImage, VK_IMAGE_LAYOUT_GENERAL,
         1, &imageCopy);
+
+    // Give the swapchain image back to the present engine in its original layout
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = 0;
+
+    _vkCmdPipelineBarrier(cmdBuffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     _vkEndCommandBuffer(cmdBuffer);
 
@@ -1320,8 +1585,17 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
-    _vkQueueSubmit(_VulkanQueue, 1, &submitInfo, VK_NULL_HANDLE);
-    _vkQueueWaitIdle(_VulkanQueue);
+    // Wait for this copy only, not for the whole queue
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (_vkCreateFence(_VulkanDevice, &fenceInfo, _VulkanAllocationCallbacks, &copyFence) != VK_SUCCESS)
+        goto cleanup;
+
+    if (_vkQueueSubmit(_VulkanQueue, 1, &submitInfo, copyFence) != VK_SUCCESS)
+        goto cleanup;
+
+    // Infinite wait: the command buffer and images are still in use by the GPU until this returns
+    if (_vkWaitForFences(_VulkanDevice, 1, &copyFence, VK_TRUE, ~0ull) != VK_SUCCESS)
+        goto cleanup;
 
     // 4. Map memory
     _vkGetImageSubresourceLayout(_VulkanDevice, dstImage, &subresource, &layout);
@@ -1345,6 +1619,9 @@ void VulkanHook_t::_HandleScreenshot(VulkanFrame_t& frame)
     result = true;
 
 cleanup:
+    if (copyFence != VK_NULL_HANDLE)
+        _vkDestroyFence(_VulkanDevice, copyFence, _VulkanAllocationCallbacks);
+
     if (dstImage != VK_NULL_HANDLE)
         _vkDestroyImage(_VulkanDevice, dstImage, nullptr);
 
@@ -1426,12 +1703,11 @@ VKAPI_ATTR void VKAPI_CALL VulkanHook_t::_MyVkDestroyDevice(VkDevice device, con
     inst->_VkDestroyDevice(device, pAllocator);
 }
 
-VulkanHook_t::VulkanHook_t():
+VulkanHook_t::VulkanHook_t() :
     _Hooked(false),
-    _WindowsHooked(false),
+    _WindowHooked(false),
     _SentOutOfDate(false),
     _HookState(OverlayHookState::Removing),
-    _MainWindow(nullptr),
     _VulkanLoader(nullptr),
     _VulkanAllocationCallbacks(nullptr),
     _VulkanInstance(VK_NULL_HANDLE),
@@ -1440,7 +1716,9 @@ VulkanHook_t::VulkanHook_t():
     _VulkanImageCommandPool(VK_NULL_HANDLE),
     _VulkanImageCommandBuffer(VK_NULL_HANDLE),
     _VulkanImageFence(VK_NULL_HANDLE),
-    _VulkanImageSampler(VK_NULL_HANDLE),
+    _PendingImageUploadBuffer(VK_NULL_HANDLE),
+    _PendingImageUploadMemory(VK_NULL_HANDLE),
+    _PendingImageUpload(false),
     _VulkanImageDescriptorSetLayout(VK_NULL_HANDLE),
     _VulkanRenderPass(VK_NULL_HANDLE),
     _VulkanTargetFormat(VK_FORMAT_R8G8B8A8_UNORM),
@@ -1483,8 +1761,6 @@ VulkanHook_t::VulkanHook_t():
     _vkDestroyCommandPool(nullptr),
     _vkCreateImageView(nullptr),
     _vkDestroyImageView(nullptr),
-    _vkCreateSampler(nullptr),
-    _vkDestroySampler(nullptr),
     _vkCreateImage(nullptr),
     _vkDestroyImage(nullptr),
     _vkAllocateMemory(nullptr),
@@ -1499,6 +1775,7 @@ VulkanHook_t::VulkanHook_t():
     _vkDestroyFramebuffer(nullptr),
     _vkCreateFence(nullptr),
     _vkWaitForFences(nullptr),
+    _vkGetFenceStatus(nullptr),
     _vkResetFences(nullptr),
     _vkDestroyFence(nullptr),
     _vkCreateDescriptorPool(nullptr),
@@ -1523,8 +1800,8 @@ VulkanHook_t::~VulkanHook_t()
 {
     INGAMEOVERLAY_INFO("VulkanHook_t Hook removed");
 
-    if (_WindowsHooked)
-        delete WindowsHook_t::Inst();
+    if (_WindowHooked)
+        delete WindowHook_t::Inst();
 
     _Instance->UnhookAll();
     _Instance = nullptr;
@@ -1575,10 +1852,13 @@ std::weak_ptr<RendererTexture_t> VulkanHook_t::AllocImageResource()
     {
         if (handle != nullptr)
         {
-            _ReleaseDescriptor(handle->ImageDescriptorId);
-            _vkDestroyImageView(_VulkanDevice, handle->VulkanImageView, _VulkanAllocationCallbacks);
-            _vkFreeMemory(_VulkanDevice, handle->VulkanImageMemory, _VulkanAllocationCallbacks);
-            _vkDestroyImage(_VulkanDevice, handle->VulkanImage, _VulkanAllocationCallbacks);
+            if (_VulkanDevice != VK_NULL_HANDLE)
+            {
+                _ReleaseDescriptor(handle->ImageDescriptorId);
+                _vkDestroyImageView(_VulkanDevice, handle->VulkanImageView, _VulkanAllocationCallbacks);
+                _vkFreeMemory(_VulkanDevice, handle->VulkanImageMemory, _VulkanAllocationCallbacks);
+                _vkDestroyImage(_VulkanDevice, handle->VulkanImage, _VulkanAllocationCallbacks);
+            }
 
             delete handle;
         }

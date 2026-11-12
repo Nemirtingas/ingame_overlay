@@ -1,0 +1,120 @@
+name: Windows GUI tests
+
+# GitHub's Windows runners have a desktop session but no GPU: DirectX runs on the software adapter (WARP),
+# OpenGL on Mesa's llvmpipe and Vulkan on Mesa's lavapipe, placed next to the test applications. The
+# applications are checked through the overlay's MCP server, and the window hook with real keyboard and mouse
+# input (tests/windows_hook_tests).
+#
+# Mesa (pal1000/mesa-dist-win) only ships OpenGL and lavapipe for x64 in its MinGW package: the Win32 job runs
+# the DirectX applications only. The window hook scenarios use an OpenGL application, so they run in x64.
+
+on:
+  push:
+    # Pull request branches are built by the pull_request event: building their pushes too ran everything twice.
+    # A branch without a pull request can still be built with workflow_dispatch (gh workflow run --ref).
+    branches: [develop, master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run of its previous commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  MESA_VERSION: 26.2.6
+  VULKAN_RUNTIME_VERSION: 1.4.335.0
+
+jobs:
+  gui-tests:
+    name: windows-latest-${{ matrix.platform }}-gui-tests
+    # develop and master are built by their push: their own pull requests (develop to master) don't build them again.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref != 'develop' && github.head_ref != 'master')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x64
+            arch: x64
+            software_drivers: true
+            apps: dx9_app dx10_app dx11_app dx12_app windows_opengl3_app windows_vulkan_app
+          - platform: x32
+            arch: Win32
+            software_drivers: false
+            apps: dx9_app dx10_app dx11_app dx12_app
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A ${{ matrix.arch }} -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{ github.workspace }}\tests\common\ingameoverlay_imconfig.h
+          cmake --build build --config Release -j 4
+
+      - name: Mesa (OpenGL and Vulkan software drivers)
+        if: ${{ matrix.software_drivers }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # OpenGL (llvmpipe) is only in the MinGW package; its lavapipe needs MinGW's zlib1.dll and libzstd.dll,
+          # the MSVC package's doesn't.
+          foreach ($package in 'mingw', 'msvc') {
+            gh release download $env:MESA_VERSION --repo pal1000/mesa-dist-win --pattern "mesa3d-$env:MESA_VERSION-release-$package.7z" --dir mesa
+            7z x "mesa\mesa3d-$env:MESA_VERSION-release-$package.7z" "-omesa\$package" -y > $null
+          }
+          # Only OpenGL's and lavapipe's files: Direct3D would also load Mesa's d3d10warp.dll or dxil.dll from there.
+          # opengl32.dll is not a known DLL: the copy next to the applications is the one they load.
+          Copy-Item mesa\mingw\x64\opengl32.dll, mesa\mingw\x64\libgallium_wgl.dll build\Release\
+          Copy-Item mesa\msvc\x64\vulkan_lvp.dll, mesa\msvc\x64\lvp_icd.x86_64.json build\Release\
+          # The runner is elevated: the Vulkan loader ignores VK_DRIVER_FILES there and only reads the registry.
+          $icd = (Get-Item build\Release\lvp_icd.x86_64.json).FullName
+          New-Item -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Force > $null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Name $icd -PropertyType DWord -Value 0 -Force > $null
+          Get-ItemProperty 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'
+          "GALLIUM_DRIVER=llvmpipe" >> $env:GITHUB_ENV
+
+      - name: Vulkan loader
+        if: ${{ matrix.software_drivers }}
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$env:VULKAN_RUNTIME_VERSION/windows/VulkanRT-X64-$env:VULKAN_RUNTIME_VERSION-Installer.exe" -OutFile VulkanRT.exe
+          Start-Process .\VulkanRT.exe -ArgumentList '/S' -Wait
+          Get-Item C:\Windows\System32\vulkan-1.dll | Format-List FullName, Length
+
+      - name: Display adapters
+        shell: pwsh
+        run: Get-CimInstance Win32_VideoController | Format-List Name, DriverVersion, CurrentHorizontalResolution, CurrentVerticalResolution
+
+      - name: MCP server test
+        shell: pwsh
+        run: build\Release\mcp_server_test.exe
+
+      - name: Test applications
+        shell: pwsh
+        env:
+          # The Vulkan loader's errors go to the applications' logs.
+          VK_LOADER_DEBUG: error
+        run: python tests\mcp_check_apps.py build\Release overlay_example.dll ${{ matrix.apps }}
+
+      - name: Window and OpenGL hook scenarios
+        if: ${{ !cancelled() && matrix.software_drivers }}
+        shell: pwsh
+        run: python tests\windows_hook_tests\check_scenarios.py build\Release
+
+      - name: Logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-latest-${{ matrix.platform }}-gui-tests
+          path: |
+            build/Release/mcp_check
+            build/Release/windows_hook_tests
+          if-no-files-found: ignore

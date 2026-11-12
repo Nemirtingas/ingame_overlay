@@ -1,0 +1,66 @@
+name: Linux GUI tests
+
+# GitHub's Linux runners have no display and no GPU: the test applications run on an Xvfb display, with
+# Mesa's llvmpipe for OpenGL and lavapipe for Vulkan, and are checked through the overlay's MCP server.
+
+on:
+  push:
+    # Pull request branches are built by the pull_request event: building their pushes too ran everything twice.
+    # A branch without a pull request can still be built with workflow_dispatch (gh workflow run --ref).
+    branches: [develop, master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run of its previous commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gui-tests:
+    name: ubuntu-latest-gui-tests
+    # develop and master are built by their push: their own pull requests (develop to master) don't build them again.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref != 'develop' && github.head_ref != 'master')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxcb1-dev libxcb-keysyms1-dev libxcb-xinput-dev libxcb-xkb-dev \
+            xvfb mesa-utils mesa-vulkan-drivers libvulkan1 vulkan-tools
+
+      - name: Build
+        shell: bash
+        run: |
+          cmake -S . -B build -DINGAMEOVERLAY_BUILD_TESTS=ON -DIMGUI_USER_CONFIG=${{ github.workspace }}/tests/common/ingameoverlay_imconfig.h
+          cmake --build build -j 4
+
+      - name: Display and drivers
+        shell: bash
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash -c 'glxinfo -B; vulkaninfo --summary' || true
+
+      - name: MCP server test
+        shell: bash
+        run: ./build/mcp_server_test
+
+      - name: Test applications (OpenGL, Vulkan)
+        shell: bash
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" python3 tests/mcp_check_apps.py build liboverlay_example.so linux_opengl_app linux_vulkan_app
+
+      - name: Logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-latest-gui-tests
+          path: build/mcp_check
+          if-no-files-found: ignore

@@ -33,6 +33,7 @@ namespace InGameOverlay {
 constexpr decltype(WindowsHook_t::DLL_NAME) WindowsHook_t::DLL_NAME;
 
 WindowsHook_t* WindowsHook_t::_inst = nullptr;
+SRWLOCK WindowsHook_t::_CallWndProcLock = SRWLOCK_INIT;
 
 static int ToggleKeyToNativeKey(InGameOverlay::ToggleKey k)
 {
@@ -160,14 +161,16 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
         _StartWGIHook();
 
         INGAMEOVERLAY_INFO("Hooked Windows");
-        _KeyCombinationCallback = std::move(keyCombinationCallback);
+        auto keyCombination = std::make_shared<WindowsHookKeyCombination_t>();
+        keyCombination->callback = std::move(keyCombinationCallback);
 
         for (int i = 0; i < toggleKeysCount; ++i)
         {
             uint32_t k = ToggleKeyToNativeKey(toggleKeys[i]);
-            if (k != 0 && std::find(_NativeKeyCombination.begin(), _NativeKeyCombination.end(), k) == _NativeKeyCombination.end())
-                _NativeKeyCombination.emplace_back(k);
+            if (k != 0 && std::find(keyCombination->keys.begin(), keyCombination->keys.end(), k) == keyCombination->keys.end())
+                keyCombination->keys.emplace_back(k);
         }
+        std::atomic_store(&_KeyCombination, std::shared_ptr<const WindowsHookKeyCombination_t>(std::move(keyCombination)));
 
         BeginHook();
 
@@ -191,6 +194,21 @@ bool WindowsHook_t::StartHook(std::function<void()>& keyCombinationCallback, Tog
 
 void WindowsHook_t::HideAppInputs(bool hide)
 {
+    if (hide && !_ApplicationInputsHidden.load(std::memory_order_acquire))
+    {
+        // While hidden, the application gets the cursor position and clipping it had now. Saved here,
+        // before the clipping changes, whether hidden by the key combination or by the API.
+        POINT savedCursorPos;
+        if (_GetCursorPos != nullptr && _GetCursorPos(&savedCursorPos))
+        {
+            _SavedCursorX.store(savedCursorPos.x, std::memory_order_relaxed);
+            _SavedCursorY.store(savedCursorPos.y, std::memory_order_relaxed);
+        }
+        RECT savedClipCursor;
+        if (_GetClipCursor != nullptr && _GetClipCursor(&savedClipCursor))
+            _StoreSavedClipCursor(savedClipCursor);
+    }
+
     _ApplicationInputsHidden = hide;
     if (hide)
     {
@@ -198,7 +216,8 @@ void WindowsHook_t::HideAppInputs(bool hide)
     }
     else
     {
-        _ClipCursor(&_SavedClipCursor);
+        RECT savedClipCursor = _LoadSavedClipCursor();
+        _ClipCursor(&savedClipCursor);
     }
 }
 
@@ -209,6 +228,8 @@ void WindowsHook_t::HideOverlayInputs(bool hide)
 
 void WindowsHook_t::ResetRenderState(OverlayHookState state)
 {
+    _RemoveCallWndProcHook();
+    _WindowEvents.Invalidate();
     if (!_Initialized)
         return;
 
@@ -216,22 +237,25 @@ void WindowsHook_t::ResetRenderState(OverlayHookState state)
 
     HideAppInputs(false);
     HideOverlayInputs(true);
+    _OverlayInputsHiddenProcessed = true;
 
     ImGui_ImplWin32_Shutdown();
 }
 
-void WindowsHook_t::SetInitialWindowSize(HWND hWnd)
+bool WindowsHook_t::SetInitialWindowSize(NativeWindow_t const& window)
 {
+    HWND hWnd = window.Window;
     if (hWnd == nullptr)
     {
         hWnd = GetCurrentThreadHWND();
         if (hWnd == nullptr)
-            return;
+            return false;
     }
 
     RECT rect = { 0, 0, 0, 0 };
     ::GetClientRect(hWnd, &rect);
     ImGui::GetIO().DisplaySize = ImVec2((float)(rect.right - rect.left), (float)(rect.bottom - rect.top));
+    return true;
 }
 
 short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)
@@ -239,8 +263,9 @@ short WindowsHook_t::_ImGuiGetKeyState(int nVirtKey)
     return WindowsHook_t::Inst()->_GetKeyState(nVirtKey);
 }
 
-bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
+bool WindowsHook_t::PrepareForOverlay(NativeWindow_t const& window)
 {
+    HWND hWnd = window.Window;
     // hWnd can be null when the client code is not using a swapchain for a HWND.
     // In that case, we will run some 'degraded' mode because we cannot make sure the HWND didn't change.
     // TODO: Handle correctly the Composition mode of DirectX.
@@ -251,7 +276,6 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
 
     if (!_Initialized)
     {
-        _GameHwnd = hWnd;
         if (hWnd == nullptr)
         {
             // If the hWnd is null, we still want an overlay, so try to find the HWND of the current thread.
@@ -261,13 +285,21 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
                 return false;
         }
 
+        _GameHwnd = hWnd;
         ImGui_ImplWin32_Init(_GameHwnd, &WindowsHook_t::_ImGuiGetKeyState);
 
         _Initialized = true;
     }
 
+    // WH_CALLWNDPROC observes sent messages before the WndProc. It only queues
+    // scalar data; ImGui remains confined to the thread that consumes events.
+    // Failure is non-fatal and retried on the next PrepareForOverlay call.
+    _InstallCallWndProcHook(_GameHwnd);
+
     if (!_Initialized)
         return false;
+
+    _ProcessWindowEvents();
 
     if (!_OverlayInputsHidden)
     {
@@ -277,14 +309,14 @@ bool WindowsHook_t::PrepareForOverlay(HWND hWnd)
     return true;
 }
 
-std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
+std::vector<NativeWindow_t> WindowsHook_t::FindApplicationWindows()
 {
     struct
     {
         DWORD pid;
-        std::vector<HWND> windows;
+        std::vector<NativeWindow_t> windows;
     } windowParams{
-        processId
+        GetCurrentProcessId()
     };
 
     EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
@@ -298,7 +330,7 @@ std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
         auto params = reinterpret_cast<decltype(windowParams)*>(lParam);
 
         if (processId == params->pid)
-            params->windows.emplace_back(hwnd);
+            params->windows.push_back(NativeWindow_t{ hwnd });
 
         return TRUE;
     }, reinterpret_cast<LPARAM>(&windowParams));
@@ -308,6 +340,21 @@ std::vector<HWND> WindowsHook_t::FindApplicationHWND(DWORD processId)
 
 /////////////////////////////////////////////////////////////////////////////////////
 // Windows window hooks
+
+// Pointer messages (Windows 8), for SDKs targeting an older version.
+#ifndef WM_POINTERUPDATE
+#define WM_NCPOINTERUPDATE 0x0241
+#define WM_NCPOINTERDOWN   0x0242
+#define WM_NCPOINTERUP     0x0243
+#define WM_POINTERUPDATE   0x0245
+#define WM_POINTERDOWN     0x0246
+#define WM_POINTERUP       0x0247
+#define WM_POINTERENTER    0x0249
+#define WM_POINTERLEAVE    0x024A
+#define WM_POINTERWHEEL    0x024E
+#define WM_POINTERHWHEEL   0x024F
+#endif
+
 static bool IgnoreMsg(UINT uMsg)
 {
     switch (uMsg)
@@ -320,6 +367,20 @@ static bool IgnoreMsg(UINT uMsg)
         case WM_MBUTTONUP: case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
         case WM_XBUTTONUP: case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
         case WM_MOUSEACTIVATE: case WM_MOUSEHOVER: case WM_MOUSELEAVE:
+        // Mouse outside the client area (title bar, borders of a windowed game). The hidden messages still go to
+        // DefWindowProc: the window can still be moved, resized or closed.
+        case WM_NCMOUSEMOVE: case WM_NCMOUSEHOVER: case WM_NCMOUSELEAVE:
+        case WM_NCLBUTTONUP: case WM_NCLBUTTONDOWN: case WM_NCLBUTTONDBLCLK:
+        case WM_NCRBUTTONUP: case WM_NCRBUTTONDOWN: case WM_NCRBUTTONDBLCLK:
+        case WM_NCMBUTTONUP: case WM_NCMBUTTONDOWN: case WM_NCMBUTTONDBLCLK:
+        case WM_NCXBUTTONUP: case WM_NCXBUTTONDOWN: case WM_NCXBUTTONDBLCLK:
+        // Pointer Events: the mouse comes as WM_POINTER* once the application called EnableMouseInPointer(TRUE), and it
+        // reads it with GetPointerInfo. DefWindowProc turns them into the mouse messages above, hidden too, which the
+        // overlay gets.
+        case WM_POINTERUPDATE: case WM_POINTERDOWN: case WM_POINTERUP:
+        case WM_POINTERWHEEL: case WM_POINTERHWHEEL:
+        case WM_POINTERENTER: case WM_POINTERLEAVE:
+        case WM_NCPOINTERUPDATE: case WM_NCPOINTERDOWN: case WM_NCPOINTERUP:
         // Keyboard Events
         case WM_KEYDOWN: case WM_KEYUP:
         case WM_SYSKEYDOWN: case WM_SYSKEYUP: case WM_SYSDEADCHAR:
@@ -333,7 +394,205 @@ static bool IgnoreMsg(UINT uMsg)
 
 void WindowsHook_t::_AppendEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    _WindowEvents.enqueue(WindowsHookEvent_t(hWnd, uMsg, wParam, lParam));
+    // lParam may contain caller-owned pointers (for example WM_IME_COMPOSITION).
+    // Queue only scalar payloads. WM_SETCURSOR and WM_IME_COMPOSITION are
+    // intentionally excluded: their backend paths call native APIs tied to the
+    // window thread (cursor update / DefWindowProcW).
+    switch (uMsg)
+    {
+    case WM_MOUSEMOVE:
+    case WM_NCMOUSEMOVE:
+    case WM_MOUSELEAVE:
+    case WM_NCMOUSELEAVE:
+    case WM_DESTROY:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+    case WM_LBUTTONUP: case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONUP: case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONUP: case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK:
+    case WM_XBUTTONUP: case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK:
+    case WM_KEYDOWN: case WM_KEYUP: case WM_SYSKEYDOWN: case WM_SYSKEYUP:
+    case WM_CHAR: case WM_UNICHAR: case WM_DEADCHAR: case WM_SYSDEADCHAR: case WM_IME_CHAR:
+    case WM_SETFOCUS: case WM_KILLFOCUS: case WM_INPUTLANGCHANGE:
+    case WM_DEVICECHANGE:
+        break;
+    default:
+        return;
+    }
+
+    // These backend paths use only the message and wParam. Their Win32
+    // lParam may be an HWND, HKL, or temporary device-notification pointer.
+    if (uMsg == WM_SETFOCUS || uMsg == WM_KILLFOCUS ||
+        uMsg == WM_INPUTLANGCHANGE || uMsg == WM_DEVICECHANGE)
+        lParam = 0;
+    // Invalidate queued state on overflow; the render thread clears ImGui state.
+    _WindowEvents.Enqueue(hWnd, uMsg, wParam, lParam);
+}
+
+void WindowsHook_t::_ProcessWindowEvents()
+{
+    ImGuiIO& io = ImGui::GetIO();
+    auto resetInputState = [&io]()
+    {
+        // Clear pending Add* events before clearing state, or a queued key-down
+        // could be replayed by NewFrame after the state reset.
+        io.ClearEventsQueue();
+        io.ClearInputKeys();
+        io.ClearInputMouse();
+        io.AddFocusEvent(true);
+        io.SetAppAcceptingEvents(true);
+    };
+
+    size_t eventCount = 0;
+    uint64_t batchGeneration = 0;
+    if (_WindowEvents.TakeBatch(eventCount, batchGeneration))
+        resetInputState();
+    const bool overlayInputsHidden = _OverlayInputsHidden.load(std::memory_order_acquire);
+    if (overlayInputsHidden && !_OverlayInputsHiddenProcessed)
+        resetInputState();
+    _OverlayInputsHiddenProcessed = overlayInputsHidden;
+    for (size_t i = 0; i < eventCount; ++i)
+    {
+        if (!_WindowEvents.IsCurrent(batchGeneration))
+        {
+            resetInputState();
+            break;
+        }
+        const WindowsHookEvent_t& event = _WindowEvents.GetBatchEvent(i);
+        if (event.hWnd != _GameHwnd.load(std::memory_order_acquire))
+            continue;
+
+        const bool focusEvent = event.msg == WM_SETFOCUS || event.msg == WM_KILLFOCUS;
+        if (_OverlayInputsHidden.load(std::memory_order_acquire) && !focusEvent)
+            continue;
+        if (focusEvent)
+            io.SetAppAcceptingEvents(event.msg == WM_SETFOCUS);
+        ImGui_ImplWin32_WndProcHandler(event.hWnd, event.msg, event.wParam, event.lParam);
+        // Invalidation can race the handler. Clear any state it submitted
+        // before another event can be considered.
+        if (!_WindowEvents.IsCurrent(batchGeneration))
+            resetInputState();
+        else if (_OverlayInputsHidden.load(std::memory_order_acquire))
+        {
+            resetInputState();
+            if (focusEvent)
+            {
+                const bool focused = event.msg == WM_SETFOCUS;
+                io.SetAppAcceptingEvents(focused);
+                io.AddFocusEvent(focused);
+            }
+            _OverlayInputsHiddenProcessed = true;
+        }
+    }
+
+    if (!_WindowEvents.IsCurrent(batchGeneration))
+        resetInputState();
+}
+
+RECT WindowsHook_t::_LoadSavedClipCursor() const
+{
+    // Each edge is race-free, but independent atomics do not form a
+    // transactionally consistent RECT if multiple threads update it at once.
+    return RECT{
+        _SavedClipLeft.load(std::memory_order_relaxed),
+        _SavedClipTop.load(std::memory_order_relaxed),
+        _SavedClipRight.load(std::memory_order_relaxed),
+        _SavedClipBottom.load(std::memory_order_relaxed)
+    };
+}
+
+void WindowsHook_t::_StoreSavedClipCursor(const RECT& rect)
+{
+    _SavedClipLeft.store(rect.left, std::memory_order_relaxed);
+    _SavedClipTop.store(rect.top, std::memory_order_relaxed);
+    _SavedClipRight.store(rect.right, std::memory_order_relaxed);
+    _SavedClipBottom.store(rect.bottom, std::memory_order_relaxed);
+}
+
+bool WindowsHook_t::_InstallCallWndProcHook(HWND hWnd)
+{
+    DWORD threadId = GetWindowThreadProcessId(hWnd, nullptr);
+    if (threadId == 0)
+        return false;
+
+    AcquireSRWLockExclusive(&_CallWndProcLock);
+
+    if (_CallWndProcHook != nullptr && _CallWndProcHwnd == hWnd && _CallWndProcThreadId == threadId)
+    {
+        ReleaseSRWLockExclusive(&_CallWndProcLock);
+        return true;
+    }
+
+    if (_CallWndProcHook != nullptr)
+    {
+        UnhookWindowsHookEx(_CallWndProcHook);
+        _CallWndProcHook = nullptr;
+    }
+
+    _CallWndProcHwnd = hWnd;
+    _CallWndProcThreadId = threadId;
+    _CallWndProcHook = SetWindowsHookExW(WH_CALLWNDPROC, &_CallWndProc, nullptr, threadId);
+    bool installed = _CallWndProcHook != nullptr;
+
+    ReleaseSRWLockExclusive(&_CallWndProcLock);
+
+    if (!installed)
+        INGAMEOVERLAY_WARN("Failed to install WH_CALLWNDPROC for window {} (thread {}).", (void*)hWnd, threadId);
+
+    return installed;
+}
+
+void WindowsHook_t::_RemoveCallWndProcHook()
+{
+    AcquireSRWLockExclusive(&_CallWndProcLock);
+
+    if (_CallWndProcHook != nullptr)
+    {
+        UnhookWindowsHookEx(_CallWndProcHook);
+        _CallWndProcHook = nullptr;
+    }
+
+    _CallWndProcHwnd = nullptr;
+    _CallWndProcThreadId = 0;
+
+    ReleaseSRWLockExclusive(&_CallWndProcLock);
+}
+
+LRESULT CALLBACK WindowsHook_t::_CallWndProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode == HC_ACTION)
+    {
+        auto* message = reinterpret_cast<const CWPSTRUCT*>(lParam);
+        if (message != nullptr)
+        {
+            AcquireSRWLockShared(&_CallWndProcLock);
+            WindowsHook_t* inst = _inst;
+            if (inst != nullptr && message->hwnd == inst->_CallWndProcHwnd)
+            {
+                switch (message->message)
+                {
+                case WM_SETFOCUS:
+                case WM_KILLFOCUS:
+                case WM_INPUTLANGCHANGE:
+                case WM_DEVICECHANGE:
+                    // lParam can contain an ephemeral pointer for device changes.
+                    // ImGui only consumes wParam for WM_DEVICECHANGE; the other
+                    // messages do not need lParam either.
+                    inst->_AppendEvent(message->hwnd, message->message, message->wParam, 0);
+                    break;
+                // WM_SETCURSOR requires a synchronous WndProc result and may call
+                // SetCursor. Keep it on the host path; NewFrame updates ImGui's
+                // requested cursor when it changes.
+                }
+            }
+            ReleaseSRWLockShared(&_CallWndProcLock);
+        }
+    }
+
+    // WH_CALLWNDPROC sees messages sent to the WndProc, including same-thread
+    // SendMessage. Posted messages are observed by the existing Get/Peek hooks.
+    // Do not use InSendMessageEx here: same-thread sends are not reported by it.
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
 
 void WindowsHook_t::_RawEvent(RAWINPUT& raw)
@@ -373,10 +632,56 @@ void WindowsHook_t::_RawEvent(RAWINPUT& raw)
     }
 }
 
+// Same as NEXTRAWINPUTBLOCK, which relies on a QWORD type the Windows headers don't declare.
+static PRAWINPUT NextRawInputBlock(PRAWINPUT pRawInput)
+{
+    constexpr ULONG_PTR alignment = sizeof(ULONG_PTR);
+    const ULONG_PTR next = reinterpret_cast<ULONG_PTR>(pRawInput) + pRawInput->header.dwSize;
+    return reinterpret_cast<PRAWINPUT>((next + alignment - 1) & ~(alignment - 1));
+}
+
+void WindowsHook_t::_LatchKey(UINT vk)
+{
+    if (vk < 256)
+        _LatchedKeys[vk / 64].fetch_or(uint64_t(1) << (vk % 64), std::memory_order_acq_rel);
+}
+
+void WindowsHook_t::_UnlatchKey(UINT vk)
+{
+    if (vk < 256)
+        _LatchedKeys[vk / 64].fetch_and(~(uint64_t(1) << (vk % 64)), std::memory_order_acq_rel);
+}
+
+bool WindowsHook_t::_IsKeyLatched(UINT vk) const
+{
+    // The key combination uses the generic modifiers, the application may ask for the left or right one.
+    switch (vk)
+    {
+        case VK_LSHIFT: case VK_RSHIFT: vk = VK_SHIFT; break;
+        case VK_LCONTROL: case VK_RCONTROL: vk = VK_CONTROL; break;
+        case VK_LMENU: case VK_RMENU: vk = VK_MENU; break;
+    }
+
+    return vk < 256 && (_LatchedKeys[vk / 64].load(std::memory_order_acquire) & (uint64_t(1) << (vk % 64))) != 0;
+}
+
+bool WindowsHook_t::_AnyKeyLatched() const
+{
+    for (auto const& keys : _LatchedKeys)
+    {
+        if (keys.load(std::memory_order_acquire) != 0)
+            return true;
+    }
+    return false;
+}
+
 bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    bool hide_app_inputs = _ApplicationInputsHidden;
-    bool hide_overlay_inputs = _OverlayInputsHidden;
+    const bool was_app_inputs_hidden = _ApplicationInputsHidden.load(std::memory_order_acquire);
+    const bool was_overlay_inputs_hidden = _OverlayInputsHidden.load(std::memory_order_acquire);
+    bool hide_app_inputs = was_app_inputs_hidden;
+    bool overlay_inputs_hidden_after_callback = was_overlay_inputs_hidden;
+    auto keyCombination = std::atomic_load(&_KeyCombination);
     
     if (_Initialized)
     {
@@ -384,62 +689,87 @@ bool WindowsHook_t::_HandleEvent(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
         if (uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
         {
             int key_count = 0;
-            for (auto const& key : _NativeKeyCombination)
+            for (auto const& key : keyCombination->keys)
             {
                 if (_GetAsyncKeyState(key) & (1 << 15))
                     ++key_count;
             }
     
-            if (key_count == _NativeKeyCombination.size())
+            if (key_count == keyCombination->keys.size())
             {// All shortcut keys are pressed
-                if (!_KeyCombinationPushed)
+                bool expected = false;
+                if (_KeyCombinationPushed.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
                 {
-                    _KeyCombinationCallback();
-    
-                    if (_OverlayInputsHidden)
-                        hide_overlay_inputs = true;
-    
-                    if(_ApplicationInputsHidden)
+                    for (auto const& key : keyCombination->keys)
+                        _LatchKey(key);
+
+                    keyCombination->callback();
+                    const bool appInputsHiddenNow = _ApplicationInputsHidden.load(std::memory_order_acquire);
+                    const bool overlayInputsHiddenNow = _OverlayInputsHidden.load(std::memory_order_acquire);
+                    overlay_inputs_hidden_after_callback = overlayInputsHiddenNow;
+                    if (appInputsHiddenNow)
                     {
+                        // HideAppInputs saved the cursor position and clipping.
                         hide_app_inputs = true;
-    
-                        // Save the last known cursor pos when opening the overlay
-                        // so we can spoof the GetCursorPos return value.
-                        _GetCursorPos(&_SavedCursorPos);
-                        _GetClipCursor(&_SavedClipCursor);
                     }
                     else
                     {
-                        _ClipCursor(&_SavedClipCursor);
+                        RECT savedClipCursor = _LoadSavedClipCursor();
+                        _ClipCursor(&savedClipCursor);
                     }
-                    _KeyCombinationPushed = true;
                 }
             }
             else
             {
-                _KeyCombinationPushed = false;
+                _KeyCombinationPushed.store(false, std::memory_order_release);
             }
         }
     
-        if (uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
-            ImGui::GetIO().SetAppAcceptingEvents(uMsg == WM_SETFOCUS);
-    
-        WindowsHookEvent_t rawEvent;
-        size_t eventCount = _WindowEvents.queue_size();
-        while (eventCount-- && _WindowEvents.dequeue(rawEvent))
-            ImGui_ImplWin32_WndProcHandler(rawEvent.hWnd, rawEvent.msg, rawEvent.wParam, rawEvent.lParam);
-
-        if (!hide_overlay_inputs || uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
-        {
-            ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-        }
+        const bool overlay_hidden_now = _OverlayInputsHidden.load(std::memory_order_acquire);
+        if ((!was_overlay_inputs_hidden && !overlay_inputs_hidden_after_callback && !overlay_hidden_now) ||
+            uMsg == WM_KILLFOCUS || uMsg == WM_SETFOCUS)
+            _AppendEvent(hWnd, uMsg, wParam, lParam);
     
         if (hide_app_inputs && IgnoreMsg(uMsg))
+        {
+            if (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
+                _UnlatchKey(static_cast<UINT>(wParam));
             return true;
+        }
+
+        // The key combination's own messages, until each key is released.
+        if ((uMsg == WM_KEYDOWN || uMsg == WM_SYSKEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP) && _IsKeyLatched(static_cast<UINT>(wParam)))
+        {
+            if (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)
+                _UnlatchKey(static_cast<UINT>(wParam));
+            return true;
+        }
     }
-    
+
     return false;
 }
+
+UINT WindowsHook_t::_RemoveLatchedRawInput(PRAWINPUT pData, UINT count) const
+{
+    // Blocks have a variable size and are pointer aligned: move the kept ones down.
+    PRAWINPUT read = pData;
+    PRAWINPUT write = pData;
+    UINT kept = 0;
+    for (UINT i = 0; i < count; ++i)
+    {
+        PRAWINPUT next = NextRawInputBlock(read);
+        if (read->header.dwType != RIM_TYPEKEYBOARD || !_IsKeyLatched(read->data.keyboard.VKey))
+        {
+            if (write != read)
+                memmove(write, read, read->header.dwSize);
+            write = NextRawInputBlock(write);
+            ++kept;
+        }
+        read = next;
+    }
+    return kept;
+}
+
 
 UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
 {
@@ -450,12 +780,21 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, 
 
     if (!inst->_OverlayInputsHidden && pData != nullptr)
     {
+        // RAWINPUT blocks have a variable size (dwSize), they must not be walked as an array.
+        PRAWINPUT pRawInput = pData;
         for (int i = 0; i < res; ++i)
-            inst->_RawEvent(pData[i]);
+        {
+            inst->_RawEvent(*pRawInput);
+            pRawInput = NextRawInputBlock(pRawInput);
+        }
     }
 
     if (!inst->_ApplicationInputsHidden)
+    {
+        if (res > 0 && pData != nullptr && inst->_AnyKeyLatched())
+            res = static_cast<int>(inst->_RemoveLatchedRawInput(pData, static_cast<UINT>(res)));
         return res;
+    }
 
     return 0;
 }
@@ -470,7 +809,12 @@ UINT WINAPI WindowsHook_t::_MyGetRawInputData(HRAWINPUT hRawInput, UINT uiComman
     if (!inst->_OverlayInputsHidden && uiCommand == RID_INPUT && res == sizeof(RAWINPUT))
         inst->_RawEvent(*reinterpret_cast<RAWINPUT*>(pData));
 
-    if (!inst->_ApplicationInputsHidden)
+    // A keyboard RAWINPUT is smaller than sizeof(RAWINPUT), which is sized for the largest device data.
+    const bool latchedKey = uiCommand == RID_INPUT && res != static_cast<UINT>(-1) && res >= sizeof(RAWINPUTHEADER) + sizeof(RAWKEYBOARD) &&
+        reinterpret_cast<RAWINPUT*>(pData)->header.dwType == RIM_TYPEKEYBOARD &&
+        inst->_IsKeyLatched(reinterpret_cast<RAWINPUT*>(pData)->data.keyboard.VKey);
+
+    if (!inst->_ApplicationInputsHidden && !latchedKey)
         return res;
 
     memset(pData, 0, *pcbSize);
@@ -482,7 +826,7 @@ SHORT WINAPI WindowsHook_t::_MyGetKeyState(int nVirtKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
-    if (inst->_Initialized && inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && (inst->_ApplicationInputsHidden || inst->_IsKeyLatched(static_cast<UINT>(nVirtKey))))
         return 0;
 
     return inst->_GetKeyState(nVirtKey);
@@ -492,7 +836,7 @@ SHORT WINAPI WindowsHook_t::_MyGetAsyncKeyState(int vKey)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
-    if (inst->_Initialized && inst->_ApplicationInputsHidden)
+    if (inst->_Initialized && (inst->_ApplicationInputsHidden || inst->_IsKeyLatched(static_cast<UINT>(vKey))))
         return 0;
 
     return inst->_GetAsyncKeyState(vKey);
@@ -503,9 +847,25 @@ BOOL WINAPI WindowsHook_t::_MyGetKeyboardState(PBYTE lpKeyState)
     WindowsHook_t* inst = WindowsHook_t::Inst();
 
     if (inst->_Initialized && inst->_ApplicationInputsHidden)
-        return FALSE;
+    {
+        // Callers rarely check the result: give them released keys rather than an untouched buffer.
+        if (lpKeyState == nullptr)
+            return FALSE;
 
-    return inst->_GetKeyboardState(lpKeyState);
+        memset(lpKeyState, 0, 256);
+        return TRUE;
+    }
+
+    const BOOL res = inst->_GetKeyboardState(lpKeyState);
+    if (res && lpKeyState != nullptr && inst->_Initialized && inst->_AnyKeyLatched())
+    {
+        for (UINT vk = 0; vk < 256; ++vk)
+        {
+            if (inst->_IsKeyLatched(vk))
+                lpKeyState[vk] = 0;
+        }
+    }
+    return res;
 }
 
 BOOL  WINAPI WindowsHook_t::_MyGetCursorPos(LPPOINT lpPoint)
@@ -515,7 +875,8 @@ BOOL  WINAPI WindowsHook_t::_MyGetCursorPos(LPPOINT lpPoint)
     BOOL res = inst->_GetCursorPos(lpPoint);
     if (inst->_Initialized && inst->_ApplicationInputsHidden && lpPoint != nullptr)
     {
-        *lpPoint = inst->_SavedCursorPos;
+        lpPoint->x = inst->_SavedCursorX.load(std::memory_order_relaxed);
+        lpPoint->y = inst->_SavedCursorY.load(std::memory_order_relaxed);
     }
 
     return res;
@@ -528,6 +889,10 @@ BOOL WINAPI WindowsHook_t::_MySetCursorPos(int X, int Y)
     if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_SetCursorPos(X, Y);
 
+    // The cursor stays for the overlay, but the application must read back the position it set:
+    // a mouse look recenters the cursor every frame and turns by the difference.
+    inst->_SavedCursorX.store(X, std::memory_order_relaxed);
+    inst->_SavedCursorY.store(Y, std::memory_order_relaxed);
     return TRUE;
 }
 
@@ -537,7 +902,7 @@ BOOL WINAPI WindowsHook_t::_MyGetClipCursor(RECT* lpRect)
     if (lpRect == nullptr || !inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_GetClipCursor(lpRect);
 
-    *lpRect = inst->_SavedClipCursor;
+    *lpRect = inst->_LoadSavedClipCursor();
     return TRUE;
 }
 
@@ -546,7 +911,7 @@ BOOL WINAPI WindowsHook_t::_MyClipCursor(CONST RECT* lpRect)
     WindowsHook_t* inst = WindowsHook_t::Inst();
     CONST RECT* v = lpRect == nullptr ? &inst->_DefaultClipCursor : lpRect;
 
-    inst->_SavedClipCursor = *v;
+    inst->_StoreSavedClipCursor(*v);
 
     if (!inst->_Initialized || !inst->_ApplicationInputsHidden)
         return inst->_ClipCursor(v);
@@ -557,9 +922,6 @@ BOOL WINAPI WindowsHook_t::_MyClipCursor(CONST RECT* lpRect)
 BOOL WINAPI WindowsHook_t::_MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
-    // Force filters to 0 ?
-    wMsgFilterMin = 0;
-    wMsgFilterMax = 0;
     BOOL res = inst->_GetMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
 
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
@@ -578,9 +940,6 @@ BOOL WINAPI WindowsHook_t::_MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
 BOOL WINAPI WindowsHook_t::_MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
-    // Force filters to 0 ?
-    wMsgFilterMin = 0;
-    wMsgFilterMax = 0;
     BOOL res = inst->_GetMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
 
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
@@ -599,18 +958,23 @@ BOOL WINAPI WindowsHook_t::_MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilte
 BOOL WINAPI WindowsHook_t::_MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
-    // Force filters to 0 ?
-    wMsgFilterMin = 0;
-    wMsgFilterMax = 0;
     BOOL res = inst->_PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
 
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
         return res;
 
-    if (!(wRemoveMsg & PM_REMOVE) && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
+    if (!(wRemoveMsg & PM_REMOVE))
     {
-        // Remove message from queue
-        inst->_PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE | (wRemoveMsg & (~PM_REMOVE)));
+        if (!inst->_ApplicationInputsHidden || !IgnoreMsg(lpMsg->message))
+            return res;
+
+        // Remove the message that will be hidden from the application and handle the
+        // MSG returned by the removal, since another thread may have changed the queue.
+        if (!inst->_PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg | PM_REMOVE))
+        {
+            lpMsg->message = WM_NULL;
+            return res;
+        }
     }
 
     if (!inst->_HandleEvent(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam))
@@ -626,18 +990,23 @@ BOOL WINAPI WindowsHook_t::_MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilt
 BOOL WINAPI WindowsHook_t::_MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg)
 {
     WindowsHook_t* inst = WindowsHook_t::Inst();
-    // Force filters to 0 ?
-    wMsgFilterMin = 0;
-    wMsgFilterMax = 0;
     BOOL res = inst->_PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
 
     if (!inst->_Initialized || lpMsg == nullptr || res == FALSE)
         return res;
 
-    if (!(wRemoveMsg & PM_REMOVE) && inst->_ApplicationInputsHidden && IgnoreMsg(lpMsg->message))
+    if (!(wRemoveMsg & PM_REMOVE))
     {
-        // Remove message from queue
-        inst->_PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE | (wRemoveMsg & (~PM_REMOVE)));
+        if (!inst->_ApplicationInputsHidden || !IgnoreMsg(lpMsg->message))
+            return res;
+
+        // Remove the message that will be hidden from the application and handle the
+        // MSG returned by the removal, since another thread may have changed the queue.
+        if (!inst->_PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg | PM_REMOVE))
+        {
+            lpMsg->message = WM_NULL;
+            return res;
+        }
     }
 
     if (!inst->_HandleEvent(lpMsg->hwnd, lpMsg->message, lpMsg->wParam, lpMsg->lParam))
@@ -805,12 +1174,22 @@ WindowsHook_t::WindowsHook_t() :
     _Hooked(false),
     _Initialized(false),
     _GameHwnd(nullptr),
-    _SavedCursorPos{},
-    _SavedClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
+    _CallWndProcHook(nullptr),
+    _CallWndProcThreadId(0),
+    _CallWndProcHwnd(nullptr),
+    _SavedCursorX(0),
+    _SavedCursorY(0),
+    _SavedClipLeft(LONG(0xFFFF8000)),
+    _SavedClipTop(LONG(0xFFFF8000)),
+    _SavedClipRight(LONG(0x00007FFF)),
+    _SavedClipBottom(LONG(0x00007FFF)),
     _DefaultClipCursor{ LONG(0xFFFF8000), LONG(0xFFFF8000), LONG(0x00007FFF), LONG(0x00007FFF) },
     _ApplicationInputsHidden(false),
     _OverlayInputsHidden(true),
+    _OverlayInputsHiddenProcessed(true),
+    _KeyCombination(std::make_shared<WindowsHookKeyCombination_t>()),
     _KeyCombinationPushed(false),
+    _LatchedKeys{},
     _WindowEvents(512),
     _TranslateMessage(nullptr),
     _DefWindowProcA(nullptr),
@@ -858,15 +1237,20 @@ WindowsHook_t::~WindowsHook_t()
     //}
 
     UnhookAll();
+    AcquireSRWLockExclusive(&_CallWndProcLock);
     _inst = nullptr;
+    ReleaseSRWLockExclusive(&_CallWndProcLock);
 }
 
 WindowsHook_t* WindowsHook_t::Inst()
 {
+    AcquireSRWLockExclusive(&_CallWndProcLock);
     if (_inst == nullptr)
         _inst = new WindowsHook_t;
 
-    return _inst;
+    WindowsHook_t* inst = _inst;
+    ReleaseSRWLockExclusive(&_CallWndProcLock);
+    return inst;
 }
 
 const char* WindowsHook_t::GetLibraryName() const

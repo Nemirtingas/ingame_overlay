@@ -26,13 +26,40 @@ RendererHookInternal_t::RendererHookInternal_t() :
     _ScreenshotCallback(nullptr),
     _ScreenshotCallbackUserParameter(nullptr),
     _TakeScreenshotType(ScreenshotType_t::None),
+    _ScreenshotRequestGeneration(0),
     _BatchSize(10),
     _CurrentFrame(0)
 {
+    // No-op defaults so the render loop can call them without checking if the user set them.
+    OverlayProc = []() {};
+    OverlayHookReady = [](OverlayHookState) {};
 }
 
 RendererHookInternal_t::~RendererHookInternal_t()
 {
+}
+
+void RendererHookInternal_t::Release()
+{
+    // While the derived hook still exists: the server thread calls it.
+    StopMcpServer();
+    delete this;
+}
+
+void RendererHookInternal_t::_OverlayProc()
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    _McpServer.OnFrame();
+#endif
+    OverlayProc();
+}
+
+void RendererHookInternal_t::_OverlayHookReady(OverlayHookState state)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    _McpServer.OnHookState(state);
+#endif
+    OverlayHookReady(state);
 }
 
 ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
@@ -42,8 +69,19 @@ ScreenshotType_t RendererHookInternal_t::_ScreenshotType()
 
 void RendererHookInternal_t::_SendScreenshot(ScreenshotCallbackParameter_t* screenshot)
 {
-    _TakeScreenshotType = ScreenshotType_t::None;
-    if (screenshot != nullptr && _ScreenshotCallback != nullptr)
+    _SendScreenshotForRequest(_ScreenshotRequestGeneration, screenshot);
+}
+
+uint64_t RendererHookInternal_t::_ScreenshotRequestId()
+{
+    return _ScreenshotRequestGeneration;
+}
+
+void RendererHookInternal_t::_SendScreenshotForRequest(uint64_t requestId, ScreenshotCallbackParameter_t* screenshot)
+{
+    if (_ScreenshotRequestGeneration == requestId)
+        _TakeScreenshotType = ScreenshotType_t::None;
+    if (screenshot != nullptr)
     {
         switch (screenshot->Format)
         {
@@ -69,7 +107,15 @@ void RendererHookInternal_t::_SendScreenshot(ScreenshotCallbackParameter_t* scre
 
             case InGameOverlay::ScreenshotDataFormat_t::R32G32B32A32_FLOAT : screenshot->PixelSize = 16; break;
         }
-        _ScreenshotCallback(screenshot, _ScreenshotCallbackUserParameter);
+
+#if defined(INGAMEOVERLAY_HAS_MCP)
+        // A screenshot requested by a MCP client is not the application's.
+        if (_McpServer.OnScreenshot(screenshot))
+            return;
+#endif
+
+        if (_ScreenshotCallback != nullptr)
+            _ScreenshotCallback(screenshot, _ScreenshotCallbackUserParameter);
     }
 }
 
@@ -92,6 +138,47 @@ void RendererHookInternal_t::SetAutoLoadBatchSize(uint32_t batchSize)
 void RendererHookInternal_t::TakeScreenshot(ScreenshotType_t type)
 {
     _TakeScreenshotType = type;
+    ++_ScreenshotRequestGeneration;
+}
+
+bool RendererHookInternal_t::StartMcpServer(std::string const& name, McpServerCallbacks_t callbacks)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    return _McpServer.Start(this, callbacks, name);
+#else
+    (void)name;
+    (void)callbacks;
+    return false;
+#endif
+}
+
+bool RendererHookInternal_t::StartMcpServerWithTransport(McpServerTransport_t transport, McpServerCallbacks_t callbacks)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    return _McpServer.StartWithTransport(this, transport, callbacks);
+#else
+    (void)transport;
+    (void)callbacks;
+    return false;
+#endif
+}
+
+bool RendererHookInternal_t::PushMcpMessage(const char* message, size_t size)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    return _McpServer.PushMessage(message, size);
+#else
+    (void)message;
+    (void)size;
+    return false;
+#endif
+}
+
+void RendererHookInternal_t::StopMcpServer()
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    _McpServer.Stop();
+#endif
 }
 
 RendererResource_t* RendererHookInternal_t::CreateResource()

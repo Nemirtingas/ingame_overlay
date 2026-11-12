@@ -12,7 +12,7 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/DX11Hook.cpp
     src/Windows/DX12Hook.cpp
     src/Windows/OpenGLHook.cpp
-    src/Windows/VulkanHook.cpp
+    src/VulkanHook.cpp
     src/Windows/WindowsHook.cpp
   )
 
@@ -21,14 +21,17 @@ if(WIN32) # Setup some variables for Windows build
     src/Windows/DirectXVTables.h
     src/Windows/SimpleWindowsGamingInput.h
     src/Windows/WindowsGamingInputVTables.h
+    src/Windows/ComDestructionNotifier.h
     src/Windows/DXVKDetector.h
     src/Windows/DX9Hook.h
     src/Windows/DX10Hook.h
     src/Windows/DX11Hook.h
     src/Windows/DX12Hook.h
     src/Windows/OpenGLHook.h
-    src/Windows/VulkanHook.h
+    src/VulkanHook.h
     src/Windows/WindowsHook.h
+    src/WindowHook.h
+    src/Windows/WindowsHookEventQueue.h
   )
 
   set(IMGUI_SOURCES
@@ -66,6 +69,7 @@ elseif(APPLE)
 
   set(PRIVATE_INGAMEOVERLAY_HEADERS
     src/MacOSX/NSViewHook.h
+    src/WindowHook.h
     src/MacOSX/OpenGLHook.h
     src/MacOSX/MetalHook.h
   )
@@ -81,13 +85,24 @@ elseif(APPLE)
     deps/ImGui/backends/imgui_impl_osx.mm
   )
 
+  # Dear ImGui's Apple backends are written for ARC: built without it, the Metal backend leaks its
+  # buffers and pipeline objects every frame. The i386 Objective-C runtime has no ARC.
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set_source_files_properties(
+      deps/ImGui/backends/imgui_impl_metal.mm
+      deps/ImGui/backends/imgui_impl_osx.mm
+      tests/common/imgui_impl_osx.mm
+      PROPERTIES COMPILE_OPTIONS -fobjc-arc
+    )
+  endif()
+
 elseif(UNIX)
 
   set(INGAMEOVERLAY_SOURCES
     src/Linux/RendererDetector.cpp
     src/Linux/OpenGLXHook.cpp
     src/Linux/X11Hook.cpp
-    src/Linux/VulkanHook.cpp
+    src/VulkanHook.cpp
     src/Linux/SafeXlibDisplay.cpp
   )
 
@@ -95,7 +110,8 @@ elseif(UNIX)
     src/VulkanHelpers.h
     src/Linux/OpenGLXHook.h
     src/Linux/X11Hook.h
-    src/Linux/VulkanHook.h
+    src/WindowHook.h
+    src/VulkanHook.h
     src/Linux/SafeXlibDisplay.h
   )
 
@@ -126,6 +142,7 @@ option(INGAMEOVERLAY_DYNAMIC_RUNTIME "Link against dynamic runtime (Windows)" ON
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
+option(INGAMEOVERLAY_BUILD_MCP "Build the MCP server used to test and control the overlay, not meant to be shipped." ${INGAMEOVERLAY_BUILD_TESTS})
 
 if(WIN32)
 option(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS "Build Windows shaders." OFF)
@@ -148,6 +165,7 @@ list(APPEND INGAMEOVERLAY_SOURCES
   src/Library.cpp
   src/Internal.cpp
   src/RendererHookInternal.cpp
+  src/OpenGLHookCommon.cpp
   src/RendererResourceInternal.cpp
 )
 
@@ -158,6 +176,8 @@ list(APPEND PRIVATE_INGAMEOVERLAY_HEADERS
   src/InternalIncludes.h
   src/BaseHook.h
   src/RendererHookInternal.h
+  src/OpenGLHookCommon.h
+  src/RendererUploadBatchState.h
   src/RendererResourceInternal.h
 )
 
@@ -269,9 +289,89 @@ target_compile_definitions(ingame_overlay
 add_library(Nemirtingas::InGameOverlay ALIAS ingame_overlay)
 set_target_properties(ingame_overlay PROPERTIES EXPORT_NAME InGameOverlay)
 
-if(${INGAMEOVERLAY_BUILD_TESTS})
+if(${INGAMEOVERLAY_BUILD_MCP})
 
   if(WIN32)
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportWindows.cpp)
+  elseif(APPLE)
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportMach.cpp)
+  else()
+    set(INGAMEOVERLAY_MCP_TRANSPORT_SOURCES src/Mcp/McpTransportPosix.cpp)
+  endif()
+
+  # RendererHook_t::StartMcpServer fails without them. The server reads the UI through the ImGui test engine hooks,
+  # inert until it installs its listener.
+  target_sources(ingame_overlay
+    PRIVATE
+    src/Mcp/McpImGuiHooks.cpp
+    src/Mcp/McpImGuiHooks.h
+    src/Mcp/McpImGuiInspector.cpp
+    src/Mcp/McpImGuiInspector.h
+    src/Mcp/McpJson.cpp
+    src/Mcp/McpJson.h
+    src/Mcp/McpPng.cpp
+    src/Mcp/McpPng.h
+    src/Mcp/McpServer.cpp
+    src/Mcp/McpServerInternal.h
+    src/Mcp/McpTransport.h
+    ${INGAMEOVERLAY_MCP_TRANSPORT_SOURCES}
+  )
+
+  target_compile_definitions(ingame_overlay
+    PRIVATE
+    INGAMEOVERLAY_HAS_MCP
+    IMGUI_ENABLE_TEST_ENGINE
+  )
+
+  target_link_libraries(ingame_overlay
+    PUBLIC
+    Threads::Threads
+    $<$<BOOL:${APPLE}>:bsm>
+    $<$<BOOL:${WIN32}>:advapi32>
+  )
+
+  # It doesn't need the overlay, only the transport.
+  add_executable(ingame_overlay_mcp_bridge
+    tests/mcp_bridge/main.cpp
+    ${INGAMEOVERLAY_MCP_TRANSPORT_SOURCES}
+  )
+
+  target_include_directories(ingame_overlay_mcp_bridge PRIVATE src/Mcp)
+  target_link_libraries(ingame_overlay_mcp_bridge PRIVATE Threads::Threads $<$<BOOL:${APPLE}>:bsm> $<$<BOOL:${WIN32}>:advapi32>)
+
+  set_property(TARGET ingame_overlay_mcp_bridge PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+endif()
+
+if(${INGAMEOVERLAY_BUILD_TESTS})
+
+  if(${INGAMEOVERLAY_BUILD_MCP})
+    add_executable(mcp_server_test
+      tests/mcp_server/main.cpp
+    )
+
+    target_include_directories(mcp_server_test PRIVATE src/Mcp)
+    target_link_libraries(mcp_server_test PRIVATE ingame_overlay)
+    target_compile_definitions(mcp_server_test PRIVATE ${IMGUI_USER_CONFIG_VALUE})
+
+    set_property(TARGET mcp_server_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+  endif()
+
+  add_executable(dx12_screenshot_requests_test
+    tests/dx12_screenshot_requests/main.cpp
+  )
+  target_link_libraries(dx12_screenshot_requests_test PRIVATE ingame_overlay)
+
+  set_property(TARGET dx12_screenshot_requests_test PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+  if(WIN32)
+    add_executable(windows_event_queue_test
+      tests/windows_event_queue_test.cpp
+    )
+
     if(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS)
       add_executable(windows_shaders
         tests/windows_shaders_precompile/shaders.h
@@ -290,6 +390,16 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
       )
     endif()
   
+    add_executable(dx9_refcount_no_host_test
+      tests/dx9/refcount_no_host.cpp
+    )
+
+    target_include_directories(dx9_refcount_no_host_test PRIVATE src/Windows)
+    target_link_libraries(dx9_refcount_no_host_test PRIVATE ingame_overlay d3d9)
+
+    set_property(TARGET dx9_refcount_no_host_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
     add_executable(dx9_app
       tests/dx9/main.cpp
       deps/ImGui/imgui.cpp
@@ -364,6 +474,16 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     set_property(TARGET dx10_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
+    add_executable(dx10_refcount_no_host_test
+      tests/dx10/refcount_no_host.cpp
+    )
+
+    target_include_directories(dx10_refcount_no_host_test PRIVATE src/Windows)
+    target_link_libraries(dx10_refcount_no_host_test PRIVATE ingame_overlay d3d10 dxgi)
+
+    set_property(TARGET dx10_refcount_no_host_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
     add_executable(dx11_app
       tests/dx11/main.cpp
       deps/ImGui/imgui.cpp
@@ -399,6 +519,26 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET dx11_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+    add_executable(dx11_refcount_no_host_test
+      tests/dx11/refcount_no_host.cpp
+    )
+
+    target_include_directories(dx11_refcount_no_host_test PRIVATE src/Windows)
+    target_link_libraries(dx11_refcount_no_host_test PRIVATE ingame_overlay d3d11 dxgi)
+
+    set_property(TARGET dx11_refcount_no_host_test PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+    add_executable(dx11_refcount_lifecycle_test
+      tests/dx11/refcount_lifecycle.cpp
+    )
+
+    target_include_directories(dx11_refcount_lifecycle_test PRIVATE src/Windows)
+    target_link_libraries(dx11_refcount_lifecycle_test PRIVATE ingame_overlay d3d11 dxgi)
+
+    set_property(TARGET dx11_refcount_lifecycle_test PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
     add_executable(dx12_app
@@ -476,6 +616,26 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     )
 
     set_property(TARGET windows_opengl3_app PROPERTY
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
+
+    # Host for the window and OpenGL hook scenarios of tests/windows_hook_tests/check_scenarios.py.
+    add_executable(windows_hook_tests_app
+      tests/windows_hook_tests/main.cpp
+    )
+
+    target_include_directories(windows_hook_tests_app
+      PRIVATE
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/glad2/include>
+    )
+
+    target_link_libraries(windows_hook_tests_app
+      PRIVATE
+      user32
+      gdi32
+      opengl32
+    )
+
+    set_property(TARGET windows_hook_tests_app PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")
 
     # Vulkan officially supports only 64 bits apps.
@@ -630,6 +790,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
     target_link_libraries(macos_metal_app
       PRIVATE
       dl
+      "-framework QuartzCore"
     )
 
     target_compile_definitions(macos_metal_app
