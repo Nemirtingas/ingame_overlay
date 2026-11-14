@@ -974,9 +974,18 @@ install(FILES ${INGAMEOVERLAY_IMGUI_HEADERS}
 )
 
 # Export targets
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  cmake/InGameOverlayConfig.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/InGameOverlayConfig.cmake
+  INSTALL_DESTINATION lib/cmake/InGameOverlay
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/InGameOverlayConfig.cmake
+  DESTINATION lib/cmake/InGameOverlay
+)
 install(
   EXPORT InGameOverlayTargets
-  FILE InGameOverlayConfig.cmake
+  FILE InGameOverlayTargets.cmake
   NAMESPACE Nemirtingas::
   DESTINATION lib/cmake/InGameOverlay
 )
