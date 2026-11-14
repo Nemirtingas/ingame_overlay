@@ -65,7 +65,8 @@ CMake options:
 | `INGAMEOVERLAY_DYNAMIC_RUNTIME` | ON | MSVC `/MD` vs `/MT` |
 | `INGAMEOVERLAY_USE_SYSTEM_LIBRARIES` | OFF | `find_package` spdlog/MiniDetour instead of `deps/` |
 | `INGAMEOVERLAY_BUILD_WINDOWS_SHADERS` | OFF | Build the shader precompiler (Windows only) |
-| `INGAMEOVERLAY_BUILD_MCP` | Same as `INGAMEOVERLAY_BUILD_TESTS` | Build the MCP server into `ingame_overlay` (`RendererHook_t::StartMcpServer` fails without it) and `ingame_overlay_mcp_bridge`. Never ship it |
+| `INGAMEOVERLAY_MCP_IMGUI_INSPECTOR` | ON | Include `imgui_*` tools and ImGui test-engine hooks when MCP is built |
+| `INGAMEOVERLAY_BUILD_MCP` | Same as `INGAMEOVERLAY_BUILD_TESTS` | Build the MCP server into `ingame_overlay` (`RendererHook_t::StartMcpServer` fails without it) and `ingame_overlay_mcp_bridge`. The application must explicitly start the server |
 
 There is no automated test suite. "Testing" means the CI build succeeds on Windows (x86/x64), Linux (x86/x64) and macOS (x64), plus manual runs of a host app with an overlay injected. When you cannot run a platform locally, say so instead of claiming it works.
 
@@ -91,7 +92,7 @@ claude mcp add ingame-overlay -- <build>/ingame_overlay_mcp_bridge --wait 30
 - Endpoints are per process and per name: several overlays in one process (Steam, Epic, GOG emulators...) each call `RendererHook_t::StartMcpServer` on their own hook with their own name (letters, digits, `-`, `_`, up to 32 characters; empty is the default endpoint). `overlay_example` takes it from `INGAMEOVERLAY_MCP_NAME`, and `overlay_status` reports it.
 - Tools: `overlay_status`, `overlay_wait_frames`, `overlay_windows`, `overlay_screenshot`, `overlay_mouse`, `overlay_key`, `overlay_text`, `overlay_input_policy`, `overlay_set_visible`.
 - ImGui tools: `imgui_tree` (windows and items as trees: widget type, id, label, value, displayed text, rect, state), `imgui_find`, `imgui_item` (click, activate, check, open, `set_value`, `set_text`...), `imgui_window` (focus, collapse, move, resize, scroll, close), `imgui_state` (focus, active/hovered items, popups, edited text) and `imgui_debug_log`.
-- The ImGui tools read the UI through the ImGui test engine hooks (`src/Mcp/McpImGuiHooks.*`, compiled into `ingame_overlay` with `IMGUI_ENABLE_TEST_ENGINE` only when `INGAMEOVERLAY_BUILD_MCP` is on) plus two hooks of our ImGui fork, `ImGuiTestEngineHook_ItemValue` and `ImGuiTestEngineHook_ItemText` (`IMGUI_TEST_ENGINE_ITEM_WIDGET/VALUE/EDIT/TEXT` in `deps/ImGui`). Changing those hooks is done in the fork, on its own branch; a widget without them still shows up, but without its type and value. Items scrolled out of an `ImGuiListClipper` are not submitted, so they can't be seen.
+- The ImGui tools read the UI through the ImGui test engine hooks (`src/Mcp/McpImGuiHooks.*`, compiled into `ingame_overlay` with `IMGUI_ENABLE_TEST_ENGINE` only when MCP and the inspector option are on) plus two hooks of our ImGui fork, `ImGuiTestEngineHook_ItemValue` and `ImGuiTestEngineHook_ItemText` (`IMGUI_TEST_ENGINE_ITEM_WIDGET/VALUE/EDIT/TEXT` in `deps/ImGui`). Changing those hooks is done in the fork, on its own branch; a widget without them still shows up, but without its type and value. Items scrolled out of an `ImGuiListClipper` are not submitted, so they can't be seen.
 - Inputs are sent to ImGui, the application never sees them, so the path through the window hook is not exercised. Check that one manually.
 - Another overlay opts in by calling `RendererHook_t::StartMcpServer`; the server lives until `StopMcpServer` or `Release`. Starting and stopping it is not thread safe, like the rest of the hook API. The hook feeds it itself (`RendererHookInternal_t::_McpServer`, a `McpServerInternal_t`): every hook calls `_OverlayProc` and `_OverlayHookReady` instead of the user callbacks, and the screenshots a MCP client asked for never reach the application's callback.
 - Without the endpoint, `StartMcpServerWithTransport` lets the application carry the messages with its own protocol: it gives the client's JSON-RPC messages to `PushMcpMessage` (queued, handled in order on the server thread) and sends the answers from `McpServerTransport_t::Send`. Same tools, same server.
@@ -140,3 +141,5 @@ Tools list notifications are coalesced by a 10 ms worker, only for initialized c
 Transport Send calls are serialized with responses, but may originate on this worker as well
 as the server thread; Send may PushMcpMessage or add/remove tools, but must not Stop/Release
 or wait for a response. No network IO runs in Add/Remove or on the render thread.
+
+The server is inactive until the application explicitly starts it. The default endpoint is restricted to the current user. A client can inspect the overlay, capture screenshots, inject overlay input and invoke registered application tools; enable it only when those capabilities are intended. The inspector may be excluded with `INGAMEOVERLAY_MCP_IMGUI_INSPECTOR=OFF`.

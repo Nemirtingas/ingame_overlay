@@ -73,3 +73,15 @@ Tools list notifications are coalesced by a 10 ms worker, only for initialized c
 Transport Send calls are serialized with responses, but may originate on this worker as well
 as the server thread; Send may PushMcpMessage or add/remove tools, but must not Stop/Release
 or wait for a response. No network IO runs in Add/Remove or on the render thread.
+
+## MCP server
+
+Build with `-DINGAMEOVERLAY_BUILD_MCP=ON` to include the server and install
+`ingame_overlay_mcp_bridge`. The server is inactive by default: the application
+must explicitly call `StartMcpServer` or `StartMcpServerWithTransport`. The default
+endpoint is restricted to the current user; custom transports are the application's
+responsibility. A connected client can inspect windows, capture screenshots, send
+overlay input and call application-registered tools. With the inspector enabled it
+can also inspect and manipulate ImGui items. Set
+`-DINGAMEOVERLAY_MCP_IMGUI_INSPECTOR=OFF` to exclude `imgui_*` tools and the
+ImGui test-engine hooks while retaining the other tools.

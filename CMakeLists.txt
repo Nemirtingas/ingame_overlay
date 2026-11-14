@@ -142,7 +142,9 @@ option(INGAMEOVERLAY_DYNAMIC_RUNTIME "Link against dynamic runtime (Windows)" ON
 option(INGAMEOVERLAY_BUILD_TESTS "Build tests." OFF)
 option(INGAMEOVERLAY_USE_SPDLOG "Enable logs with SPDLOG." OFF)
 option(INGAMEOVERLAY_USE_SYSTEM_LIBRARIES "Use system libraries instead of building them from deps" OFF)
-option(INGAMEOVERLAY_BUILD_MCP "Build the MCP server used to test and control the overlay, not meant to be shipped." ${INGAMEOVERLAY_BUILD_TESTS})
+option(INGAMEOVERLAY_BUILD_MCP "Build the opt-in MCP server and bridge." ${INGAMEOVERLAY_BUILD_TESTS})
+
+option(INGAMEOVERLAY_MCP_IMGUI_INSPECTOR "Build MCP ImGui inspector tools and test engine hooks." ON)
 
 if(WIN32)
 option(INGAMEOVERLAY_BUILD_WINDOWS_SHADERS "Build Windows shaders." OFF)
@@ -303,10 +305,6 @@ if(${INGAMEOVERLAY_BUILD_MCP})
   # inert until it installs its listener.
   target_sources(ingame_overlay
     PRIVATE
-    src/Mcp/McpImGuiHooks.cpp
-    src/Mcp/McpImGuiHooks.h
-    src/Mcp/McpImGuiInspector.cpp
-    src/Mcp/McpImGuiInspector.h
     src/Mcp/McpJson.cpp
     src/Mcp/McpJson.h
     src/Mcp/McpPng.cpp
@@ -320,8 +318,14 @@ if(${INGAMEOVERLAY_BUILD_MCP})
   target_compile_definitions(ingame_overlay
     PRIVATE
     INGAMEOVERLAY_HAS_MCP
-    IMGUI_ENABLE_TEST_ENGINE
   )
+
+  if(INGAMEOVERLAY_MCP_IMGUI_INSPECTOR)
+    target_sources(ingame_overlay PRIVATE
+      src/Mcp/McpImGuiHooks.cpp src/Mcp/McpImGuiHooks.h
+      src/Mcp/McpImGuiInspector.cpp src/Mcp/McpImGuiInspector.h)
+    target_compile_definitions(ingame_overlay PRIVATE INGAMEOVERLAY_MCP_IMGUI_INSPECTOR IMGUI_ENABLE_TEST_ENGINE)
+  endif()
 
   target_link_libraries(ingame_overlay
     PUBLIC
@@ -335,6 +339,8 @@ if(${INGAMEOVERLAY_BUILD_MCP})
     tests/mcp_bridge/main.cpp
     ${INGAMEOVERLAY_MCP_TRANSPORT_SOURCES}
   )
+
+  install(TARGETS ingame_overlay_mcp_bridge RUNTIME DESTINATION bin)
 
   target_include_directories(ingame_overlay_mcp_bridge PRIVATE src/Mcp)
   target_link_libraries(ingame_overlay_mcp_bridge PRIVATE Threads::Threads $<$<BOOL:${APPLE}>:bsm> $<$<BOOL:${WIN32}>:advapi32>)
@@ -353,7 +359,7 @@ if(${INGAMEOVERLAY_BUILD_TESTS})
 
     target_include_directories(mcp_server_test PRIVATE src/Mcp)
     target_link_libraries(mcp_server_test PRIVATE ingame_overlay)
-    target_compile_definitions(mcp_server_test PRIVATE ${IMGUI_USER_CONFIG_VALUE})
+    target_compile_definitions(mcp_server_test PRIVATE ${IMGUI_USER_CONFIG_VALUE} $<$<BOOL:${INGAMEOVERLAY_MCP_IMGUI_INSPECTOR}>:INGAMEOVERLAY_MCP_IMGUI_INSPECTOR>)
 
     set_property(TARGET mcp_server_test PROPERTY
       MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<BOOL:${INGAMEOVERLAY_DYNAMIC_RUNTIME}>:DLL>")

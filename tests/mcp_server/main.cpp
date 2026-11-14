@@ -432,7 +432,15 @@ static void TestProtocol(Client_t& client, FakeHook_t& hook, std::atomic<bool>& 
 
     CHECK(client.Request(R"({"jsonrpc":"2.0","id":3,"method":"tools/list"})", response));
     auto const& tools = response.Find("result")->Find("tools")->Array;
+#ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
     CHECK(tools.size() == 16);
+#else
+    CHECK(tools.size() == 10);
+    for (auto const& tool : tools)
+        CHECK(tool.Find("name")->String.find("imgui_") != 0);
+    CHECK(client.Request(R"({"jsonrpc":"2.0","id":300,"method":"tools/call","params":{"name":"imgui_tree","arguments":{}}})", response));
+    CHECK(ErrorCode(response) == -32602);
+#endif
     for (auto const& tool : tools)
         CHECK(tool.Find("inputSchema") != nullptr && tool.Find("inputSchema")->IsObject());
 
@@ -501,7 +509,9 @@ static void TestProtocol(Client_t& client, FakeHook_t& hook, std::atomic<bool>& 
     CHECK(size.Find("width")->Number == 16 && size.Find("height")->Number == 8);
     CHECK(size.Find("source_width")->Number == 32 && size.Find("source_height")->Number == 16);
 
+#ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
     TestImGuiTools(client);
+#endif
 
     // Without frames, a tool answers instead of blocking forever.
     frameThreadStop = true;

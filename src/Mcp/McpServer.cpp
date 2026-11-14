@@ -19,7 +19,9 @@
 
 #include "McpServerInternal.h"
 
+#ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
 #include "McpImGuiInspector.h"
+#endif
 #include "McpJson.h"
 #include "McpPng.h"
 #include "McpTransport.h"
@@ -238,6 +240,7 @@ constexpr ToolDefinition_t Tools[] = {
         R"({"type":"object","properties":{"hide_from_app":{"type":"boolean"},"hide_from_overlay":{"type":"boolean"}},"additionalProperties":false})" },
     { "overlay_set_visible", "Shows or hides the overlay, if the application supports it.",
         R"({"type":"object","properties":{"visible":{"type":"boolean"}},"required":["visible"],"additionalProperties":false})" },
+#ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
     { "imgui_tree",
         "Captures one frame and returns the ImGui windows, back to front, with their child windows and their items as trees. "
         "Each item has a type (Button, Checkbox, Slider, Drag, InputText, InputScalar, Combo, TreeNode, CollapsingHeader, TabItem, Menu, MenuItem, "
@@ -259,6 +262,7 @@ constexpr ToolDefinition_t Tools[] = {
     { "imgui_state", "Returns the ImGui context state to debug inputs and focus: mouse, keys down, hovered/focused/active window and item, open popups, edited text input, drag and drop, metrics.", EmptySchema },
     { "imgui_debug_log", "Enables or disables categories of the ImGui debug log (error, activeid, focus, popup, nav, clipper, selection, io, font, inputrouting, table) and returns its end.",
         R"({"type":"object","properties":{"enable":{"type":"array","items":{"type":"string"}},"disable":{"type":"array","items":{"type":"string"}},"clear":{"type":"boolean","default":false},"max_bytes":{"type":"integer","minimum":256,"maximum":1048576,"default":16384}},"additionalProperties":false})" },
+#endif
 };
 
 constexpr char const* NoFrameError = "The application doesn't render any frame.";
@@ -547,6 +551,7 @@ bool McpServerInternal_t::_WaitForFrames(uint64_t count, std::chrono::millisecon
     return _FrameCount.load() >= target;
 }
 
+#ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
 bool McpServerInternal_t::_CaptureSnapshot(McpImGuiSnapshot_t& snapshot, std::string& error)
 {
     std::string result;
@@ -939,8 +944,11 @@ McpToolResult_t McpServerInternal_t::_ToolImGuiDebugLog(McpJson_t const& argumen
     return TextResult(result);
 }
 
+#endif
+
 McpToolResult_t McpServerInternal_t::_CallTool(std::string const& name, McpJson_t const& arguments)
 {
+    #ifdef INGAMEOVERLAY_MCP_IMGUI_INSPECTOR
     if (name == "imgui_tree")
         return _ToolImGuiTree(arguments);
 
@@ -958,6 +966,8 @@ McpToolResult_t McpServerInternal_t::_CallTool(std::string const& name, McpJson_
 
     if (name == "imgui_debug_log")
         return _ToolImGuiDebugLog(arguments);
+
+    #endif
 
     if (name == "overlay_status")
         return _ToolStatus();
