@@ -112,6 +112,8 @@ public:
     virtual bool PushMcpMessage(const char* message, size_t size);
 
     virtual void StopMcpServer();
+    bool AddMcpTool(McpTool_t const& tool) override;
+    bool RemoveMcpTool(const char* name) override;
 
     virtual std::weak_ptr<RendererTexture_t> AllocImageResource() = 0;
 

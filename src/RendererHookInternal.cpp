@@ -195,4 +195,20 @@ RendererResource_t* RendererHookInternal_t::CreateAndAttachResource(const void* 
     return pResource;
 }
 
+bool RendererHookInternal_t::AddMcpTool(McpTool_t const& tool)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    return _McpServer.AddTool(tool);
+#else
+    return false;
+#endif
+}
+bool RendererHookInternal_t::RemoveMcpTool(const char* name)
+{
+#if defined(INGAMEOVERLAY_HAS_MCP)
+    return _McpServer.RemoveTool(name);
+#else
+    return false;
+#endif
+}
 }

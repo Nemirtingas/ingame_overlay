@@ -67,6 +67,22 @@ struct McpToolResult_t
 // the next Start. Not thread safe: the application must not start or stop it while the render thread runs a frame.
 class McpServerInternal_t
 {
+    struct Tool_t
+    {
+        std::string Name, Description, Schema;
+        McpToolCallback_t Call;
+        void* UserParameter;
+        std::recursive_mutex Mutex;
+        bool Removed = false;
+        bool Running = false;
+    };
+    std::mutex _ToolsMutex;
+    std::vector<std::shared_ptr<Tool_t>> _Tools;
+    std::mutex _OutputMutex;
+    std::function<void(std::string const&)> _Output;
+    std::atomic<bool> _Initialized{false};
+    std::atomic<uint64_t> _Generation{0};
+    std::thread _Notifier;
     RendererHook_t* _Hook = nullptr;
     McpServerCallbacks_t _Callbacks;
     std::unique_ptr<McpListener_t> _Listener;
@@ -116,6 +132,8 @@ class McpServerInternal_t
 
 public:
     McpServerInternal_t() = default;
+    bool AddTool(McpTool_t const& tool);
+    bool RemoveTool(const char* name);
     ~McpServerInternal_t();
 
     McpServerInternal_t(McpServerInternal_t const&) = delete;

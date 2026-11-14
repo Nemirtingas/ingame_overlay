@@ -57,6 +57,8 @@ public:
     // Only for the hooks allocated with new.
     bool StartMcpServerWithTransport(McpServerTransport_t transport, McpServerCallbacks_t callbacks = {}) override { return Mcp.StartWithTransport(this, transport, callbacks); }
     bool PushMcpMessage(char const* message, size_t size) override { return Mcp.PushMessage(message, size); }
+    bool AddMcpTool(McpTool_t const& tool) override { return Mcp.AddTool(tool); }
+    bool RemoveMcpTool(const char* name) override { return Mcp.RemoveTool(name); }
     void Release() override { StopMcpServer(); delete this; }
 };
 
@@ -100,7 +102,10 @@ public:
 
     bool Request(std::string const& line, McpJson_t& response)
     {
-        return Send(line) && McpJson_t::Parse(Receive(), response);
+        if (!Send(line)) return false;
+        do { if (!McpJson_t::Parse(Receive(), response)) return false; }
+        while (response.Find("id") == nullptr);
+        return true;
     }
 
     McpJson_t CallTool(int id, std::string const& name, std::string const& arguments = "{}")
@@ -427,7 +432,7 @@ static void TestProtocol(Client_t& client, FakeHook_t& hook, std::atomic<bool>& 
 
     CHECK(client.Request(R"({"jsonrpc":"2.0","id":3,"method":"tools/list"})", response));
     auto const& tools = response.Find("result")->Find("tools")->Array;
-    CHECK(tools.size() == 15);
+    CHECK(tools.size() == 16);
     for (auto const& tool : tools)
         CHECK(tool.Find("inputSchema") != nullptr && tool.Find("inputSchema")->IsObject());
 
@@ -774,6 +779,79 @@ static void TestCustomTransport(uint32_t pid)
     hook->Release();
 }
 
+struct ApplicationState_t
+{
+    McpServerInternal_t* Server;
+    std::atomic<bool> Entered{false}, Leave{false}, Removed{false};
+    std::thread::id RenderThread;
+};
+static void ApplicationTool(const char* args, size_t size, McpToolResponse_t* response, void* parameter)
+{
+    auto& state = *static_cast<ApplicationState_t*>(parameter);
+    CHECK(std::this_thread::get_id() == state.RenderThread);
+    std::string input(args, size);
+    if (input.find("block") != std::string::npos)
+    {
+        state.Entered = true;
+        while (!state.Leave) std::this_thread::yield();
+        response->SetText("done", 4);
+    }
+    else if (input.find("self") != std::string::npos)
+    {
+        CHECK(!state.Server->RemoveTool("app_echo"));
+        response->SetText("self", 4);
+    }
+    else if (input.find("error") != std::string::npos)
+        response->SetError("failure", 7);
+    else response->SetText(args, size);
+}
+static void TestApplicationTools(Client_t& client, McpServerInternal_t& server, ApplicationState_t& state)
+{
+    McpJson_t response;
+    CHECK(client.Request(R"({"jsonrpc":"2.0","id":900,"method":"initialize"})", response));
+    CHECK(response.Raw.find("listChanged") != std::string::npos);
+    CHECK(client.Request(R"({"jsonrpc":"2.0","id":901,"method":"tools/list"})", response));
+    CHECK(response.Raw.find("app_echo") != std::string::npos);
+    CHECK(ToolText(client.CallTool(902, "app_echo", R"({"hello":1})")) == R"({"hello":1})");
+    CHECK(ToolFailed(client.CallTool(903, "app_echo", R"({"error":true})")));
+    CHECK(ToolText(client.CallTool(904, "app_echo", R"({"self":true})")) == "self");
+    McpTool_t tool{"app_other", "other", "{}", ApplicationTool, &state};
+    CHECK(server.AddTool(tool));
+    McpJson_t notification;
+    CHECK(McpJson_t::Parse(client.Receive(), notification));
+    CHECK(notification.Raw.find("notifications/tools/list_changed") != std::string::npos);
+    CHECK(server.RemoveTool("app_other"));
+    std::thread editor([&]()
+    {
+        for (int i = 0; i < 100; ++i)
+        {
+            if (!server.AddTool(tool) || !server.RemoveTool(tool.Name)) std::abort();
+        }
+    });
+    for (int i = 0; i < 20; ++i)
+        CHECK(client.Request(R"({"jsonrpc":"2.0","id":907,"method":"tools/list"})", response));
+    editor.join();
+    std::thread remover([&]()
+    {
+        while (!state.Entered) std::this_thread::yield();
+        state.Removed = server.RemoveTool("app_echo");
+    });
+    std::thread release([&]()
+    {
+        while (!state.Entered) std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        CHECK(!state.Removed);
+        state.Leave = true;
+    });
+    CHECK(ToolText(client.CallTool(905, "app_echo", R"({"block":true})")) == "done");
+    release.join(); remover.join();
+    CHECK(state.Removed);
+    CHECK(!server.RemoveTool("app_echo"));
+    CHECK(client.Request(R"({"jsonrpc":"2.0","id":906,"method":"tools/list"})", response));
+    CHECK(response.Raw.find("app_echo") == std::string::npos);
+    CHECK(server.AddTool({"app_echo", "echo", "{}", ApplicationTool, &state}));
+}
+
 int main()
 {
     // The failures must be seen even if an assertion aborts the process afterwards.
@@ -804,6 +882,14 @@ int main()
     callbacks.UserParameter = &overlayVisible;
 
     McpServerInternal_t server;
+    ApplicationState_t application{&server};
+    application.RenderThread = std::this_thread::get_id();
+    McpTool_t tool{"app_echo", "echo", "{}", ApplicationTool, &application};
+    CHECK(server.AddTool(tool));
+    CHECK(!server.AddTool(tool));
+    CHECK(!server.AddTool({"overlay_status", "collision", "{}", ApplicationTool, &application}));
+    CHECK(!server.AddTool({"bad name", "bad", "{}", ApplicationTool, &application}));
+    CHECK(!server.AddTool({"bad_schema", "bad", "{", ApplicationTool, &application}));
     CHECK(!server.OnScreenshot(nullptr));
     CHECK(McpConnect(endpoint) == nullptr);
     CHECK(server.Start(&hook, callbacks));
@@ -825,6 +911,7 @@ int main()
         if (connection != nullptr)
         {
             Client_t client(std::move(connection));
+            TestApplicationTools(client, server, application);
             TestProtocol(client, hook, overlayVisible, stopFrames);
         }
         stopFrames = true;
@@ -863,7 +950,12 @@ int main()
 
     CHECK(McpConnect(endpoint) == nullptr);
     CHECK(server.Start(&hook));
-    CHECK(ConnectWithRetry(endpoint) != nullptr);
+    {
+        Client_t client(ConnectWithRetry(endpoint));
+        McpJson_t response;
+        CHECK(client.Request(R"({"jsonrpc":"2.0","id":999,"method":"tools/list"})", response));
+        CHECK(response.Raw.find("app_echo") != std::string::npos);
+    }
     server.Stop();
     server.Stop();
 

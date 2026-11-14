@@ -119,3 +119,24 @@ claude mcp add ingame-overlay -- <build>/ingame_overlay_mcp_bridge --wait 30
 - Commit build output (`OUT/`, `build/`) or `deps/spdlog`.
 - Push to any remote (`git push`, opening pull requests, etc.). Work only in the local repository: create branches and commits locally, and leave pushing to the developer.
 - Add `Co-Authored-By` or any other AI attribution trailer to commit messages.
+
+## Application MCP tools
+
+`AddMcpTool` copies name, description and JSON object schema; callbacks use byte strings,
+an opaque `McpToolResponse_t` and a borrowed UserParameter. Names contain 1-128 ASCII
+letters, digits, underscore, hyphen or dot. Built-in and application duplicates are refused.
+Registrations survive Stop/Start. Without MCP both registration methods return false.
+Callbacks run before OverlayProc on the render thread. SetText/SetError copy response bytes;
+the response must not escape the callback. Exceptions become tool errors.
+
+RemoveMcpTool waits for an executing callback without holding the registry or server lock.
+A queued call removed before execution returns a tool error without invoking application code.
+Self-removal returns false and keeps the tool registered: arrange removal after the callback.
+Callbacks may add tools or remove other tools. Do not call Stop, Release, or wait for a
+thread that is removing this callback from inside a callback. Start/Stop retain their existing
+external lifecycle synchronization requirement. Successful removal allows freeing UserParameter.
+
+Tools list notifications are coalesced by a 10 ms worker, only for initialized connections.
+Transport Send calls are serialized with responses, but may originate on this worker as well
+as the server thread; Send may PushMcpMessage or add/remove tools, but must not Stop/Release
+or wait for a response. No network IO runs in Add/Remove or on the render thread.

@@ -116,6 +116,27 @@ struct ScreenshotCallbackParameter_t
 
 typedef void (*ScreenshotCallback_t)(ScreenshotCallbackParameter_t const* screenshot, void* userParameter);
 
+// Borrowed response, valid only during the callback. Setters copy the bytes.
+struct McpToolResponse_t
+{
+    void SetText(const char* text, size_t size) { _Set(_State, text, size, false); }
+    void SetError(const char* text, size_t size) { _Set(_State, text, size, true); }
+private:
+    void* _State;
+    void (*_Set)(void*, const char*, size_t, bool);
+    McpToolResponse_t(void* state, void (*set)(void*, const char*, size_t, bool)) : _State(state), _Set(set) {}
+    friend class McpServerInternal_t;
+};
+typedef void (*McpToolCallback_t)(const char*, size_t, McpToolResponse_t*, void*);
+struct McpTool_t
+{
+    const char* Name;
+    const char* Description;
+    const char* InputSchema;
+    McpToolCallback_t Call;
+    void* UserParameter;
+};
+
 typedef bool (*McpIsOverlayVisibleCallback_t)(void* userParameter);
 typedef void (*McpSetOverlayVisibleCallback_t)(bool visible, void* userParameter);
 
@@ -139,7 +160,7 @@ struct McpServerTransport_t
 {
     /// <summary>
     ///   Required. Receives each message for the client: one JSON-RPC message in UTF-8, without newline, not null terminated. Called on
-    ///   the server thread, one message at a time; it may call PushMcpMessage.
+    ///   the server or notification thread, one message at a time; it may call PushMcpMessage.
     /// </summary>
     McpSendMessageCallback_t Send = nullptr;
     void* UserParameter = nullptr;
@@ -303,6 +324,11 @@ public:
     ///   Stops the MCP server, if any, and waits for its thread. The messages it hasn't handled yet are dropped.
     /// </summary>
     virtual void StopMcpServer() = 0;
+
+    // Copies metadata; UserParameter must live until successful removal. Thread safe.
+    virtual bool AddMcpTool(McpTool_t const& tool) = 0;
+    // Waits for an executing callback. Self-removal returns false without removing.
+    virtual bool RemoveMcpTool(const char* name) = 0;
 };
 
 }

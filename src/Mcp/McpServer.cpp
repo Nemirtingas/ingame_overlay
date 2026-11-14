@@ -268,6 +268,51 @@ constexpr int MaxTextInputAttempts = 10;
 
 }
 
+bool McpServerInternal_t::AddTool(McpTool_t const& tool)
+{
+    if (!tool.Name || !tool.Description || !tool.InputSchema || !tool.Call)
+        return false;
+    std::string name(tool.Name);
+    if (name.empty() || name.size() > 128 || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-." ) != std::string::npos)
+        return false;
+    McpJson_t schema;
+    if (!McpJson_t::Parse(tool.InputSchema, schema) || !schema.IsObject())
+        return false;
+    for (auto const& builtin : Tools)
+        if (name == builtin.Name) return false;
+    std::lock_guard<std::mutex> lock(_ToolsMutex);
+    for (auto const& entry : _Tools)
+        if (entry->Name == name) return false;
+    auto entry = std::make_shared<Tool_t>();
+    entry->Name = name;
+    entry->Description = tool.Description;
+    entry->Schema = tool.InputSchema;
+    entry->Call = tool.Call;
+    entry->UserParameter = tool.UserParameter;
+    _Tools.push_back(entry);
+    ++_Generation;
+    return true;
+}
+bool McpServerInternal_t::RemoveTool(const char* name)
+{
+    if (!name) return false;
+    std::shared_ptr<Tool_t> entry;
+    {
+        std::lock_guard<std::mutex> lock(_ToolsMutex);
+        for (auto const& candidate : _Tools)
+            if (candidate->Name == name) entry = candidate;
+    }
+    if (!entry) return false;
+    // Never hold the registry while waiting for a callback (which may add/remove tools).
+    std::lock_guard<std::recursive_mutex> callLock(entry->Mutex);
+    if (entry->Running || entry->Removed) return false;
+    std::lock_guard<std::mutex> lock(_ToolsMutex);
+    entry->Removed = true;
+    _Tools.erase(std::remove(_Tools.begin(), _Tools.end(), entry), _Tools.end());
+    ++_Generation;
+    return true;
+}
+
 bool McpServerInternal_t::_RunOnRenderThread(std::function<std::string()> function, std::string& result)
 {
     auto task = std::make_shared<McpRenderTask_t>();
@@ -1039,6 +1084,7 @@ std::string McpServerInternal_t::_HandleRequest(McpJson_t const& request)
 
     if (method->String == "initialize")
     {
+        _Initialized = true;
         auto requested = params->Find("protocolVersion");
         std::string negotiated = ProtocolVersions[0];
         for (auto const& supported : ProtocolVersions)
@@ -1049,7 +1095,7 @@ std::string McpServerInternal_t::_HandleRequest(McpJson_t const& request)
 
         return success(
             "{\"protocolVersion\":\"" + negotiated + "\","
-            "\"capabilities\":{\"tools\":{}},"
+            "\"capabilities\":{\"tools\":{\"listChanged\":true}},"
             "\"serverInfo\":{\"name\":\"ingame_overlay\",\"version\":\"1.0.0\"}}");
     }
 
@@ -1062,6 +1108,11 @@ std::string McpServerInternal_t::_HandleRequest(McpJson_t const& request)
                 tools += ',';
 
             tools += "{\"name\":\"" + std::string(tool.Name) + "\",\"description\":" + McpJsonQuote(tool.Description) + ",\"inputSchema\":" + tool.InputSchema + "}";
+        }
+        {
+            std::lock_guard<std::mutex> lock(_ToolsMutex);
+            for (auto const& tool : _Tools)
+                tools += ",{\"name\":" + McpJsonQuote(tool->Name) + ",\"description\":" + McpJsonQuote(tool->Description) + ",\"inputSchema\":" + tool->Schema + "}";
         }
         return success("{\"tools\":[" + tools + "]}");
     }
@@ -1077,6 +1128,36 @@ std::string McpServerInternal_t::_HandleRequest(McpJson_t const& request)
         for (auto const& tool : Tools)
             known = known || name->String == tool.Name;
 
+        std::shared_ptr<Tool_t> custom;
+        {
+            std::lock_guard<std::mutex> lock(_ToolsMutex);
+            for (auto const& tool : _Tools)
+                if (tool->Name == name->String) custom = tool;
+        }
+        if (custom)
+        {
+            auto result = std::make_shared<McpToolResult_t>(TextResult("Tool removed", true));
+            std::string ignored;
+            std::string args = arguments ? arguments->Raw : "{}";
+            bool ran = _RunOnRenderThread([custom, result, args]()
+            {
+                std::lock_guard<std::recursive_mutex> lock(custom->Mutex);
+                if (!custom->Removed)
+                {
+                    custom->Running = true;
+                    McpToolResponse_t response(result.get(), [](void* state, const char* text, size_t size, bool error)
+                    {
+                        *static_cast<McpToolResult_t*>(state) = TextResult(text ? std::string(text, size) : std::string(), error);
+                    });
+                    try { custom->Call(args.data(), args.size(), &response, custom->UserParameter); }
+                    catch (...) { *result = TextResult("Tool callback threw", true); }
+                    custom->Running = false;
+                }
+                return std::string();
+            }, ignored);
+            if (!ran) return success("{\"content\":[],\"isError\":true}");
+            return success("{\"content\":" + result->Content + ",\"isError\":" + (result->IsError ? "true" : "false") + "}");
+        }
         if (!known)
             return rpcError(-32602, "Unknown tool");
 
@@ -1101,6 +1182,13 @@ std::string McpServerInternal_t::_HandleLine(std::string const& line)
 
 void McpServerInternal_t::_ServeConnection(McpConnection_t& connection)
 {
+    {
+        std::lock_guard<std::mutex> lock(_OutputMutex);
+        _Initialized = false;
+        _Output = [&connection](std::string const& message) { auto line = message + '\n'; connection.Write(line.data(), line.size()); };
+    }
+    // Clear the borrowed connection on every return.
+    auto cleanup = std::shared_ptr<void>(nullptr, [this](void*) { std::lock_guard<std::mutex> lock(_OutputMutex); _Output = {}; _Initialized = false; });
     std::string line;
     char buffer[4096];
     while (!_Stopping.load())
@@ -1129,6 +1217,7 @@ void McpServerInternal_t::_ServeConnection(McpConnection_t& connection)
                 std::string response = _HandleLine(line);
                 if (!response.empty())
                 {
+                    std::lock_guard<std::mutex> outputLock(_OutputMutex);
                     response += '\n';
                     if (!connection.Write(response.data(), response.size()))
                         return;
@@ -1171,7 +1260,10 @@ void McpServerInternal_t::_RunTransport()
         // Unlocked: the tools wait for the render thread, and Send may push the next message.
         std::string response = _HandleLine(message);
         if (!response.empty())
+        {
+            std::lock_guard<std::mutex> outputLock(_OutputMutex);
             _Transport.Send(response.data(), response.size(), _Transport.UserParameter);
+        }
 
         lock.lock();
     }
@@ -1204,6 +1296,22 @@ bool McpServerInternal_t::_Start(RendererHook_t* rendererHook, McpServerCallback
     _Hook = rendererHook;
     _Callbacks = callbacks;
     _Stopping = false;
+    _Initialized = false;
+    if (transport.Send)
+        _Output = [transport](std::string const& message) { transport.Send(message.data(), message.size(), transport.UserParameter); };
+    _Notifier = std::thread([this, generation = _Generation.load()]() mutable
+    {
+        while (!_Stopping)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            auto current = _Generation.load();
+            if (current == generation) continue;
+            generation = current;
+            std::lock_guard<std::mutex> lock(_OutputMutex);
+            if (_Initialized && _Output)
+                _Output(R"({"jsonrpc":"2.0","method":"notifications/tools/list_changed"})");
+        }
+    });
     _Thread = std::thread([this]()
     {
         if (_Listener != nullptr)
@@ -1259,6 +1367,9 @@ void McpServerInternal_t::Stop()
     if (_Listener != nullptr)
         _Listener->Wake();
     _Thread.join();
+    _Notifier.join();
+    _Output = {};
+    _Initialized = false;
     _Listener.reset();
 
     std::lock_guard<std::mutex> lock(_Mutex);
